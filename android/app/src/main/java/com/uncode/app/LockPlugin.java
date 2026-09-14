@@ -199,6 +199,8 @@ public class LockPlugin extends Plugin {
 
             SharedPreferences.Editor editor = prefs.edit()
                     .putBoolean("lockdown_active", false)
+                    .putBoolean("consequence_active", false)
+                    .remove("consequence_schedule_id")
                     .remove("lock_end_time")
                     .remove("active_schedule_id")
                     .putStringSet("whitelist", new HashSet<>());
@@ -226,17 +228,46 @@ public class LockPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setConsequenceActive(PluginCall call) {
+        try {
+            boolean active = call.getBoolean("active", false);
+            String scheduleId = call.getString("scheduleId", "");
+
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putBoolean("consequence_active", active);
+
+            if (active) {
+                if (scheduleId != null && !scheduleId.trim().isEmpty()) {
+                    editor.putString("consequence_schedule_id", scheduleId);
+                }
+                editor.putBoolean("lockdown_active", true);
+                Log.i(TAG, "Consequence mode ACTIVATED natively for schedule: " + scheduleId);
+            } else {
+                editor.remove("consequence_schedule_id");
+                Log.i(TAG, "Consequence mode CLEARED natively");
+            }
+            editor.apply();
+
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "setConsequenceActive failed", e);
+            call.reject("setConsequenceActive failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void getLockStatus(PluginCall call) {
         try {
             boolean isActive = prefs.getBoolean("lockdown_active", false);
+            boolean isConsequence = prefs.getBoolean("consequence_active", false);
             long lockEndTime = prefs.getLong("lock_end_time", 0L);
             String scheduleId = prefs.getString("active_schedule_id", "");
 
             long timeOffset = prefs.getLong("time_offset", 0L);
             long effectiveNow = System.currentTimeMillis() + timeOffset;
 
-            // Native timestamp auto-expire
-            if (isActive && lockEndTime > 0 && effectiveNow >= lockEndTime) {
+            // Native timestamp auto-expire only when NOT in consequence mode
+            if (isActive && !isConsequence && lockEndTime > 0 && effectiveNow >= lockEndTime) {
                 isActive = false;
                 prefs.edit()
                         .putBoolean("lockdown_active", false)
@@ -249,60 +280,13 @@ public class LockPlugin extends Plugin {
 
             JSObject ret = new JSObject();
             ret.put("isLockActive", isActive);
+            ret.put("isConsequenceActive", isConsequence);
             ret.put("lockEndTime", lockEndTime);
             ret.put("activeScheduleId", scheduleId);
             call.resolve(ret);
         } catch (Exception e) {
             Log.e(TAG, "getLockStatus failed", e);
             call.reject("getLockStatus failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void activatePunishment(PluginCall call) {
-        try {
-            String scheduleId = call.getString("scheduleId", "");
-            String scheduleTitle = call.getString("scheduleTitle", "Homework Session");
-            Set<String> punished = PunishmentManager.activatePunishment(getActivity(), scheduleId, scheduleTitle);
-
-            JSObject ret = new JSObject();
-            ret.put("isPunishmentActive", true);
-            ret.put("scheduleId", scheduleId);
-            ret.put("scheduleTitle", scheduleTitle);
-            JSArray arr = new JSArray();
-            for (String p : punished) {
-                arr.put(p);
-            }
-            ret.put("punishedPackages", arr);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "activatePunishment failed", e);
-            call.reject("activatePunishment failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void clearPunishment(PluginCall call) {
-        try {
-            PunishmentManager.clearPunishment(getActivity());
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "clearPunishment failed", e);
-            call.reject("clearPunishment failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void getPunishmentStatus(PluginCall call) {
-        try {
-            JSONObject details = PunishmentManager.getPunishmentDetails(getActivity());
-            JSObject ret = JSObject.fromJSONObject(details);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "getPunishmentStatus failed", e);
-            call.reject("getPunishmentStatus failed: " + e.getMessage());
         }
     }
 

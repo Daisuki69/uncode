@@ -300,7 +300,9 @@ public class FloatingOverlayService extends Service {
             Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
             if (launch != null) {
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                launch.putExtra("route", "locked");
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                boolean isConsequence = prefs != null && prefs.getBoolean("consequence_active", false);
+                launch.putExtra("route", isConsequence ? "logs" : "locked");
                 startActivity(launch);
             }
         } catch (Exception e) {
@@ -311,6 +313,39 @@ public class FloatingOverlayService extends Service {
     private void updateTimerDisplay() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         boolean isLockdownActive = prefs.getBoolean("lockdown_active", false);
+        boolean isConsequenceActive = prefs.getBoolean("consequence_active", false);
+
+        long timeOffset = prefs.getLong("time_offset", 0L);
+        long effectiveNow = System.currentTimeMillis() + timeOffset;
+        boolean inOperatingHours = LockAccessibilityService.isInOperatingHours(effectiveNow);
+
+        // If neither lockdown nor consequence is active, cleanly dismiss immediately
+        if (!isLockdownActive && !isConsequenceActive) {
+            Log.i(TAG, "FloatingOverlayService: neither lockdown nor consequence active, cleanly dismissing");
+            removeFloatingView();
+            stopForeground(true);
+            stopSelf();
+            return;
+        }
+
+        // If in Consequence Mode:
+        if (isConsequenceActive) {
+            if (!inOperatingHours) {
+                // Outside operating hours (3:00 AM to 7:00 PM): QIEZKA does not operate.
+                if (floatingView != null && floatingView.getVisibility() == View.VISIBLE) {
+                    floatingView.setVisibility(View.GONE);
+                }
+                return;
+            }
+            // Inside operating hours (7:00 PM to 3:00 AM):
+            if (floatingView != null && floatingView.getVisibility() != View.VISIBLE) {
+                floatingView.setVisibility(View.VISIBLE);
+            }
+            if (tvTimer != null) {
+                tvTimer.setText("⚠️ RETRY");
+            }
+            return;
+        }
 
         long storedEnd = prefs.getLong("lock_end_time", 0L);
         if (storedEnd > 0) {
@@ -319,21 +354,15 @@ public class FloatingOverlayService extends Service {
             lockEndTime = 0L;
         }
 
-        long timeOffset = prefs.getLong("time_offset", 0L);
-        long effectiveNow = System.currentTimeMillis() + timeOffset;
-
-        // If lockdown was cancelled or released externally, cleanly dismiss immediately
-        if (!isLockdownActive) {
-            Log.i(TAG, "FloatingOverlayService: lockdown_active is false, cleanly dismissing floating view and stopping service");
-            removeFloatingView();
-            stopForeground(true);
-            stopSelf();
-            return;
-        }
-
-        // Only trigger session completion if lockdown was legitimately active and the clock has passed the end
+        // When timer expires without passing, transition to Consequence Mode!
         if (lockEndTime > 0 && effectiveNow >= lockEndTime) {
-            onLockSessionFinished(prefs);
+            prefs.edit()
+                    .putBoolean("consequence_active", true)
+                    .remove("lock_end_time")
+                    .apply();
+            if (tvTimer != null) {
+                tvTimer.setText("⚠️ RETRY");
+            }
             return;
         }
 

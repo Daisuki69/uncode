@@ -194,28 +194,11 @@ public class AlarmReceiver extends BroadcastReceiver {
     }
 
     private void handleLockEnd(Context context, Intent intent, SharedPreferences prefs) {
-        Log.i(TAG, "Lockdown session ended by alarm — engaging Study Detention");
-
-        String activeScheduleId = prefs.getString("active_schedule_id", "");
-        String scheduleTitle = "Homework Session";
-        try {
-            String schedulesJson = prefs.getString("schedules_json", null);
-            if (schedulesJson != null) {
-                org.json.JSONArray arr = new org.json.JSONArray(schedulesJson);
-                for (int i = 0; i < arr.length(); i++) {
-                    org.json.JSONObject s = arr.getJSONObject(i);
-                    if (s.optString("id", "").equals(activeScheduleId)) {
-                        scheduleTitle = s.optString("title", "Homework Session");
-                        break;
-                    }
-                }
-            }
-        } catch (Exception ignore) {}
+        Log.i(TAG, "Lockdown session timer expired by alarm — activating Consequence Mode");
 
         prefs.edit()
-                .putBoolean("lockdown_active", false)
+                .putBoolean("consequence_active", true)
                 .remove("lock_end_time")
-                .remove("active_schedule_id")
                 .apply();
 
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -223,11 +206,15 @@ public class AlarmReceiver extends BroadcastReceiver {
             nm.cancel(NOTIF_ID_STATUS);
         }
 
-        // Stop Floating Assistive Timer Ball Overlay
-        FloatingOverlayService.stopService(context);
-
-        // Engage Study Detention!
-        PunishmentManager.activatePunishment(context, activeScheduleId, scheduleTitle);
+        showNotification(
+                context,
+                NOTIF_ID_COMPLETED,
+                CHANNEL_ID_ALERTS,
+                "⚠️ Homework Expired — Consequence Active",
+                "Study session expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed.",
+                Notification.PRIORITY_HIGH,
+                false
+        );
     }
 
     private void handleScheduleWarning(Context context, Intent intent) {

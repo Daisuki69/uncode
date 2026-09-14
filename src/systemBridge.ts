@@ -30,28 +30,15 @@ interface LockPluginInterface {
   exportBackup(options: { tempFileName: string; defaultName: string }): Promise<void>;
   syncSchedules(options: { schedules: any[]; allowedAppIds: string[] }): Promise<void>;
   syncTimeOffset(options: { timeOffset: number }): Promise<void>;
+  setConsequenceActive(options: { active: boolean; scheduleId?: string }): Promise<void>;
   getLockStatus(): Promise<{
     isLockActive: boolean;
     lockEndTime: number;
     activeScheduleId?: string;
+    isConsequenceActive?: boolean;
   }>;
   exitToHome(): Promise<void>;
   showToast(options: { message: string }): Promise<void>;
-  activatePunishment(options: { scheduleId?: string; scheduleTitle?: string }): Promise<{
-    isPunishmentActive: boolean;
-    scheduleId: string;
-    scheduleTitle: string;
-    punishedPackages: string[];
-  }>;
-  clearPunishment(): Promise<{ success: boolean }>;
-  getPunishmentStatus(): Promise<{
-    isActive: boolean;
-    scheduleId?: string;
-    scheduleTitle?: string;
-    timestamp?: number;
-    punishedPackages: string[];
-    punishedAppDetails?: { id: string; name: string; iconName?: string; iconBase64?: string }[];
-  }>;
 }
 
 // Register the native plugin - falls back gracefully in browser/dev mode
@@ -75,31 +62,14 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
     syncTimeOffset: async (opts: { timeOffset: number }) => {
       console.log('[Dev] Simulating syncTimeOffset:', opts);
     },
+    setConsequenceActive: async (opts: { active: boolean; scheduleId?: string }) => {
+      console.log('[Dev] Simulating setConsequenceActive:', opts);
+    },
     getLockStatus: async () => ({
       isLockActive: false,
       lockEndTime: 0,
       activeScheduleId: undefined,
-    }),
-    activatePunishment: async (opts: { scheduleId?: string; scheduleTitle?: string }) => {
-      console.log('[Dev] Simulating activatePunishment:', opts);
-      return {
-        isPunishmentActive: true,
-        scheduleId: opts.scheduleId || '',
-        scheduleTitle: opts.scheduleTitle || '',
-        punishedPackages: ['com.instagram.android', 'com.zhiliaoapp.musically', 'com.google.android.youtube', 'com.android.settings'],
-      };
-    },
-    clearPunishment: async () => {
-      console.log('[Dev] Simulating clearPunishment');
-      return { success: true };
-    },
-    getPunishmentStatus: async () => ({
-      isActive: false,
-      scheduleId: undefined,
-      scheduleTitle: undefined,
-      timestamp: undefined,
-      punishedPackages: [],
-      punishedAppDetails: [],
+      isConsequenceActive: false,
     }),
     getInstalledApps: async () => ({
       apps: [
@@ -259,16 +229,25 @@ export const syncTimeOffset = async (timeOffset: number): Promise<void> => {
   }
 };
 
+export const setConsequenceActive = async (active: boolean, scheduleId?: string): Promise<void> => {
+  try {
+    await LockPlugin.setConsequenceActive({ active, scheduleId });
+  } catch (e) {
+    console.error('setConsequenceActive failed', e);
+  }
+};
+
 export const getLockStatus = async (): Promise<{
   isLockActive: boolean;
   lockEndTime: number;
   activeScheduleId?: string;
+  isConsequenceActive?: boolean;
 }> => {
   try {
     return await LockPlugin.getLockStatus();
   } catch (e) {
     console.error('getLockStatus failed', e);
-    return { isLockActive: false, lockEndTime: 0 };
+    return { isLockActive: false, lockEndTime: 0, isConsequenceActive: false };
   }
 };
 
@@ -294,38 +273,4 @@ export const showToast = async (message: string): Promise<void> => {
 
 export const addBackListener = async (callback: () => void) => {
   return await LockPlugin.addListener('backPressed', callback);
-};
-
-export const activateNativePunishment = async (scheduleId?: string, scheduleTitle?: string) => {
-  try {
-    return await LockPlugin.activatePunishment({ scheduleId, scheduleTitle });
-  } catch (e) {
-    console.error('activatePunishment failed', e);
-    return null;
-  }
-};
-
-export const clearNativePunishment = async () => {
-  try {
-    return await LockPlugin.clearPunishment();
-  } catch (e) {
-    console.error('clearPunishment failed', e);
-    return null;
-  }
-};
-
-export const getNativePunishmentStatus = async () => {
-  try {
-    return await LockPlugin.getPunishmentStatus();
-  } catch (e) {
-    console.error('getPunishmentStatus failed', e);
-    return {
-      isActive: false,
-      scheduleId: undefined,
-      scheduleTitle: undefined,
-      timestamp: undefined,
-      punishedPackages: [],
-      punishedAppDetails: [],
-    };
-  }
 };

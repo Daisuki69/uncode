@@ -11,18 +11,18 @@ import {
   AlertTriangle, 
   ArrowRight, 
   Sparkles,
-  Check,
-  ShieldAlert
+  Check
 } from 'lucide-react';
-import { CompletedHomework, ScheduleData, PunishmentState } from '../types';
+import { CompletedHomework, ScheduleData } from '../types';
 
 export interface HomeworksPageProps {
   homeworks: CompletedHomework[];
   schedules?: ScheduleData[];
-  punishment?: PunishmentState;
   onBack: () => void;
   onClear?: () => void;
   onReschedule?: (updatedSchedules: ScheduleData[]) => void;
+  consequenceActive?: boolean;
+  consequenceScheduleId?: string;
 }
 
 // Normalizes time string ("HH:mm") into continuous minutes with 19:00 (7 PM) as night clock baseline
@@ -75,7 +75,6 @@ export function calculateCascadeSchedules(
     selectedResourceIds?: string[];
     activationTime: string; // "HH:mm"
     durationMinutes: number;
-    resolvesPunishmentFor?: string;
   }
 ): CascadeResult {
   const targetStart = normalizeMinutes(emergencyItem.activationTime);
@@ -96,7 +95,6 @@ export function calculateCascadeSchedules(
     activationTime: emergencyItem.activationTime,
     durationMinutes: targetDuration,
     isActive: true,
-    resolvesPunishmentFor: emergencyItem.resolvesPunishmentFor,
   };
 
   // Check if targetStart falls inside an existing schedule
@@ -286,18 +284,21 @@ export function calculateCascadeSchedules(
   };
 }
 
-export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, onClear, onReschedule }: HomeworksPageProps) {
+export function HomeworksPage({ 
+  homeworks, 
+  schedules = [], 
+  onBack, 
+  onClear, 
+  onReschedule,
+  consequenceActive = false,
+  consequenceScheduleId
+}: HomeworksPageProps) {
   const [selectedHomework, setSelectedHomework] = useState<CompletedHomework | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<CompletedHomework | null>(null);
   const [rescheduleTime, setRescheduleTime] = useState<string>('19:10');
   const [rescheduleDuration, setRescheduleDuration] = useState<number>(25);
   const [rescheduleTitle, setRescheduleTitle] = useState<string>('');
   const [successToast, setSuccessToast] = useState<string | null>(null);
-
-  const isTargetCausingDetention = useMemo(() => {
-    if (!rescheduleTarget || !punishment?.isActive) return false;
-    return rescheduleTarget.id === punishment.scheduleId || rescheduleTarget.title === punishment.scheduleTitle;
-  }, [rescheduleTarget, punishment]);
 
   React.useEffect(() => {
     const handleBack = (e: Event) => {
@@ -346,9 +347,8 @@ export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, o
       selectedResourceIds: rescheduleTarget.selectedResourceIds || [],
       activationTime: rescheduleTime,
       durationMinutes: rescheduleDuration,
-      resolvesPunishmentFor: isTargetCausingDetention ? (punishment?.scheduleId || rescheduleTarget.id) : undefined,
     });
-  }, [rescheduleTarget, rescheduleTime, rescheduleDuration, rescheduleTitle, activeExistingSchedules, isTargetCausingDetention, punishment]);
+  }, [rescheduleTarget, rescheduleTime, rescheduleDuration, rescheduleTitle, activeExistingSchedules]);
 
   const handleOpenReschedule = (hw: CompletedHomework) => {
     // Determine a smart initial start time (e.g. 19:10 or next 10-min slot)
@@ -413,16 +413,17 @@ export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, o
                   <p className="text-xs text-gray-400 mt-1">There are no failed or expired homework sessions recorded.</p>
                 </div>
               ) : (
-                failedHomeworks.map(hw => {
-                  const isCausingDetention = punishment?.isActive && (hw.id === punishment.scheduleId || hw.title === punishment.scheduleTitle);
+                failedHomeworks.map((hw, idx) => {
+                  const isConsequenceItem = consequenceActive && (
+                    hw.id === consequenceScheduleId || 
+                    (!consequenceScheduleId && idx === 0)
+                  );
                   return (
                   <div 
                     key={hw.id}
                     onClick={() => setSelectedHomework(hw)}
-                    className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all text-left group cursor-pointer ${
-                      isCausingDetention 
-                        ? 'border-red-400 bg-red-50/50 shadow-xs hover:border-red-500' 
-                        : 'border-red-100 bg-white hover:border-red-300 hover:shadow-sm'
+                    className={`w-full flex items-center justify-between p-4 border rounded-xl bg-white hover:shadow-sm transition-all text-left group cursor-pointer ${
+                      isConsequenceItem ? 'border-red-400 bg-red-50/25 shadow-xs' : 'border-red-100 hover:border-red-300'
                     }`}
                   >
                     <div className="flex items-center min-w-0 pr-4">
@@ -433,10 +434,9 @@ export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, o
                           <span className="text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-md shrink-0">
                             Failed / Expired
                           </span>
-                          {isCausingDetention && (
-                            <span className="text-[10px] uppercase font-black bg-red-600 text-white px-2 py-0.5 rounded-md shrink-0 flex items-center gap-1 shadow-2xs animate-pulse">
-                              <ShieldAlert className="w-3 h-3" />
-                              Causes Active Detention
+                          {isConsequenceItem && (
+                            <span className="text-[10px] uppercase font-black bg-red-600 text-white px-2 py-0.5 rounded-md shrink-0 animate-pulse shadow-2xs">
+                              🚨 Restricting Apps
                             </span>
                           )}
                         </div>
@@ -459,14 +459,10 @@ export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, o
                           e.stopPropagation();
                           handleOpenReschedule(hw);
                         }}
-                        className={`px-3 py-1.5 font-bold text-xs rounded-lg border transition-colors flex items-center gap-1 shadow-2xs ${
-                          isCausingDetention
-                            ? 'bg-red-600 text-white border-red-700 hover:bg-red-700'
-                            : 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200'
-                        }`}
+                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-lg border border-red-200 transition-colors flex items-center gap-1 shadow-2xs"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        {isCausingDetention ? 'Reschedule & Clear' : 'Add Again'}
+                        Add Again
                       </button>
                       <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-red-500 transition-colors" />
                     </div>
@@ -478,23 +474,6 @@ export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, o
           ) : (
             <div className="space-y-6 max-w-3xl mx-auto">
               <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                {punishment?.isActive && (selectedHomework.id === punishment.scheduleId || selectedHomework.title === punishment.scheduleTitle) && (
-                  <div className="mb-6 p-4 bg-gradient-to-r from-red-950 to-red-900 border-2 border-red-600 rounded-2xl text-white flex items-start gap-3 shadow-lg">
-                    <ShieldAlert className="w-6 h-6 text-red-400 shrink-0 mt-0.5 animate-pulse" />
-                    <div>
-                      <h4 className="font-black text-sm text-white uppercase tracking-wider flex items-center gap-2">
-                        🚨 Causing Active Study Detention
-                      </h4>
-                      <p className="text-xs text-red-200 mt-1 leading-relaxed">
-                        10 of your most used apps and Android Settings are currently locked on your phone because this session expired.
-                      </p>
-                      <p className="text-xs text-red-300 font-bold mt-1">
-                        Tap "Add Again (Reschedule)", complete the assignment during the retake, and pass AI evaluation to lift the detention!
-                      </p>
-                    </div>
-                  </div>
-                )}
-
                 <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
                   <h3 className="font-black text-xl text-gray-900">{selectedHomework.title}</h3>
                   <div className="flex items-center gap-2">
@@ -503,13 +482,28 @@ export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, o
                     </span>
                     <button
                       onClick={() => handleOpenReschedule(selectedHomework)}
-                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                       Add Again (Reschedule)
                     </button>
                   </div>
                 </div>
+
+                {/* Consequence Active Alert Banner */}
+                {consequenceActive && (selectedHomework.id === consequenceScheduleId || (!consequenceScheduleId && failedHomeworks[0]?.id === selectedHomework.id)) && (
+                  <div className="mb-6 bg-red-50 border-2 border-red-500 rounded-2xl p-4 flex items-start gap-3 shadow-xs">
+                    <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-sm text-red-950 uppercase tracking-wide">
+                        Consequence Lockdown Active
+                      </h4>
+                      <p className="text-xs text-red-800 mt-1 leading-relaxed font-medium">
+                        This failed session has triggered device consequences. Distracting apps will remain restricted during operating hours (7:00 PM – 3:00 AM) until you click <strong>"Add Again (Reschedule)"</strong>, complete the session, and pass AI evaluation.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Original Schedule Details */}
                 <div className="mb-6 bg-red-50/50 border border-red-200/70 rounded-2xl p-4">
@@ -636,20 +630,6 @@ export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, o
             </div>
 
             <div className="p-6 overflow-y-auto space-y-5">
-              {isTargetCausingDetention && (
-                <div className="p-4 bg-red-950 border-2 border-red-600 rounded-2xl text-white flex items-start gap-3 shadow-md">
-                  <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5 animate-pulse" />
-                  <div>
-                    <h5 className="font-black text-xs text-white uppercase tracking-wider">
-                      Resolves Active Study Detention
-                    </h5>
-                    <p className="text-xs text-red-200 mt-0.5 leading-relaxed">
-                      Passing this retake session with an AI evaluation score of PASSED will immediately clear your detention and unlock all 10 apps and Android Settings!
-                    </p>
-                  </div>
-                </div>
-              )}
-
               {/* Session Configuration */}
               <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200/80 space-y-4">
                 <div>

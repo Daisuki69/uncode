@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react';
-import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp, PunishmentState } from './types';
+import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp } from './types';
 import { Dashboard } from './components/Dashboard';
 import { LockScreen } from './components/LockScreen';
 import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, activateNativePunishment, clearNativePunishment, getNativePunishmentStatus } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -118,24 +118,6 @@ export default function App() {
   const [lockPauseTime, setLockPauseTime] = useState<number | null>(null);
   const [activeScheduleId, setActiveScheduleId] = useState<string | null>(null);
   const [editingRubricScheduleId, setEditingRubricScheduleId] = useState<string | null>(null);
-
-  const [punishment, setPunishment] = useState<PunishmentState>({
-    isActive: false,
-    punishedPackages: [],
-  });
-
-  // Sync Study Detention state from native
-  useEffect(() => {
-    const fetchPunishment = async () => {
-      const p = await getNativePunishmentStatus();
-      if (p) {
-        setPunishment(p);
-      }
-    };
-    fetchPunishment();
-    const timer = setInterval(fetchPunishment, 4000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Global Permission Checking (on mount and on resume)
   useEffect(() => {
@@ -480,7 +462,9 @@ export default function App() {
 
       if (!foundActive) {
         if (appState === 'locked') {
-          endLockdown();
+          if (!settings.consequenceActive) {
+            endLockdown();
+          }
           navigate('dashboard');
         }
 
@@ -522,10 +506,16 @@ export default function App() {
     setTimeOffset(newOffset);
   };
 
+const isOperatingHours = (timeOffset: number = 0): boolean => {
+  const now = new Date(Date.now() + timeOffset);
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const totalMins = hour * 60 + minute;
+  // Operating window: 19:00 (1140 mins) to 03:00 (180 mins)
+  return totalMins >= 1140 || totalMins < 180;
+};
+
   const handleTimeout = useCallback((skipped?: boolean) => {
-    endLockdown(); // Always release native lock if timer runs out or is skipped
-    notifyUser(skipped ? 'Lock skipped (Test mode)' : 'Lock duration expired. Device access restored.');
-    
     // Add failed session to completedHomeworks log
     const activeSchedule = (settings.schedules || []).find(s => s.id === activeScheduleId);
     if (activeSchedule) {
@@ -552,37 +542,40 @@ export default function App() {
           activationTime: activeSchedule.activationTime,
         }, ...prev];
       });
-
-      // Activate Study Detention if expired without passing (and not in test skip mode)
-      if (!skipped) {
-        activateNativePunishment(activeSchedule.id, activeSchedule.title).then(res => {
-          if (res) {
-            setPunishment({
-              isActive: true,
-              scheduleId: activeSchedule.id,
-              scheduleTitle: activeSchedule.title,
-              punishedPackages: res.punishedPackages,
-              timestamp: Date.now(),
-            });
-          }
-        });
-        notifyUser(`⚠️ Study Detention Active: 10 apps and Settings locked until you reschedule & pass "${activeSchedule.title || 'Homework'}"!`);
-      }
     }
 
-    if (activeScheduleId) {
-      const updatedSchedules = skipped
-        ? (settings.schedules || []).filter(s => s.id !== activeScheduleId)
-        : (settings.schedules || []).map(s => s.id === activeScheduleId ? { ...s, isActive: false } : s);
+    if (skipped) {
+      endLockdown();
+      setConsequenceActive(false);
+      setSettings(prev => ({
+        ...prev,
+        consequenceActive: false,
+        consequenceScheduleId: undefined,
+        schedules: (prev.schedules || []).filter(s => s.id !== activeScheduleId)
+      }));
+      notifyUser('Lock skipped (Test mode). Device access restored.');
+    } else {
+      // Legitimate timeout: Activate Consequence Mode!
+      // Do NOT call endLockdown; retain app restrictions during operating hours (7 PM - 3 AM) until rescheduled & passed
+      const updatedSchedules = (settings.schedules || []).map(s => 
+        s.id === activeScheduleId ? { ...s, isActive: false } : s
+      );
 
       setSettings(prev => ({
         ...prev,
+        consequenceActive: true,
+        consequenceScheduleId: activeScheduleId || undefined,
         schedules: updatedSchedules
       }));
 
       const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
       syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
+      setConsequenceActive(true, activeScheduleId || undefined);
 
+      notifyUser('⚠️ Homework Expired — Consequence Active: Distracting apps remain restricted during study hours (7 PM – 3 AM) until rescheduled and passed.');
+    }
+
+    if (activeScheduleId) {
       localStorage.removeItem(`lockscreen_data_${activeScheduleId}`);
       localStorage.removeItem('lockscreen_last_draft');
     }
@@ -701,21 +694,6 @@ export default function App() {
       }, ...prev]);
 
       if (data.passed) {
-        // Clear Study Detention if this session was scheduled to resolve it or matches active punishment
-        const resolvesDetention = 
-          (activeSchedule?.resolvesPunishmentFor && activeSchedule.resolvesPunishmentFor === punishment?.scheduleId) ||
-          (punishment?.isActive && (
-            punishment.scheduleId === scheduleId ||
-            punishment.scheduleTitle === (activeSchedule?.title || '') ||
-            !punishment.scheduleId
-          ));
-
-        if (resolvesDetention) {
-          clearNativePunishment();
-          setPunishment({ isActive: false, punishedPackages: [] });
-          notifyUser('🎉 Study Detention Cleared! All 10 apps and Settings have been restored.');
-        }
-
         // Auto-Harvesting Logic
         if (activeSchedule?.selectedResourceIds?.includes('ai-general-knowledge')) {
           const textToHarvest = activeSchedule.aiAnswer || transcribedText || data.transcribedText;
@@ -755,11 +733,16 @@ export default function App() {
         );
         setSettings(prev => ({
           ...prev,
-          schedules: updatedSchedules
+          schedules: updatedSchedules,
+          consequenceActive: false,
+          consequenceScheduleId: undefined,
         }));
 
         const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
         syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
+
+        // Clear consequence in native
+        setConsequenceActive(false);
 
         // Clean up lockscreen local storage
         localStorage.removeItem(`lockscreen_data_${scheduleId}`);
@@ -771,6 +754,13 @@ export default function App() {
         setLockPauseTime(null);
         navigate('result');
       } else {
+        // Failed evaluation: Maintain consequence mode!
+        setSettings(prev => ({
+          ...prev,
+          consequenceActive: true,
+          consequenceScheduleId: scheduleId,
+        }));
+        setConsequenceActive(true, scheduleId);
         navigate('result');
       }
     } catch (error: any) {
@@ -843,7 +833,6 @@ export default function App() {
               onSettingsChange={(updates) => setSettings(prev => ({ ...prev, ...updates }))}
               onResourceEditStateChange={setIsResourceEditing} 
               settings={settings}
-              punishment={punishment}
               timeUntilLock={timeUntilLock}
               nextActivationDate={nextActivationDate}
               onCreateSchedule={() => navigate('create_schedule')}
@@ -982,15 +971,19 @@ export default function App() {
               <HomeworksPage 
                 homeworks={completedHomeworks}
                 schedules={settings.schedules || []}
-                punishment={punishment}
+                consequenceActive={settings.consequenceActive}
+                consequenceScheduleId={settings.consequenceScheduleId}
                 onBack={() => navigate('dashboard', 'backward')}
                 onClear={() => setCompletedHomeworks([])}
                 onReschedule={(updatedSchedules) => {
                   setSettings(prev => {
                     const inactive = (prev.schedules || []).filter(s => !s.isActive);
+                    const all = [...updatedSchedules, ...inactive];
+                    const safeAllowedApps = (prev.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+                    syncSchedules(all, safeAllowedApps.map(a => a.id));
                     return {
                       ...prev,
-                      schedules: [...updatedSchedules, ...inactive]
+                      schedules: all
                     };
                   });
                   addLog('Emergency Reschedule', `Cascaded ${updatedSchedules.length} active schedules`);
