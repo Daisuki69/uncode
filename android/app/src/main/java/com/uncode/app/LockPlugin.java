@@ -167,6 +167,8 @@ public class LockPlugin extends Plugin {
                     .putString("active_schedule_id", scheduleId)
                     .apply();
 
+            AppClassifier.clearCache();
+
             // Schedule exact lock end auto-release alarm
             AlarmReceiver.scheduleLockEndAlarm(getActivity(), lockEndTime, scheduleId);
 
@@ -210,6 +212,7 @@ public class LockPlugin extends Plugin {
                 Log.i(TAG, "endLockdown: recorded completed window for schedule " + activeScheduleId + " until " + currentLockEnd);
             }
             editor.apply();
+            AppClassifier.clearCache();
 
             AlarmReceiver.cancelLockEndAlarm(getActivity());
             FloatingOverlayService.stopService(getActivity());
@@ -329,6 +332,7 @@ public class LockPlugin extends Plugin {
             }
 
             ScheduleManager.syncSchedules(getActivity(), schedulesJson, whitelist);
+            AppClassifier.clearCache();
 
             JSObject ret = new JSObject();
             ret.put("success", true);
@@ -576,8 +580,14 @@ public class LockPlugin extends Plugin {
                         else if (isNotes) iconName = "FileText";
                         else if (isStudentApp) iconName = "BookOpen";
 
+                        boolean isAutoAllowed = isHardcoded || !AppClassifier.isPackageBlocked(getActivity(), pkg, null);
+                        if (!isHardcoded && isAutoAllowed && "LayoutGrid".equals(iconName)) {
+                            iconName = "BookOpen";
+                        }
+
                         app.put("iconName", iconName);
                         app.put("isHardcoded", isHardcoded);
+                        app.put("isAutoAllowed", isAutoAllowed);
                         app.put("isBrowser", isBrowser);
                         app.put("isMusic", isMusic);
                         app.put("isCamera", isCamera);

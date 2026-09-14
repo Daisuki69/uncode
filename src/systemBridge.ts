@@ -81,7 +81,8 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
         { id: 'org.telegram.messenger', name: 'Telegram', iconName: 'MessageSquare' },
         { id: 'com.apple.calculator', name: 'Calculator', iconName: 'Calculator' },
         { id: 'com.microsoft.word', name: 'Word', iconName: 'FileText' },
-        { id: 'notion.id', name: 'Notion', iconName: 'BookOpen' }
+        { id: 'notion.id', name: 'Notion', iconName: 'BookOpen' },
+        { id: 'ph.edu.ceu.studyhub', name: 'CEU Study Hub', iconName: 'BookOpen', isAutoAllowed: true }
       ]
     }),
     checkPermissions: async () => ({

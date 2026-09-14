@@ -41,7 +41,13 @@ public class LockAccessibilityService extends AccessibilityService {
      */
     private static final Set<String> ALWAYS_EXEMPT = new HashSet<>(Arrays.asList(
         "android",                   // Core OS framework
-        "com.android.systemui"       // Status bar, nav bar, recents UI
+        "com.android.systemui",      // Status bar, nav bar, recents UI
+        "com.android.phone",         // Core telephony
+        "com.android.server.telecom",// Core telecom
+        "com.android.incallui",      // In-call UI (incoming phone calls)
+        "com.google.android.dialer", // Google Phone app
+        "com.samsung.android.dialer",// Samsung Phone app
+        "com.samsung.android.incallui" // Samsung In-call UI
     ));
 
     /**
@@ -694,7 +700,8 @@ public class LockAccessibilityService extends AccessibilityService {
         Set<String> whitelist = prefs.getStringSet("whitelist", new HashSet<>());
         if (whitelist.contains(pkg)) return false;
 
-        return true;
+        // ── Tier 3: On-Device Local App Classifier (Metadata, Categories & Heuristics) ──
+        return AppClassifier.isPackageBlocked(this, pkg, whitelist);
     }
 
     private void onTickerTick() {

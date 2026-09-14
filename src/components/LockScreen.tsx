@@ -561,7 +561,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
                 <div 
                   key={app.id} 
                   className="flex flex-col items-center group relative w-full text-center" 
-                  title={isHardcoded ? `${app.name} (Always Allowed by System)` : app.name}
+                  title={isHardcoded ? (app.isAutoAllowed && !app.isHardcoded ? `${app.name} (Auto-Allowed Study App)` : `${app.name} (Always Allowed by System)`) : app.name}
                 >
                   <div className="relative">
                     {isHardcoded && (
@@ -584,7 +584,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
                   <span className="text-[11px] sm:text-xs font-medium text-gray-300 w-full text-center truncate px-1 mt-1.5">{app.name}</span>
                   {isHardcoded && (
                     <span className="text-[9px] font-bold uppercase tracking-tight text-emerald-400 mt-0.5">
-                      Always
+                      {app.isAutoAllowed && !app.isHardcoded ? 'Auto' : 'Always'}
                     </span>
                   )}
                 </div>

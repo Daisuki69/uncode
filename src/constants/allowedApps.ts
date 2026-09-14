@@ -552,6 +552,7 @@ export function isHardcodedApp(app: AllowedApp): boolean {
   if (isHiddenSystemExemptApp(app.id, app.name)) return false;
   if (
     app.isHardcoded || 
+    app.isAutoAllowed || 
     app.isBrowser || 
     app.isMusic || 
     app.isCamera || 

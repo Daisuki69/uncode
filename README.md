@@ -29,6 +29,9 @@
 **[⚡ Philosophy](#-philosophy-procrastination-prevention)** • 
 **[⚖️ Comparison Matrix](#%EF%B8%8F-qiezka-vs-traditional-app-blockers)** • 
 **[🏗️ Architecture](#%EF%B8%8F-system-architecture)** • 
+**[🧠 Local App Classifier](#-local-app-classifier-engine-on-device-5-layer-heuristics)** • 
+**[🚨 Consequence Lockdown](#-consequence-lockdown--operating-hours-700-pm--300-am)** • 
+**[📰 Case Studies](#-case-studies--article-declutter-system)** • 
 **[🔮 Floating Ball Overlay](#-floating-assistive-timer-ball)** • 
 **[📋 App Directory](#-complete-application-reference-blocked--allowed)** • 
 **[🛡️ Anti-Cheat & Security](#%EF%B8%8F-security--anti-cheat-architecture)** • 
@@ -57,36 +60,38 @@ Our design directive is uncompromising: **Obliterate the algorithmic dopamine pi
 ```mermaid
 flowchart TD
     subgraph NativeOS ["Android 10 - 16 Native Operating System Layer"]
-        LAS["LockAccessibilityService<br/>• Window Event Interceptor<br/>• Quick Settings Collapser<br/>• Package Heuristic Engine"]
-        FOS["FloatingOverlayService<br/>• WindowManager Overlay Ball<br/>• Smooth Physics Edge-Snap<br/>• Special-Use Foreground Daemon"]
-        AM["AlarmManager & BootReceiver<br/>• Exact RTC Wall-Clock Alarms<br/>• Reboot Auto-Recovery"]
+        LAS["LockAccessibilityService<br/>• Window Event Interceptor<br/>• Quick Settings Collapser<br/>• Consequence Operating Hours (7PM-3AM)"]
+        AC["AppClassifier<br/>• On-Device 5-Layer Classifier<br/>• Android Category Inspector<br/>• Semantic Label & Pkg Heuristics<br/>• Telephony Safety Infrastructure"]
+        FOS["FloatingOverlayService<br/>• WindowManager Overlay Ball<br/>• Physics Edge-Snap & Retry Badge<br/>• Special-Use Foreground Daemon"]
+        AM["AlarmManager & BootReceiver<br/>• Exact RTC Wall-Clock Alarms<br/>• Reboot Auto-Recovery<br/>• Consequence Alert Notifications"]
         DPM["DevicePolicyManager<br/>• Device Administrator Admin<br/>• Anti-Uninstall Enforcement"]
     end
 
     subgraph Bridge ["Capacitor 7 Native Two-Way IPC Bridge"]
-        LP["LockPlugin.java<br/>• Two-Way Native IPC<br/>• SharedPreferences Sync<br/>• Overlay & Service Controller"]
+        LP["LockPlugin.java<br/>• Two-Way Native IPC<br/>• SharedPreferences Sync<br/>• Consequence State Manager<br/>• Overlay & Service Controller"]
     end
 
     subgraph WebApp ["React 19 + TypeScript Application Core"]
-        DASH["Dashboard & Schedule Hub<br/>• Live Countdown Cards<br/>• Clickable Read-Only Homework Modal"]
-        CREATE["Step-by-Step Schedule Creator<br/>• OCR Extraction & Inline Editor<br/>• Strict 90-Min Ultradian Cap"]
-        LOCK["Full-Screen LockScreen View<br/>• Native Camera Document Capture<br/>• Real-Time Timer Synchronization"]
-        LOGS["Homeworks Log & Session Archive<br/>• Passed Grading Transcripts<br/>• Failed / Expired Accountability Logs"]
+        DASH["Dashboard & Schedule Hub<br/>• Live Countdown Cards<br/>• Consequence Active Alert Banner<br/>• Auto-Allowed Apps Display"]
+        CREATE["Step-by-Step Schedule Creator<br/>• OCR Extraction & Inline Editor<br/>• Case Study Detection & Gating<br/>• Strict 90-Min Ultradian Cap"]
+        LOCK["Full-Screen LockScreen View<br/>• Native Camera Document Capture<br/>• Real-Time Timer Synchronization<br/>• Auto-Detected Accessible Apps"]
+        LOGS["Failed Homeworks Log<br/>• Strict Failure Accountability<br/>• Original Schedule Window Details<br/>• Add Again (Reschedule & Retake)"]
         RES["Study Resource Library<br/>• Course Notes & Flashcards<br/>• Case Studies & Article Declutter"]
     end
 
     subgraph CloudServices ["Client-Side BYOK Cloud Services (Direct HTTPS)"]
-        GEMINI["Google Gemini 2.0 / 2.5 API<br/>• Multimodal Handwritten Analysis<br/>• Dynamic Rubric Generator<br/>• Resource Decluttering Engine"]
+        GEMINI["Google Gemini 2.0 / 2.5 API<br/>• Multimodal Handwritten Analysis<br/>• Dynamic Rubric Generator<br/>• Resource & Article Decluttering"]
         OCR["OCR.space REST API<br/>• Handwritten Mode Transcription<br/>• Document Optical Character Recognition"]
     end
 
     LAS -->|Blocks Hostile Apps & Settings| LAS
+    LAS <-->|Queries Local Classifier| AC
     LAS -->|Dispatches Lock Intent| LOCK
-    AM -->|Triggers Exact Start / End| FOS
+    AM -->|Triggers Exact Start / Consequence| FOS
     AM -->|Auto-Relaunch on Alarm| LOCK
     DPM -->|Blocks App Uninstall in Settings| LAS
 
-    LP <-->|Synchronizes Whitelist & Active Schedule| LAS
+    LP <-->|Synchronizes Whitelist & Consequence Mode| LAS
     LP <-->|Starts / Stops Floating Ball View| FOS
     DASH <-->|Capacitor JavaScript Bridge| LP
     LOCK <-->|Capacitor JavaScript Bridge| LP
@@ -95,7 +100,7 @@ flowchart TD
     OCR -->|Returns Raw Transcribed Text| GEMINI
     GEMINI -->|Returns JSON Score & Feedback| LOCK
     LOCK -->|Passed: Harvests AI Research| RES
-    LOCK -->|Timeout: Logs Failed Record| LOGS
+    LOCK -->|Timeout: Enters Consequence Mode| LOGS
     RES -->|Declutters via Gemini| RES
 ```
 
@@ -118,15 +123,16 @@ stateDiagram-v2
         state PermittedAppWorkflow {
             [*] --> AllowedAppOpened
             AllowedAppOpened --> FloatingBallVisible: Draggable & Snaps to Edge
-            FloatingBallVisible --> AllowedAppOpened: Research in Gemini or Notes
+            FloatingBallVisible --> AllowedAppOpened: Research in Gemini, Docs, or Notes
             FloatingBallVisible --> ReturnToQiezka: Tap Ball to Submit Proof
         }
         
         state BlockedAppWorkflow {
             [*] --> HostileAppOpened
             HostileAppOpened --> DetectPackage: Accessibility Event Fired
-            DetectPackage --> CollapseQuickSettings: Notification Shade Pulled
-            DetectPackage --> RouteHome: Hostile App or Settings Detected
+            DetectPackage --> ClassifyApp: Local 5-Layer AppClassifier
+            ClassifyApp --> CollapseQuickSettings: Notification Shade Pulled
+            ClassifyApp --> RouteHome: Block Hostile / Distraction
             RouteHome --> ForceQiezkaFront: Re-open Qiezka Lock Screen
         }
         
@@ -135,14 +141,117 @@ stateDiagram-v2
     }
     
     CloudEvaluation --> PassUnlocked: AI Score Meets Passing Threshold
-    CloudEvaluation --> ActiveLockdown: AI Score Below Passing Threshold (Try Again)
-    ActiveLockdown --> FailExpired: Timer Reaches 00:00 (Timeout)
+    CloudEvaluation --> ActiveLockdown: Score Below Passing Threshold (Try Again)
+    ActiveLockdown --> ConsequenceMode: Timer Reaches 00:00 (Timeout)
     
-    PassUnlocked --> HomeworksLog: Log Passed Record + Auto-Harvest Knowledge
-    FailExpired --> HomeworksLog: Log Failed / Expired Accountability Record
+    state ConsequenceMode {
+        [*] --> CheckOperatingHours: Check Clock Time
+        CheckOperatingHours --> EnforceRestrictions: 7:00 PM – 3:00 AM (Operating Window)
+        CheckOperatingHours --> PauseRestrictions: 3:00 AM – 7:00 PM (School / Sleep)
+        PauseRestrictions --> EnforceRestrictions: Clock Hits 7:00 PM
+        EnforceRestrictions --> RescheduleFlow: Tap "View Failed Homeworks" on Banner
+        RescheduleFlow --> ExpandFailedCard: View Original Window & Click "Add Again"
+        ExpandFailedCard --> SetNewTime: Set Retake Time & Cascade Schedules
+    }
     
-    HomeworksLog --> Idle: Floating Ball Removed & System Unlocked
+    SetNewTime --> ActiveLockdown: Retake Session Initiated
+    PassUnlocked --> Idle: Consequence Cleared, Floating Ball Removed & Full Device Unlocked
 ```
+
+---
+
+## 🧠 Local App Classifier Engine (On-Device 5-Layer Heuristics)
+
+To solve the limitations of static lists without requiring central servers or consuming personal API keys on every app launch, QIEZKA includes an **On-Device Local App Classifier (`AppClassifier.java`)**.
+
+### The 3-Tier Classification Model
+
+```
+APP LAUNCH
+    │
+    ▼
+Is package hardcoded?
+   / \
+ YES  NO
+  │    │
+  ▼    ▼
+Known ALLOWED       UNKNOWN APP
+  │                     │
+  ▼                     ▼
+ALLOW             LOCAL 5-LAYER CLASSIFIER
+                        │
+          ┌─────────────┼─────────────┐
+          ▼             ▼             ▼
+        SAFE         UNKNOWN       HOSTILE
+          │             │             │
+          ▼             ▼             ▼
+        ALLOW         BLOCK         BLOCK
+```
+
+1. **Known Allowed Apps**: Chrome, Google Docs, ChatGPT, Claude, Keep, OpenCamera, Gboard, etc. $\to$ **ALLOW** immediately.
+2. **Known Hostile Apps**: TikTok, YouTube, Roblox, Netflix, Instagram, GameGuardian, ReVanced, VMOS $\to$ **BLOCK** immediately.
+3. **Unknown Apps**: Analyzed locally in $<5\text{ms}$ using Android's native `PackageManager` and `ApplicationInfo`. Zero network requests, preserving BYOK.
+
+### 5-Layer Local Decision Hierarchy
+
+| Layer | Component Evaluated | Decision / Criteria |
+|---|---|---|
+| **Layer 1: Permanent Exemptions** | Core Framework & Telephony | Always allows OS (`android`, `com.android.systemui`), dialers (`com.android.phone`, `com.google.android.dialer`, `com.android.incallui`), keyboards/IMEs, launchers, and user-configured whitelist. |
+| **Layer 2: Tampering & Blacklist** | Settings & Hostile Signatures | Blocks `com.android.settings` (prevents disabling Accessibility) and all `BlacklistConstants` signatures. |
+| **Layer 3: Declared Android OS Category** | `ApplicationInfo.category` | • `CATEGORY_GAME` (0) $\to$ **BLOCK**<br/>• `CATEGORY_SOCIAL` (4) $\to$ **BLOCK**<br/>• `CATEGORY_VIDEO` (2) $\to$ **BLOCK**<br/>• `CATEGORY_NEWS` (5) $\to$ **BLOCK**<br/>• `CATEGORY_ACCESSIBILITY` (8) $\to$ **ALLOW**<br/>• `CATEGORY_MAPS` (6) $\to$ **ALLOW**<br/>• `CATEGORY_AUDIO` (1) & `IMAGE` (3) $\to$ **ALLOW** (if clean of distraction signals)<br/>• `CATEGORY_PRODUCTIVITY` (7) $\to$ Verified against negative signals |
+| **Layer 4a: Negative Distraction Filter** | App Label & Package Substrings | Overrides declared categories. If the title contains gaming, gambling, dating, modding, or comics (`game`, `casino`, `poker`, `betting`, `dating`, `cloner`, `parallel`, `manga`, `webtoon`), it is strictly **BLOCKED**. |
+| **Layer 4b: Positive Academic Promotion** | Educational Keywords | Promotes unlisted `CATEGORY_UNDEFINED` apps to **ALLOW** if the title/package contains educational terms (`study`, `school`, `university`, `college`, `campus`, `academy`, `reader`, `pdf`, `dictionary`, `formula`, `calculator`, `desmos`, `geometry`, `science`, `flashcard`, `homework`, `portal`). |
+| **Layer 5: Conservative Fallback** | Unclassified / Ambiguous Apps | Defaults to **BLOCK**. Unknown apps without positive academic signals are never granted a free pass. |
+
+### UI Recognition: "Auto" Allowed Badge
+Unlisted apps recognized by the local classifier (e.g. regional school portals like *"CEU Study Hub"*, campus portals, or unlisted scientific calculators) appear in the **Allowed Applications** section on both the **Dashboard** and the **LockScreen** with a dedicated green **`Auto`** badge, confirming to the student that the app is permitted.
+
+---
+
+## 🚨 Consequence Lockdown & Operating Hours (7:00 PM – 3:00 AM)
+
+### Eliminating the "Wait-It-Out" Loophole
+Previous app blockers have an obvious vulnerability: a student can simply wait out the countdown timer (25–40 minutes) without doing any homework, knowing the device will unlock when the clock reaches 0:00.
+
+**In QIEZKA, waiting out the clock has severe consequences:**
+- When the timer expires without submitting passing homework proof, **the device does not auto-unlock**.
+- **Consequence Mode (`consequenceActive`)** activates natively in `SharedPreferences` and in React state.
+- Distracting apps remain restricted, while essential study tools (notes, research, camera, messaging, QIEZKA) stay accessible.
+- The restriction persists continuously until the student reschedules the failed homework and **passes AI evaluation**.
+
+### Operating Hours Window (7:00 PM – 3:00 AM)
+QIEZKA strictly respects human circadian needs and daytime academic schedules:
+- **7:00 PM to 3:00 AM**: Primary homework and study hours. Consequence failure restrictions are actively enforced.
+- **3:00 AM to 7:00 PM**: QIEZKA pauses restrictions so the student can sleep and use their phone normally for daytime school and commuting.
+- **At 7:00 PM sharp**: Consequence failure restrictions **automatically resume** if the failed homework has not yet been rescheduled and passed.
+
+### Strict Retake Flow
+1. **Dashboard Banner**: When consequence mode is active, a persistent red alert banner appears with a single action: **"View Failed Homeworks"** (no bypass shortcuts).
+2. **Failed Homeworks Hub**: Expanding the failed session displays the original scheduled window, allotted duration, and an alert card.
+3. **Reschedule & Retake**: User clicks **"Add Again (Reschedule)"** $\to$ sets a new start time with automatic cascading $\to$ completes the session $\to$ submits answers $\to$ **passing AI evaluation completely clears Consequence Mode and restores full phone access**.
+
+---
+
+## 📰 Case Studies & Article Declutter System
+
+Assignments requiring students to evaluate real-world issues (news clips, documentary transcripts, journal articles, or court cases) using foundational course concepts are supported through a specialized architecture:
+
+### 1. Dedicated `articleDeclutter` Parser
+Standard study decluttering compresses text into flashcard pairs (`[Trigger] | [Variable]`). Feeding news articles or legal briefs into a flashcard prompt destroys narrative continuity.
+- **`articleDeclutter`** acts as a diagnostic research analyst, extracting:
+  1. *Artifact & Source* (Title, author, publication, date).
+  2. *Core Issue & Background* (Central operational failure or controversy).
+  3. *Key Parties & Actors* (Entities, systems, individuals involved).
+  4. *Timeline & Chronology* (Factual sequence of events).
+  5. *Technical & Ethical Dilemmas* (Specific engineering or procedural dilemmas).
+  6. *Outcomes & Impact* (Consequences, regulatory penalties, societal fallout).
+  7. *Empirical Data & Quotes* (Exact measurements and key citations).
+
+### 2. Step 2 Case Study Gating
+When creating a schedule, if the AI detects the prompt is an external case study:
+- Displays a dedicated **Case Study / Article Selection** section.
+- Lets the user pick from their saved Case Studies library or click **"+ Add Case Study / Article"** to paste and clean up a document on the spot.
+- **Gated Progression**: The "Next" button is disabled until an article is selected or General AI Knowledge is authorized.
 
 ---
 

@@ -911,7 +911,7 @@ export function Dashboard({
               <div 
                 key={app.id} 
                 className="flex flex-col items-center group relative w-full text-center" 
-                title={isHardcoded ? `${app.name} (Always Allowed by System)` : app.name}
+                title={isHardcoded ? (app.isAutoAllowed && !app.isHardcoded ? `${app.name} (Auto-Allowed Study App)` : `${app.name} (Always Allowed by System)`) : app.name}
               >
                 <div className="relative">
                   {isHardcoded ? (
@@ -948,7 +948,7 @@ export function Dashboard({
                 <span className="text-[11px] sm:text-xs font-semibold text-gray-700 w-full text-center truncate px-1 mt-1.5">{app.name}</span>
                 {isHardcoded && (
                   <span className="text-[9px] font-bold uppercase tracking-tight text-emerald-600">
-                    Always
+                    {app.isAutoAllowed && !app.isHardcoded ? 'Auto' : 'Always'}
                   </span>
                 )}
               </div>

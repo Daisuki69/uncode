@@ -28,6 +28,7 @@ export interface AllowedApp {
   iconName: string;
   iconBase64?: string;
   isHardcoded?: boolean;
+  isAutoAllowed?: boolean;
   isBrowser?: boolean;
   isMusic?: boolean;
   isCamera?: boolean;
