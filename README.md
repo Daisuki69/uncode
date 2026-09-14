@@ -31,6 +31,7 @@
 **[🏗️ Architecture](#%EF%B8%8F-system-architecture)** • 
 **[🧠 Local App Classifier](#-local-app-classifier-engine-on-device-5-layer-heuristics)** • 
 **[🚨 Consequence Lockdown](#-consequence-lockdown--operating-hours-700-pm--300-am)** • 
+**[⚡ Operating Modes: Safemode vs Hardcore](#-operating-modes-safemode-vs-hardcore-247)** • 
 **[📰 Case Studies](#-case-studies--article-declutter-system)** • 
 **[🔮 Floating Ball Overlay](#-floating-assistive-timer-ball)** • 
 **[📋 App Directory](#-complete-application-reference-blocked--allowed)** • 
@@ -229,6 +230,48 @@ QIEZKA strictly respects human circadian needs and daytime academic schedules:
 1. **Dashboard Banner**: When consequence mode is active, a persistent red alert banner appears with a single action: **"View Failed Homeworks"** (no bypass shortcuts).
 2. **Failed Homeworks Hub**: Expanding the failed session displays the original scheduled window, allotted duration, and an alert card.
 3. **Reschedule & Retake**: User clicks **"Add Again (Reschedule)"** $\to$ sets a new start time with automatic cascading $\to$ completes the session $\to$ submits answers $\to$ **passing AI evaluation completely clears Consequence Mode and restores full phone access**.
+
+---
+
+## ⚡ Operating Modes: Safemode vs. Hardcore (24/7)
+
+QIEZKA provides two distinct operating modes configured in **Settings > General > Operating Mode**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       OPERATING MODES                       │
+├──────────────────────────────┬──────────────────────────────┤
+│ 🛡️ SAFEMODE (Default)        │ ⚡ HARDCORE (24/7)           │
+├──────────────────────────────┼──────────────────────────────┤
+│ • 7:00 PM – 3:00 AM window   │ • 24/7 round-the-clock       │
+│ • Daytime pause (3 AM - 7 PM)│ • Lockdown anytime (24h)     │
+│ • Strict 3:00 AM curfew cap  │ • No 3:00 AM curfew cap      │
+│ • School & sleep protection  │ • Consequence persists 24/7  │
+└──────────────────────────────┴──────────────────────────────┘
+```
+
+### 1. Safemode (7:00 PM – 3:00 AM) — *Default*
+- **Circadian & Academic Balance**: Focus sessions and consequence restrictions operate strictly during evening and night study hours (7:00 PM – 3:00 AM).
+- **Daytime Truce (3:00 AM – 7:00 PM)**: Consequence app blocking pauses automatically during daytime hours so students can attend classes, commute, access banking/work portals, and rest without obstruction.
+- **Automated 3:00 AM Curfew**: Cascaded schedule calculations enforce a 3:00 AM curfew cap. Any schedule series or break intervals that would spill past 3:00 AM are flagged as invalid, preventing unhealthy late-night study cycles.
+- **Smart Rescheduling**: When retaking a failed assignment during daytime, the scheduler defaults to a 7:00 PM start time.
+
+### 2. Hardcore Mode (24/7 Round-the-Clock)
+- **Uncompromising Discipline**: Designed for intense study marathons, weekends, bar review, or users needing strict accountability all day long.
+- **Anytime Scheduling**: Sessions can be scheduled and locked down at **any hour of the day or night (00:00 – 23:59)**.
+- **No Curfew Cap**: Cascade schedules have no 3:00 AM cutoff; sessions can ripple across the morning and afternoon.
+- **24/7 Consequence Enforcement**: If a session expires without passing submission, distracting apps remain blocked **continuously 24/7** without any daytime truce at 3:00 AM.
+- **Native OS Persistence**: Capacitor bridge passes `operating_mode: "hardcore"` directly into Android `SharedPreferences`. `LockAccessibilityService` and `FloatingOverlayService` continuously intercept and block hostile packages 24 hours a day, 7 days a week.
+
+### 🛡️ Safety Modal & Daytime Schedule Anti-Cheat Guard
+
+To eliminate cheat vectors and prevent impulsive lockouts:
+
+1. **High-Contrast Warning Modal**: Switching from Safemode to Hardcore triggers an explicit confirmation dialog warning that consequence restrictions will persist round-the-clock without daytime relief.
+2. **Active Lockdown Guard**: Operating mode **cannot be changed** while a lockdown session is active or while Consequence Mode is active (`isLockedOrConsequence`).
+3. **Daytime Schedule Downgrade Guard**: A user **cannot switch from Hardcore back to Safemode if an active schedule exists during daytime hours (03:01 AM – 06:59 PM)**. 
+   - *Anti-Cheat Rationale*: Prevents a user from scheduling a daytime lock session in Hardcore mode, realizing they want to play games during the day, and downgrading to Safemode to escape the restriction.
+   - *Requirement*: The user must complete or delete all daytime schedules first before Safemode can be restored.
 
 ---
 

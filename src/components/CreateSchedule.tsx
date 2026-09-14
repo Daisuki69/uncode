@@ -858,17 +858,21 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
                 />
                 
                 {(() => {
+                  const isHardcore = settings?.operatingMode === 'hardcore';
                   const [h] = activationTime.split(':').map(Number);
-                  const isTimeValid = h >= 19 || h <= 3;
+                  const isTimeValid = isHardcore || (h >= 19 || h <= 3);
                   if (!isTimeValid && activationTime !== '') {
                     return (
                       <p className="text-sm text-red-500 mt-2 font-bold flex items-center bg-red-50 p-2 rounded-lg">
                         <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" />
-                        ERROR: You can only schedule locks between 7:00 PM and 3:00 AM.
+                        ERROR: You can only schedule locks between 7:00 PM and 3:00 AM in Safemode.
                       </p>
                     );
                   }
-                  return <p className="text-xs text-gray-500 mt-2">Must be between 7:00 PM and 3:00 AM</p>;
+                  if (isHardcore) {
+                    return <p className="text-xs text-red-600 font-bold mt-2">🔥 Hardcore 24/7 Mode: Can schedule at any time of day.</p>;
+                  }
+                  return <p className="text-xs text-gray-500 mt-2">Safemode: Must be between 7:00 PM and 3:00 AM</p>;
                 })()}
               </div>
 
@@ -899,8 +903,9 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
               <button onClick={() => setStep(3)} className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl">Back</button>
               
               {(() => {
+                const isHardcore = settings?.operatingMode === 'hardcore';
                 const [h] = activationTime.split(':').map(Number);
-                const isTimeValid = h >= 19 || h <= 3;
+                const isTimeValid = isHardcore || (h >= 19 || h <= 3);
                 return (
                   <button 
                     onClick={handleSave} 

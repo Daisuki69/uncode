@@ -317,7 +317,7 @@ public class FloatingOverlayService extends Service {
 
         long timeOffset = prefs.getLong("time_offset", 0L);
         long effectiveNow = System.currentTimeMillis() + timeOffset;
-        boolean inOperatingHours = LockAccessibilityService.isInOperatingHours(effectiveNow);
+        boolean inOperatingHours = LockAccessibilityService.isInOperatingHours(this, effectiveNow);
 
         // If neither lockdown nor consequence is active, cleanly dismiss immediately
         if (!isLockdownActive && !isConsequenceActive) {

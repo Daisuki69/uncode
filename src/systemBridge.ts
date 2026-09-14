@@ -31,6 +31,7 @@ interface LockPluginInterface {
   syncSchedules(options: { schedules: any[]; allowedAppIds: string[] }): Promise<void>;
   syncTimeOffset(options: { timeOffset: number }): Promise<void>;
   setConsequenceActive(options: { active: boolean; scheduleId?: string }): Promise<void>;
+  setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
   getLockStatus(): Promise<{
     isLockActive: boolean;
     lockEndTime: number;
@@ -64,6 +65,10 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
     },
     setConsequenceActive: async (opts: { active: boolean; scheduleId?: string }) => {
       console.log('[Dev] Simulating setConsequenceActive:', opts);
+    },
+    setOperatingMode: async ({ mode }: { mode: 'safemode' | 'hardcore' }) => {
+      console.log('[Dev] Simulating setOperatingMode:', mode);
+      return { success: true };
     },
     getLockStatus: async () => ({
       isLockActive: false,
@@ -275,3 +280,14 @@ export const showToast = async (message: string): Promise<void> => {
 export const addBackListener = async (callback: () => void) => {
   return await LockPlugin.addListener('backPressed', callback);
 };
+
+export const setOperatingMode = async (mode: 'safemode' | 'hardcore'): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.setOperatingMode({ mode });
+    return res?.success ?? true;
+  } catch (e) {
+    console.error('setOperatingMode failed', e);
+    return false;
+  }
+};
+

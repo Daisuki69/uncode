@@ -6,7 +6,7 @@ import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -286,6 +286,7 @@ export default function App() {
       }
 
       setSettings(loadedSettings);
+      setOperatingMode(loadedSettings.operatingMode || 'safemode');
       setResources(loadedResources);
       setLogs(loadedLogs);
       setCompletedHomeworks(loadedCompletedHomeworks);
@@ -506,7 +507,8 @@ export default function App() {
     setTimeOffset(newOffset);
   };
 
-const isOperatingHours = (timeOffset: number = 0): boolean => {
+const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | 'hardcore'): boolean => {
+  if (operatingMode === 'hardcore') return true;
   const now = new Date(Date.now() + timeOffset);
   const hour = now.getHours();
   const minute = now.getMinutes();
@@ -556,7 +558,7 @@ const isOperatingHours = (timeOffset: number = 0): boolean => {
       notifyUser('Lock skipped (Test mode). Device access restored.');
     } else {
       // Legitimate timeout: Activate Consequence Mode!
-      // Do NOT call endLockdown; retain app restrictions during operating hours (7 PM - 3 AM) until rescheduled & passed
+      // Do NOT call endLockdown; retain app restrictions during operating hours (7 PM - 3 AM or 24/7 in Hardcore) until rescheduled & passed
       const updatedSchedules = (settings.schedules || []).map(s => 
         s.id === activeScheduleId ? { ...s, isActive: false } : s
       );
@@ -572,7 +574,10 @@ const isOperatingHours = (timeOffset: number = 0): boolean => {
       syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
       setConsequenceActive(true, activeScheduleId || undefined);
 
-      notifyUser('⚠️ Homework Expired — Consequence Active: Distracting apps remain restricted during study hours (7 PM – 3 AM) until rescheduled and passed.');
+      const operatingHoursMsg = settings.operatingMode === 'hardcore'
+        ? '⚠️ Homework Expired — Consequence Active (Hardcore 24/7): Distracting apps remain restricted around the clock until rescheduled and passed.'
+        : '⚠️ Homework Expired — Consequence Active: Distracting apps remain restricted during study hours (7 PM – 3 AM) until rescheduled and passed.';
+      notifyUser(operatingHoursMsg);
     }
 
     if (activeScheduleId) {
@@ -973,6 +978,7 @@ const isOperatingHours = (timeOffset: number = 0): boolean => {
                 schedules={settings.schedules || []}
                 consequenceActive={settings.consequenceActive}
                 consequenceScheduleId={settings.consequenceScheduleId}
+                operatingMode={settings.operatingMode}
                 onBack={() => navigate('dashboard', 'backward')}
                 onClear={() => setCompletedHomeworks([])}
                 onReschedule={(updatedSchedules) => {
@@ -1000,6 +1006,9 @@ const isOperatingHours = (timeOffset: number = 0): boolean => {
                 logs={logs}
                 onClearLogs={() => setLogs([])}
                 onSave={(updates) => {
+                  if (updates.operatingMode) {
+                    setOperatingMode(updates.operatingMode);
+                  }
                   setSettings(prev => ({ ...prev, ...updates }));
                   navigate('dashboard', 'backward');
                 }}

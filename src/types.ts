@@ -54,6 +54,7 @@ export interface AppSettings {
   allowedAppsInitialized?: boolean;
   consequenceActive?: boolean;
   consequenceScheduleId?: string;
+  operatingMode?: 'safemode' | 'hardcore';
 }
 
 export interface EvaluationResult {

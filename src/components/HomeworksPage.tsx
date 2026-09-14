@@ -23,6 +23,7 @@ export interface HomeworksPageProps {
   onReschedule?: (updatedSchedules: ScheduleData[]) => void;
   consequenceActive?: boolean;
   consequenceScheduleId?: string;
+  operatingMode?: 'safemode' | 'hardcore';
 }
 
 // Normalizes time string ("HH:mm") into continuous minutes with 19:00 (7 PM) as night clock baseline
@@ -75,7 +76,8 @@ export function calculateCascadeSchedules(
     selectedResourceIds?: string[];
     activationTime: string; // "HH:mm"
     durationMinutes: number;
-  }
+  },
+  operatingMode: 'safemode' | 'hardcore' = 'safemode'
 ): CascadeResult {
   const targetStart = normalizeMinutes(emergencyItem.activationTime);
   const targetDuration = Math.min(90, Math.max(1, emergencyItem.durationMinutes));
@@ -265,10 +267,11 @@ export function calculateCascadeSchedules(
 
   // Check 3:00 AM Curfew (1620 continuous normalized minutes)
   // Rule: No 30m buffer required after the last schedule
+  // Curfew is only enforced in Safemode. In Hardcore mode (24/7), sessions can run round the clock.
   const lastItem = chain[chain.length - 1];
   const lastEnd = lastItem ? lastItem.end : 0;
 
-  if (lastEnd > 1620) {
+  if (operatingMode !== 'hardcore' && lastEnd > 1620) {
     return {
       chain,
       valid: false,
@@ -291,7 +294,8 @@ export function HomeworksPage({
   onClear, 
   onReschedule,
   consequenceActive = false,
-  consequenceScheduleId
+  consequenceScheduleId,
+  operatingMode = 'safemode'
 }: HomeworksPageProps) {
   const [selectedHomework, setSelectedHomework] = useState<CompletedHomework | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<CompletedHomework | null>(null);
@@ -340,18 +344,22 @@ export function HomeworksPage({
 
   const cascadeSimulation = useMemo(() => {
     if (!rescheduleTarget) return null;
-    return calculateCascadeSchedules(activeExistingSchedules, {
-      title: rescheduleTitle || rescheduleTarget.title,
-      homeworkContent: rescheduleTarget.homeworkContent,
-      rubricContent: rescheduleTarget.rubricContent,
-      selectedResourceIds: rescheduleTarget.selectedResourceIds || [],
-      activationTime: rescheduleTime,
-      durationMinutes: rescheduleDuration,
-    });
-  }, [rescheduleTarget, rescheduleTime, rescheduleDuration, rescheduleTitle, activeExistingSchedules]);
+    return calculateCascadeSchedules(
+      activeExistingSchedules,
+      {
+        title: rescheduleTitle || rescheduleTarget.title,
+        homeworkContent: rescheduleTarget.homeworkContent,
+        rubricContent: rescheduleTarget.rubricContent,
+        selectedResourceIds: rescheduleTarget.selectedResourceIds || [],
+        activationTime: rescheduleTime,
+        durationMinutes: rescheduleDuration,
+      },
+      operatingMode
+    );
+  }, [rescheduleTarget, rescheduleTime, rescheduleDuration, rescheduleTitle, activeExistingSchedules, operatingMode]);
 
   const handleOpenReschedule = (hw: CompletedHomework) => {
-    // Determine a smart initial start time (e.g. 19:10 or next 10-min slot)
+    // Determine a smart initial start time (e.g. 19:10 or next 5-min slot)
     const now = new Date();
     const currentH = now.getHours();
     const currentM = Math.ceil(now.getMinutes() / 5) * 5;
@@ -359,7 +367,11 @@ export function HomeworksPage({
 
     setRescheduleTarget(hw);
     setRescheduleTitle(`${hw.title} (Retry)`);
-    setRescheduleTime(currentH >= 19 || currentH < 3 ? smartTime : '19:10');
+    if (operatingMode === 'hardcore') {
+      setRescheduleTime(smartTime);
+    } else {
+      setRescheduleTime(currentH >= 19 || currentH < 3 ? smartTime : '19:10');
+    }
     setRescheduleDuration(hw.durationMinutes || 25);
   };
 
@@ -786,7 +798,11 @@ export function HomeworksPage({
               ) : (
                 <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 flex items-center gap-2.5 text-xs font-semibold">
                   <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Cascade Shift Valid — All schedules safely finish before the 3:00 AM curfew.</span>
+                  <span>
+                    {operatingMode === 'hardcore'
+                      ? 'Cascade Shift Valid — 24/7 Hardcore session scheduling active.'
+                      : 'Cascade Shift Valid — All schedules safely finish before the 3:00 AM curfew.'}
+                  </span>
                 </div>
               )}
             </div>

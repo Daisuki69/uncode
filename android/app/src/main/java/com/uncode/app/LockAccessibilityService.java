@@ -587,7 +587,28 @@ public class LockAccessibilityService extends AccessibilityService {
                lower.contains("androidopensourcemusicplayer");
     }
 
+    public static boolean isInOperatingHours(Context context, long effectiveNow) {
+        if (context != null) {
+            SharedPreferences p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String mode = p.getString("operating_mode", "safemode");
+            if ("hardcore".equalsIgnoreCase(mode)) {
+                return true;
+            }
+        }
+        return isClockInOperatingHours(effectiveNow);
+    }
+
     public static boolean isInOperatingHours(long effectiveNow) {
+        if (instance != null && instance.prefs != null) {
+            String mode = instance.prefs.getString("operating_mode", "safemode");
+            if ("hardcore".equalsIgnoreCase(mode)) {
+                return true;
+            }
+        }
+        return isClockInOperatingHours(effectiveNow);
+    }
+
+    private static boolean isClockInOperatingHours(long effectiveNow) {
         java.util.Calendar cal = java.util.Calendar.getInstance();
         cal.setTimeInMillis(effectiveNow);
         int hour = cal.get(java.util.Calendar.HOUR_OF_DAY);

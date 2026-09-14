@@ -259,6 +259,21 @@ public class LockPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setOperatingMode(PluginCall call) {
+        try {
+            String mode = call.getString("mode", "safemode");
+            prefs.edit().putString("operating_mode", mode).apply();
+            Log.i(TAG, "Operating mode set to: " + mode);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setOperatingMode failed", e);
+            call.reject("setOperatingMode failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void getLockStatus(PluginCall call) {
         try {
             boolean isActive = prefs.getBoolean("lockdown_active", false);

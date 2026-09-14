@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe } from 'lucide-react';
+import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle } from 'lucide-react';
 import { AppSettings, LogEntry, SavedResource, AllowedApp } from '../types';
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
@@ -19,12 +19,17 @@ interface SettingsOverlayProps {
 
 export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }: SettingsOverlayProps) {
   const hasActiveSchedule = settings.schedules?.some(s => s.isActive) || false;
+  const isLockedOrConsequence = hasActiveSchedule || !!settings.consequenceActive;
+
   const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'logs'>('general');
   const [apiKey, setApiKey] = useState(settings.apiKey || '');
   const [apiModel, setApiModel] = useState(settings.apiModel || 'gemini-3.7-flash');
   const [simpleOcrKey, setSimpleOcrKey] = useState(settings.simpleOcrKey || '');
   const [formattedOcrKey, setFormattedOcrKey] = useState(settings.formattedOcrKey || '');
   const [uiScale, setUiScale] = useState(settings.uiScale || 100);
+  const [operatingMode, setOperatingModeState] = useState<'safemode' | 'hardcore'>(settings.operatingMode || 'safemode');
+  const [showHardcoreModal, setShowHardcoreModal] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
   
   const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
   const [customPrompts, setCustomPrompts] = useState<Record<string, string>>(settings.prompts || {});
@@ -35,13 +40,49 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
     setDefaultPrompts(staticDefaultPrompts);
   }, []);
 
+  const hasActiveDaytimeSchedule = (settings.schedules || []).some(s => {
+    if (!s.isActive || !s.activationTime) return false;
+    const [h, m] = s.activationTime.split(':').map(Number);
+    const totalMins = (h || 0) * 60 + (m || 0);
+    // Daytime is between 03:01 (181 mins) and 18:59 (1139 mins)
+    return totalMins >= 180 && totalMins < 1140;
+  });
+
+  const handleSelectMode = (mode: 'safemode' | 'hardcore') => {
+    setModeError(null);
+    if (isLockedOrConsequence) {
+      setModeError('Operating mode is locked during active lockdown or consequence mode. Complete and pass your session first.');
+      return;
+    }
+
+    if (mode === 'hardcore') {
+      if (operatingMode !== 'hardcore') {
+        setShowHardcoreModal(true);
+      }
+    } else {
+      // Switching to Safemode: check if there are daytime schedules
+      if (hasActiveDaytimeSchedule) {
+        setModeError('Cannot switch to Safemode: You have active scheduled sessions during daytime hours (3:00 AM – 7:00 PM). Please complete or delete these daytime schedules first.');
+        return;
+      }
+      setOperatingModeState('safemode');
+    }
+  };
+
+  const handleConfirmHardcore = () => {
+    setOperatingModeState('hardcore');
+    setShowHardcoreModal(false);
+    setModeError(null);
+  };
+
   const handleSaveGeneral = () => {
     onSave({ 
       apiKey: apiKey.trim() || undefined,
       apiModel: apiModel.trim() || 'gemini-3.7-flash',
       simpleOcrKey: simpleOcrKey.trim() || undefined,
       formattedOcrKey: formattedOcrKey.trim() || undefined,
-      uiScale: uiScale
+      uiScale: uiScale,
+      operatingMode: operatingMode
     });
   };
 
@@ -328,6 +369,86 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
 
               
               <div className="mb-8 border-t border-gray-200 pt-6">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-gray-500" />
+                    Operating Mode
+                  </label>
+                  <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                    operatingMode === 'hardcore'
+                      ? 'bg-red-600 text-white animate-pulse'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    {operatingMode === 'hardcore' ? 'Hardcore 24/7' : 'Safemode'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">
+                  Controls operating hours, scheduling windows, and whether consequence failure restrictions pause during daytime.
+                </p>
+
+                {modeError && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-bold flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{modeError}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Safemode Card */}
+                  <div
+                    onClick={() => handleSelectMode('safemode')}
+                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      operatingMode === 'safemode'
+                        ? 'border-emerald-500 bg-emerald-50/50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-2 rounded-xl ${operatingMode === 'safemode' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          <Shield className="w-4 h-4" />
+                        </div>
+                        <span className="font-bold text-sm text-gray-900">Safemode</span>
+                      </div>
+                      {operatingMode === 'safemode' && (
+                        <CheckCircle className="w-5 h-5 text-emerald-600" />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-700 block mb-1">7:00 PM – 3:00 AM (Default)</span>
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      Study hours discipline. Schedule only between 7 PM and 3 AM. If homework expires or fails, restrictions pause during daytime (3 AM – 7 PM) for school and sleep.
+                    </p>
+                  </div>
+
+                  {/* Hardcore Card */}
+                  <div
+                    onClick={() => handleSelectMode('hardcore')}
+                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      operatingMode === 'hardcore'
+                        ? 'border-red-500 bg-red-50/50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-2 rounded-xl ${operatingMode === 'hardcore' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          <Flame className="w-4 h-4" />
+                        </div>
+                        <span className="font-bold text-sm text-gray-900">Hardcore</span>
+                      </div>
+                      {operatingMode === 'hardcore' && (
+                        <CheckCircle className="w-5 h-5 text-red-600" />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-bold text-red-600 block mb-1">24/7 Round-The-Clock</span>
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      Uncompromising discipline. Schedule sessions at any hour of the day. Consequence restrictions persist continuously through daytime until rescheduled and passed.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-8 border-t border-gray-200 pt-6">
                 <label className="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wider flex justify-between">
                   <span>UI Zoom Scale</span>
                   <span className="text-gray-500">{uiScale}%</span>
@@ -408,6 +529,51 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
           )}
         </div>
       </div>
+
+      {showHardcoreModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mb-4 mx-auto">
+              <Flame className="w-7 h-7" />
+            </div>
+            <h3 className="text-xl font-black text-gray-900 text-center mb-2">
+              Enable Hardcore Mode (24/7)?
+            </h3>
+            <p className="text-sm text-gray-600 text-center leading-relaxed mb-4">
+              In <strong>Hardcore Mode</strong>, QIEZKA operates 24 hours a day with <strong>NO daytime pause</strong>.
+            </p>
+            <div className="bg-red-50 p-4 rounded-2xl border border-red-200 mb-6 space-y-2 text-xs text-red-900">
+              <p className="font-bold flex items-center gap-1.5 text-red-700">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                Continuous Daytime Enforcement
+              </p>
+              <p className="leading-relaxed text-red-800">
+                If your homework expires or fails evaluation, distracting apps will remain restricted through morning, school, and work hours until you reschedule and pass AI evaluation.
+              </p>
+              <p className="text-[11px] text-red-600 font-semibold">
+                You cannot switch back to Safemode while any daytime schedules are active.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowHardcoreModal(false)}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmHardcore}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-sm transition-colors shadow-md flex items-center justify-center gap-2"
+              >
+                <Flame className="w-4 h-4" />
+                Enable Hardcore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
