@@ -11,15 +11,17 @@ import {
   AlertTriangle, 
   ArrowRight, 
   Sparkles,
-  Check
+  Check,
+  ShieldAlert
 } from 'lucide-react';
-import { CompletedHomework, ScheduleData } from '../types';
+import { CompletedHomework, ScheduleData, PunishmentState } from '../types';
 
 export interface HomeworksPageProps {
   homeworks: CompletedHomework[];
   schedules?: ScheduleData[];
+  punishment?: PunishmentState;
   onBack: () => void;
-  onClear: () => void;
+  onClear?: () => void;
   onReschedule?: (updatedSchedules: ScheduleData[]) => void;
 }
 
@@ -73,6 +75,7 @@ export function calculateCascadeSchedules(
     selectedResourceIds?: string[];
     activationTime: string; // "HH:mm"
     durationMinutes: number;
+    resolvesPunishmentFor?: string;
   }
 ): CascadeResult {
   const targetStart = normalizeMinutes(emergencyItem.activationTime);
@@ -93,6 +96,7 @@ export function calculateCascadeSchedules(
     activationTime: emergencyItem.activationTime,
     durationMinutes: targetDuration,
     isActive: true,
+    resolvesPunishmentFor: emergencyItem.resolvesPunishmentFor,
   };
 
   // Check if targetStart falls inside an existing schedule
@@ -282,13 +286,18 @@ export function calculateCascadeSchedules(
   };
 }
 
-export function HomeworksPage({ homeworks, schedules = [], onBack, onClear, onReschedule }: HomeworksPageProps) {
+export function HomeworksPage({ homeworks, schedules = [], punishment, onBack, onClear, onReschedule }: HomeworksPageProps) {
   const [selectedHomework, setSelectedHomework] = useState<CompletedHomework | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<CompletedHomework | null>(null);
   const [rescheduleTime, setRescheduleTime] = useState<string>('19:10');
   const [rescheduleDuration, setRescheduleDuration] = useState<number>(25);
   const [rescheduleTitle, setRescheduleTitle] = useState<string>('');
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  const isTargetCausingDetention = useMemo(() => {
+    if (!rescheduleTarget || !punishment?.isActive) return false;
+    return rescheduleTarget.id === punishment.scheduleId || rescheduleTarget.title === punishment.scheduleTitle;
+  }, [rescheduleTarget, punishment]);
 
   React.useEffect(() => {
     const handleBack = (e: Event) => {
@@ -307,6 +316,23 @@ export function HomeworksPage({ homeworks, schedules = [], onBack, onClear, onRe
     return () => window.removeEventListener('qiezka-back-press', handleBack);
   }, [rescheduleTarget, selectedHomework]);
 
+  const failedHomeworks = useMemo(() => {
+    // Filter to only failed/expired homeworks
+    const onlyFailed = (homeworks || []).filter(hw => !hw.passed);
+    // Deduplicate entries with same title that occurred within 15 seconds of each other
+    const deduped: CompletedHomework[] = [];
+    for (const hw of onlyFailed) {
+      const isDup = deduped.some(existing => 
+        existing.title === hw.title &&
+        Math.abs(existing.timestamp - hw.timestamp) < 15000
+      );
+      if (!isDup) {
+        deduped.push(hw);
+      }
+    }
+    return deduped;
+  }, [homeworks]);
+
   const activeExistingSchedules = useMemo(() => {
     return (schedules || []).filter(s => s.isActive);
   }, [schedules]);
@@ -320,8 +346,9 @@ export function HomeworksPage({ homeworks, schedules = [], onBack, onClear, onRe
       selectedResourceIds: rescheduleTarget.selectedResourceIds || [],
       activationTime: rescheduleTime,
       durationMinutes: rescheduleDuration,
+      resolvesPunishmentFor: isTargetCausingDetention ? (punishment?.scheduleId || rescheduleTarget.id) : undefined,
     });
-  }, [rescheduleTarget, rescheduleTime, rescheduleDuration, rescheduleTitle, activeExistingSchedules]);
+  }, [rescheduleTarget, rescheduleTime, rescheduleDuration, rescheduleTitle, activeExistingSchedules, isTargetCausingDetention, punishment]);
 
   const handleOpenReschedule = (hw: CompletedHomework) => {
     // Determine a smart initial start time (e.g. 19:10 or next 10-min slot)
@@ -366,15 +393,10 @@ export function HomeworksPage({ homeworks, schedules = [], onBack, onClear, onRe
                 <ArrowLeft className="w-5 h-5 mr-1" /> Back
               </button>
             ) : (
-              <><FileText className="w-6 h-6 mr-2 text-indigo-500" /> Homeworks Log</>
+              <><AlertTriangle className="w-6 h-6 mr-2 text-red-500" /> Failed Homeworks</>
             )}
           </h2>
           <div className="flex gap-2">
-            {!selectedHomework && homeworks.length > 0 && (
-              <button onClick={onClear} className="px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors flex items-center border border-red-100"> 
-                 Clear All
-              </button>
-            )}
             <button onClick={onBack} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
               <X className="w-6 h-6" />
             </button>
@@ -384,75 +406,159 @@ export function HomeworksPage({ homeworks, schedules = [], onBack, onClear, onRe
         <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
           {!selectedHomework ? (
             <div className="space-y-3">
-              {homeworks.length === 0 ? (
+              {failedHomeworks.length === 0 ? (
                 <div className="text-center text-gray-500 py-12 flex flex-col items-center">
-                  <FileText className="w-12 h-12 text-gray-300 mb-3" />
-                  <p>No homework logs yet.</p>
+                  <CheckCircle className="w-12 h-12 text-emerald-300 mb-3" />
+                  <p className="font-bold text-gray-700">No Failed Homeworks</p>
+                  <p className="text-xs text-gray-400 mt-1">There are no failed or expired homework sessions recorded.</p>
                 </div>
               ) : (
-                homeworks.map(hw => (
+                failedHomeworks.map(hw => {
+                  const isCausingDetention = punishment?.isActive && (hw.id === punishment.scheduleId || hw.title === punishment.scheduleTitle);
+                  return (
                   <div 
                     key={hw.id}
                     onClick={() => setSelectedHomework(hw)}
-                    className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-xl bg-white hover:border-indigo-300 hover:shadow-sm transition-all text-left group cursor-pointer"
+                    className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all text-left group cursor-pointer ${
+                      isCausingDetention 
+                        ? 'border-red-400 bg-red-50/50 shadow-xs hover:border-red-500' 
+                        : 'border-red-100 bg-white hover:border-red-300 hover:shadow-sm'
+                    }`}
                   >
                     <div className="flex items-center min-w-0 pr-4">
-                      {hw.passed ? (
-                        <CheckCircle className="w-5 h-5 text-emerald-500 mr-3 shrink-0" />
-                      ) : (
-                        <XCircle className="w-5 h-5 text-red-500 mr-3 shrink-0" />
-                      )}
+                      <XCircle className="w-5 h-5 text-red-500 mr-3 shrink-0" />
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-bold text-gray-900 truncate">{hw.title}</h3>
-                          {!hw.passed && (
-                            <span className="text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-md shrink-0">
-                              Failed / Expired
+                          <span className="text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-md shrink-0">
+                            Failed / Expired
+                          </span>
+                          {isCausingDetention && (
+                            <span className="text-[10px] uppercase font-black bg-red-600 text-white px-2 py-0.5 rounded-md shrink-0 flex items-center gap-1 shadow-2xs animate-pulse">
+                              <ShieldAlert className="w-3 h-3" />
+                              Causes Active Detention
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {new Date(hw.timestamp).toLocaleDateString()} at {new Date(hw.timestamp).toLocaleTimeString()}
-                        </p>
+                        <div className="flex items-center gap-3 text-xs text-gray-400 mt-1 flex-wrap">
+                          <span>
+                            {new Date(hw.timestamp).toLocaleDateString()} at {new Date(hw.timestamp).toLocaleTimeString()}
+                          </span>
+                          {hw.activationTime && (
+                            <span className="flex items-center gap-1 text-gray-500 font-medium">
+                              <Clock className="w-3 h-3 text-gray-400" />
+                              Scheduled: {formatMinutesTo12Hour(normalizeMinutes(hw.activationTime))} ({hw.durationMinutes || 25}m)
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {!hw.passed && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenReschedule(hw);
-                          }}
-                          className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-lg border border-red-200 transition-colors flex items-center gap-1 shadow-2xs"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          Add Again
-                        </button>
-                      )}
-                      <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenReschedule(hw);
+                        }}
+                        className={`px-3 py-1.5 font-bold text-xs rounded-lg border transition-colors flex items-center gap-1 shadow-2xs ${
+                          isCausingDetention
+                            ? 'bg-red-600 text-white border-red-700 hover:bg-red-700'
+                            : 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200'
+                        }`}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        {isCausingDetention ? 'Reschedule & Clear' : 'Add Again'}
+                      </button>
+                      <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-red-500 transition-colors" />
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           ) : (
             <div className="space-y-6 max-w-3xl mx-auto">
               <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                {punishment?.isActive && (selectedHomework.id === punishment.scheduleId || selectedHomework.title === punishment.scheduleTitle) && (
+                  <div className="mb-6 p-4 bg-gradient-to-r from-red-950 to-red-900 border-2 border-red-600 rounded-2xl text-white flex items-start gap-3 shadow-lg">
+                    <ShieldAlert className="w-6 h-6 text-red-400 shrink-0 mt-0.5 animate-pulse" />
+                    <div>
+                      <h4 className="font-black text-sm text-white uppercase tracking-wider flex items-center gap-2">
+                        🚨 Causing Active Study Detention
+                      </h4>
+                      <p className="text-xs text-red-200 mt-1 leading-relaxed">
+                        10 of your most used apps and Android Settings are currently locked on your phone because this session expired.
+                      </p>
+                      <p className="text-xs text-red-300 font-bold mt-1">
+                        Tap "Add Again (Reschedule)", complete the assignment during the retake, and pass AI evaluation to lift the detention!
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
                   <h3 className="font-black text-xl text-gray-900">{selectedHomework.title}</h3>
                   <div className="flex items-center gap-2">
-                    <span className={`px-3 py-1 text-xs font-bold rounded-lg ${selectedHomework.passed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                      {selectedHomework.passed ? 'PASSED' : 'FAILED / EXPIRED'}
+                    <span className="px-3 py-1 text-xs font-bold rounded-lg bg-red-100 text-red-700">
+                      FAILED / EXPIRED
                     </span>
-                    {!selectedHomework.passed && (
-                      <button
-                        onClick={() => handleOpenReschedule(selectedHomework)}
-                        className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        Add Again (Reschedule)
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleOpenReschedule(selectedHomework)}
+                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Add Again (Reschedule)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Original Schedule Details */}
+                <div className="mb-6 bg-red-50/50 border border-red-200/70 rounded-2xl p-4">
+                  <h4 className="text-xs font-bold text-red-900 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-red-600" />
+                    Original Schedule Details
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div className="bg-white p-3 rounded-xl border border-red-100 shadow-2xs">
+                      <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                        Scheduled Window
+                      </span>
+                      <span className="font-mono font-bold text-gray-900 text-sm">
+                        {selectedHomework.activationTime ? (
+                          `${formatMinutesTo12Hour(normalizeMinutes(selectedHomework.activationTime))} – ${formatMinutesTo12Hour(normalizeMinutes(selectedHomework.activationTime) + (selectedHomework.durationMinutes || 25))}`
+                        ) : (
+                          'Time not recorded'
+                        )}
+                      </span>
+                      {selectedHomework.activationTime && (
+                        <span className="text-[11px] text-gray-400 block mt-0.5">
+                          (Starts at {selectedHomework.activationTime})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="bg-white p-3 rounded-xl border border-red-100 shadow-2xs">
+                      <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                        Allocated Duration
+                      </span>
+                      <span className="font-bold text-gray-900 text-sm">
+                        {selectedHomework.durationMinutes ? `${selectedHomework.durationMinutes} minutes` : '25 minutes'}
+                      </span>
+                      <span className="text-[11px] text-gray-400 block mt-0.5">
+                        Lockdown study session
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-3 rounded-xl border border-red-100 shadow-2xs">
+                      <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                        Session Expired At
+                      </span>
+                      <span className="font-mono font-bold text-red-600 text-xs">
+                        {new Date(selectedHomework.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                      <span className="text-[11px] text-gray-400 block mt-0.5">
+                        {new Date(selectedHomework.timestamp).toLocaleDateString()}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 
@@ -530,6 +636,20 @@ export function HomeworksPage({ homeworks, schedules = [], onBack, onClear, onRe
             </div>
 
             <div className="p-6 overflow-y-auto space-y-5">
+              {isTargetCausingDetention && (
+                <div className="p-4 bg-red-950 border-2 border-red-600 rounded-2xl text-white flex items-start gap-3 shadow-md">
+                  <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5 animate-pulse" />
+                  <div>
+                    <h5 className="font-black text-xs text-white uppercase tracking-wider">
+                      Resolves Active Study Detention
+                    </h5>
+                    <p className="text-xs text-red-200 mt-0.5 leading-relaxed">
+                      Passing this retake session with an AI evaluation score of PASSED will immediately clear your detention and unlock all 10 apps and Android Settings!
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Session Configuration */}
               <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200/80 space-y-4">
                 <div>

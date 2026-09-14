@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react';
-import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp } from './types';
+import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp, PunishmentState } from './types';
 import { Dashboard } from './components/Dashboard';
 import { LockScreen } from './components/LockScreen';
 import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, activateNativePunishment, clearNativePunishment, getNativePunishmentStatus } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -118,6 +118,24 @@ export default function App() {
   const [lockPauseTime, setLockPauseTime] = useState<number | null>(null);
   const [activeScheduleId, setActiveScheduleId] = useState<string | null>(null);
   const [editingRubricScheduleId, setEditingRubricScheduleId] = useState<string | null>(null);
+
+  const [punishment, setPunishment] = useState<PunishmentState>({
+    isActive: false,
+    punishedPackages: [],
+  });
+
+  // Sync Study Detention state from native
+  useEffect(() => {
+    const fetchPunishment = async () => {
+      const p = await getNativePunishmentStatus();
+      if (p) {
+        setPunishment(p);
+      }
+    };
+    fetchPunishment();
+    const timer = setInterval(fetchPunishment, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Global Permission Checking (on mount and on resume)
   useEffect(() => {
@@ -511,30 +529,69 @@ export default function App() {
     // Add failed session to completedHomeworks log
     const activeSchedule = (settings.schedules || []).find(s => s.id === activeScheduleId);
     if (activeSchedule) {
-      setCompletedHomeworks(prev => [{
-        id: crypto.randomUUID(),
-        title: activeSchedule.title || 'Untitled Session',
-        homeworkContent: activeSchedule.homeworkContent || '',
-        rubricContent: activeSchedule.rubricContent || '',
-        transcribedText: '(No submission — timer expired)',
-        feedback: skipped ? 'Lock session was skipped in test mode.' : 'Session failed: Timer expired before homework was submitted and passed.',
-        passed: false,
-        timestamp: Date.now(),
-        durationMinutes: activeSchedule.durationMinutes,
-        selectedResourceIds: activeSchedule.selectedResourceIds,
-      }, ...prev]);
+      setCompletedHomeworks(prev => {
+        // Prevent duplicate logs within 15 seconds for the same schedule
+        const isDuplicate = prev.some(item => 
+          item.title === (activeSchedule.title || 'Untitled Session') &&
+          !item.passed &&
+          Math.abs(Date.now() - item.timestamp) < 15000
+        );
+        if (isDuplicate) return prev;
+
+        return [{
+          id: crypto.randomUUID(),
+          title: activeSchedule.title || 'Untitled Session',
+          homeworkContent: activeSchedule.homeworkContent || '',
+          rubricContent: activeSchedule.rubricContent || '',
+          transcribedText: '(No submission — timer expired)',
+          feedback: skipped ? 'Lock session was skipped in test mode.' : 'Session failed: Timer expired before homework was submitted and passed.',
+          passed: false,
+          timestamp: Date.now(),
+          durationMinutes: activeSchedule.durationMinutes,
+          selectedResourceIds: activeSchedule.selectedResourceIds,
+          activationTime: activeSchedule.activationTime,
+        }, ...prev];
+      });
+
+      // Activate Study Detention if expired without passing (and not in test skip mode)
+      if (!skipped) {
+        activateNativePunishment(activeSchedule.id, activeSchedule.title).then(res => {
+          if (res) {
+            setPunishment({
+              isActive: true,
+              scheduleId: activeSchedule.id,
+              scheduleTitle: activeSchedule.title,
+              punishedPackages: res.punishedPackages,
+              timestamp: Date.now(),
+            });
+          }
+        });
+        notifyUser(`⚠️ Study Detention Active: 10 apps and Settings locked until you reschedule & pass "${activeSchedule.title || 'Homework'}"!`);
+      }
     }
 
     if (activeScheduleId) {
+      const updatedSchedules = skipped
+        ? (settings.schedules || []).filter(s => s.id !== activeScheduleId)
+        : (settings.schedules || []).map(s => s.id === activeScheduleId ? { ...s, isActive: false } : s);
+
       setSettings(prev => ({
         ...prev,
-        schedules: skipped
-          ? (prev.schedules || []).filter(s => s.id !== activeScheduleId)
-          : (prev.schedules || []).map(s => s.id === activeScheduleId ? { ...s, isActive: false } : s)
+        schedules: updatedSchedules
       }));
+
+      const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+      syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
+
+      localStorage.removeItem(`lockscreen_data_${activeScheduleId}`);
+      localStorage.removeItem('lockscreen_last_draft');
     }
+
+    setActiveScheduleId(null);
+    setLockEndTime(null);
+    setLockPauseTime(null);
     navigate('dashboard', 'backward');
-  }, [activeScheduleId, settings.schedules]);
+  }, [activeScheduleId, settings.schedules, settings.allowedApps]);
 
   const handleCompleteOnboarding = async (role: 'student' | 'teacher' | 'just a guy') => {
     let initialAllowed = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
@@ -640,9 +697,25 @@ export default function App() {
         timestamp: Date.now(),
         durationMinutes: activeSchedule?.durationMinutes,
         selectedResourceIds: activeSchedule?.selectedResourceIds,
+        activationTime: activeSchedule?.activationTime,
       }, ...prev]);
 
       if (data.passed) {
+        // Clear Study Detention if this session was scheduled to resolve it or matches active punishment
+        const resolvesDetention = 
+          (activeSchedule?.resolvesPunishmentFor && activeSchedule.resolvesPunishmentFor === punishment?.scheduleId) ||
+          (punishment?.isActive && (
+            punishment.scheduleId === scheduleId ||
+            punishment.scheduleTitle === (activeSchedule?.title || '') ||
+            !punishment.scheduleId
+          ));
+
+        if (resolvesDetention) {
+          clearNativePunishment();
+          setPunishment({ isActive: false, punishedPackages: [] });
+          notifyUser('🎉 Study Detention Cleared! All 10 apps and Settings have been restored.');
+        }
+
         // Auto-Harvesting Logic
         if (activeSchedule?.selectedResourceIds?.includes('ai-general-knowledge')) {
           const textToHarvest = activeSchedule.aiAnswer || transcribedText || data.transcribedText;
@@ -770,6 +843,7 @@ export default function App() {
               onSettingsChange={(updates) => setSettings(prev => ({ ...prev, ...updates }))}
               onResourceEditStateChange={setIsResourceEditing} 
               settings={settings}
+              punishment={punishment}
               timeUntilLock={timeUntilLock}
               nextActivationDate={nextActivationDate}
               onCreateSchedule={() => navigate('create_schedule')}
@@ -908,6 +982,7 @@ export default function App() {
               <HomeworksPage 
                 homeworks={completedHomeworks}
                 schedules={settings.schedules || []}
+                punishment={punishment}
                 onBack={() => navigate('dashboard', 'backward')}
                 onClear={() => setCompletedHomeworks([])}
                 onReschedule={(updatedSchedules) => {

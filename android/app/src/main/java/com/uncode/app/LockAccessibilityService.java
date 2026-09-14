@@ -602,6 +602,22 @@ public class LockAccessibilityService extends AccessibilityService {
 
         // ── Native Timestamp Self-Healing ──
         if (isLockdownActive && lockEndTime > 0 && effectiveNow >= lockEndTime) {
+            String activeSchedId = prefs.getString("active_schedule_id", "");
+            String schedTitle = "Homework Session";
+            try {
+                String schedulesJson = prefs.getString("schedules_json", null);
+                if (schedulesJson != null) {
+                    JSONArray arr = new JSONArray(schedulesJson);
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject s = arr.getJSONObject(i);
+                        if (s.optString("id", "").equals(activeSchedId)) {
+                            schedTitle = s.optString("title", "Homework Session");
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+
             isLockdownActive = false;
             prefs.edit()
                     .putBoolean("lockdown_active", false)
@@ -609,22 +625,15 @@ public class LockAccessibilityService extends AccessibilityService {
                     .remove("active_schedule_id")
                     .apply();
             AlarmReceiver.cancelLockEndAlarm(this);
-            AlarmReceiver.createNotificationChannels(this);
-            AlarmReceiver.showNotificationStatic(
-                    this,
-                    AlarmReceiver.NOTIF_ID_COMPLETED,
-                    AlarmReceiver.CHANNEL_ID_ALERTS,
-                    "🎉 Study Session Complete!",
-                    "Great work! Your lock timer expired and all apps are now unlocked.",
-                    Notification.PRIORITY_HIGH,
-                    false
-            );
             android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) {
                 nm.cancel(AlarmReceiver.NOTIF_ID_STATUS);
             }
             FloatingOverlayService.stopService(this);
-            Log.i(TAG, "Lockdown expired by effective clock (" + lockEndTime + ") — auto-released natively with completion notification");
+            Log.i(TAG, "Lockdown expired by effective clock (" + lockEndTime + ") — engaging Study Detention");
+
+            // Activate lasting punishment / detention!
+            PunishmentManager.activatePunishment(this, activeSchedId, schedTitle);
         }
 
         // ── Native Failsafe Check: Is there an active scheduled window right now? ──
@@ -632,7 +641,16 @@ public class LockAccessibilityService extends AccessibilityService {
             isLockdownActive = checkAndAutoStartScheduledLock(prefs);
         }
 
-        if (!isLockdownActive) return;
+        if (!isLockdownActive) {
+            // ── Study Detention Active Check ──
+            if (pkgChar != null && PunishmentManager.isPunishmentActive(this)) {
+                String pkg = pkgChar.toString();
+                if (PunishmentManager.isPackagePunished(this, pkg)) {
+                    enforcePunishmentBlock(pkg);
+                }
+            }
+            return;
+        }
 
         if (pkgChar == null) return;
         String pkg = pkgChar.toString();
@@ -690,24 +708,33 @@ public class LockAccessibilityService extends AccessibilityService {
 
         // 1. Check if lockdown timer has expired
         if (isLockdownActive && lockEndTime > 0 && effectiveNow >= lockEndTime) {
-            Log.i(TAG, "Ticker: lockdown timer expired (effectiveNow=" + effectiveNow + " >= " + lockEndTime + ")");
+            Log.i(TAG, "Ticker: lockdown timer expired (effectiveNow=" + effectiveNow + " >= " + lockEndTime + ") — engaging Study Detention");
+            String activeSchedId = prefs.getString("active_schedule_id", "");
+            String schedTitle = "Homework Session";
+            try {
+                String schedulesJson = prefs.getString("schedules_json", null);
+                if (schedulesJson != null) {
+                    JSONArray arr = new JSONArray(schedulesJson);
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject s = arr.getJSONObject(i);
+                        if (s.optString("id", "").equals(activeSchedId)) {
+                            schedTitle = s.optString("title", "Homework Session");
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+
             prefs.edit()
                     .putBoolean("lockdown_active", false)
                     .remove("lock_end_time")
                     .remove("active_schedule_id")
                     .apply();
             AlarmReceiver.cancelLockEndAlarm(this);
-            AlarmReceiver.createNotificationChannels(this);
-            AlarmReceiver.showNotificationStatic(
-                    this,
-                    AlarmReceiver.NOTIF_ID_COMPLETED,
-                    AlarmReceiver.CHANNEL_ID_ALERTS,
-                    "🎉 Study Session Complete!",
-                    "Great work! Your lock timer expired and all apps are now unlocked.",
-                    Notification.PRIORITY_HIGH,
-                    false
-            );
             isLockdownActive = false;
+
+            // Activate lasting punishment / detention!
+            PunishmentManager.activatePunishment(this, activeSchedId, schedTitle);
         }
 
         // 1b. Check active lockdown countdown warnings
@@ -811,6 +838,11 @@ public class LockAccessibilityService extends AccessibilityService {
             if (currentForegroundPkg != null && isPackageBlocked(currentForegroundPkg)) {
                 enforceBlock(currentForegroundPkg);
             }
+        } else if (PunishmentManager.isPunishmentActive(this)) {
+            String currentForegroundPkg = detectCurrentForegroundPackage();
+            if (currentForegroundPkg != null && PunishmentManager.isPackagePunished(this, currentForegroundPkg)) {
+                enforcePunishmentBlock(currentForegroundPkg);
+            }
         }
     }
 
@@ -904,6 +936,29 @@ public class LockAccessibilityService extends AccessibilityService {
         } else {
             goHome();
         }
+    }
+
+    private long lastPunishBlockTimestamp = 0L;
+
+    public void enforcePunishmentBlock(String pkg) {
+        long now = System.currentTimeMillis();
+        if (now - lastPunishBlockTimestamp < 1200L) {
+            return; // Debounce rapid events
+        }
+        lastPunishBlockTimestamp = now;
+
+        Log.w(TAG, "enforcePunishmentBlock on: " + pkg + " — Study Detention is active!");
+        goHome();
+
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                android.widget.Toast.makeText(
+                    getApplicationContext(),
+                    "🔒 Study Detention: This app is locked until you reschedule and pass your failed homework in UNCODE!",
+                    android.widget.Toast.LENGTH_LONG
+                ).show();
+            } catch (Exception ignore) {}
+        });
     }
 
     public void onScheduleStartTriggered() {

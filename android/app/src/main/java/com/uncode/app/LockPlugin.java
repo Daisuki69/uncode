@@ -259,6 +259,54 @@ public class LockPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void activatePunishment(PluginCall call) {
+        try {
+            String scheduleId = call.getString("scheduleId", "");
+            String scheduleTitle = call.getString("scheduleTitle", "Homework Session");
+            Set<String> punished = PunishmentManager.activatePunishment(getActivity(), scheduleId, scheduleTitle);
+
+            JSObject ret = new JSObject();
+            ret.put("isPunishmentActive", true);
+            ret.put("scheduleId", scheduleId);
+            ret.put("scheduleTitle", scheduleTitle);
+            JSArray arr = new JSArray();
+            for (String p : punished) {
+                arr.put(p);
+            }
+            ret.put("punishedPackages", arr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "activatePunishment failed", e);
+            call.reject("activatePunishment failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void clearPunishment(PluginCall call) {
+        try {
+            PunishmentManager.clearPunishment(getActivity());
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "clearPunishment failed", e);
+            call.reject("clearPunishment failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getPunishmentStatus(PluginCall call) {
+        try {
+            JSONObject details = PunishmentManager.getPunishmentDetails(getActivity());
+            JSObject ret = JSObject.fromJSONObject(details);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "getPunishmentStatus failed", e);
+            call.reject("getPunishmentStatus failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void syncTimeOffset(PluginCall call) {
         try {
             Long timeOffset = getLongFromCall(call, "timeOffset");

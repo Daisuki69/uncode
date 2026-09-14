@@ -20,6 +20,7 @@ export interface ScheduleData {
   isActive: boolean;
   userDraft?: string;
   aiAnswer?: string;
+  resolvesPunishmentFor?: string;
 }
 
 export interface AllowedApp {
@@ -37,6 +38,22 @@ export interface AllowedApp {
   isAi?: boolean;
 }
 
+export interface PunishedAppDetail {
+  id: string;
+  name: string;
+  iconName?: string;
+  iconBase64?: string;
+}
+
+export interface PunishmentState {
+  isActive: boolean;
+  scheduleId?: string;
+  scheduleTitle?: string;
+  timestamp?: number;
+  punishedPackages: string[];
+  punishedAppDetails?: PunishedAppDetail[];
+}
+
 export interface AppSettings {
   onboardingComplete: boolean;
   role: 'student' | 'teacher' | 'just a guy';
@@ -51,6 +68,7 @@ export interface AppSettings {
   uiWidth?: string;
   allowedApps?: AllowedApp[];
   allowedAppsInitialized?: boolean;
+  punishment?: PunishmentState;
 }
 
 export interface EvaluationResult {
@@ -79,6 +97,7 @@ export interface CompletedHomework {
   timestamp: number;
   durationMinutes?: number;
   selectedResourceIds?: string[];
+  activationTime?: string;
 }
 
 declare global {

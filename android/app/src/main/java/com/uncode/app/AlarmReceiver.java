@@ -194,7 +194,23 @@ public class AlarmReceiver extends BroadcastReceiver {
     }
 
     private void handleLockEnd(Context context, Intent intent, SharedPreferences prefs) {
-        Log.i(TAG, "Lockdown session ended by alarm — releasing apps");
+        Log.i(TAG, "Lockdown session ended by alarm — engaging Study Detention");
+
+        String activeScheduleId = prefs.getString("active_schedule_id", "");
+        String scheduleTitle = "Homework Session";
+        try {
+            String schedulesJson = prefs.getString("schedules_json", null);
+            if (schedulesJson != null) {
+                org.json.JSONArray arr = new org.json.JSONArray(schedulesJson);
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONObject s = arr.getJSONObject(i);
+                    if (s.optString("id", "").equals(activeScheduleId)) {
+                        scheduleTitle = s.optString("title", "Homework Session");
+                        break;
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
 
         prefs.edit()
                 .putBoolean("lockdown_active", false)
@@ -210,15 +226,8 @@ public class AlarmReceiver extends BroadcastReceiver {
         // Stop Floating Assistive Timer Ball Overlay
         FloatingOverlayService.stopService(context);
 
-        showNotification(
-                context,
-                NOTIF_ID_COMPLETED,
-                CHANNEL_ID_ALERTS,
-                "🎉 Study Session Complete!",
-                "Great work! Your lock timer expired and all apps are now unlocked.",
-                Notification.PRIORITY_HIGH,
-                false
-        );
+        // Engage Study Detention!
+        PunishmentManager.activatePunishment(context, activeScheduleId, scheduleTitle);
     }
 
     private void handleScheduleWarning(Context context, Intent intent) {

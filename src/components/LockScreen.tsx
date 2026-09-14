@@ -163,6 +163,8 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
     }
   };
 
+  const hasTimedOutRef = useRef(false);
+
   useEffect(() => {
     let effectiveEndTime = lockEndTime;
     const initialNow = getCurrentTime();
@@ -171,6 +173,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
       effectiveEndTime = initialNow + maxAllowedSec * 1000;
     }
 
+    let timer: any = null;
     const update = () => {
       const now = getCurrentTime();
       const rawRemaining = Math.max(0, Math.floor((effectiveEndTime - now) / 1000));
@@ -178,14 +181,19 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
       setTimeLeft(prev => (prev !== remaining ? remaining : prev));
       
       if (remaining === 0) {
+        if (hasTimedOutRef.current) return;
+        hasTimedOutRef.current = true;
+        if (timer) clearInterval(timer);
         endLockdown(); // Instantly release kiosk mode / lock task mode
         // Retain draft in lockscreen_last_draft so student can re-lock and submit without losing work
         onTimeout();
       }
     };
     update();
-    const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
+    timer = setInterval(update, 1000);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [lockEndTime, onTimeout, getCurrentTime, schedule.id, schedule.durationMinutes]);
 
   const formatTime = (seconds: number) => {
