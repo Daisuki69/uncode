@@ -9,7 +9,7 @@ interface ValidateHomeworkOptions {
   customPrompts?: Record<string, string>;
 }
 
-export async function validateHomework(opts: ValidateHomeworkOptions): Promise<{ valid: boolean; reason: string }> {
+export async function validateHomework(opts: ValidateHomeworkOptions): Promise<{ valid: boolean; reason: string; isCaseStudy?: boolean }> {
   const { content, resourcesText, apiKey, apiModel, customPrompts } = opts;
 
   if (!apiKey || !apiKey.trim()) {

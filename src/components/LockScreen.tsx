@@ -111,10 +111,23 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
   const [isGeneratingAnswer, setIsGeneratingAnswer] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [showAnswerPopup, setShowAnswerPopup] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>('auto');
 
-  const handleGetAnswer = async (force = false) => {
+  useEffect(() => {
+    const handleBack = (e: Event) => {
+      if (showAnswerPopup) {
+        e.preventDefault();
+        setShowAnswerPopup(false);
+      }
+    };
+    window.addEventListener('qiezka-back-press', handleBack);
+    return () => window.removeEventListener('qiezka-back-press', handleBack);
+  }, [showAnswerPopup]);
+
+  const handleGetAnswer = async (force = false, categoryOverride?: string) => {
     setShowAnswerPopup(true);
-    if (aiAnswer && !force) return;
+    const effectiveCategory = categoryOverride !== undefined ? categoryOverride : selectedCategory;
+    if (aiAnswer && !force && effectiveCategory === selectedCategory) return;
 
     setIsGeneratingAnswer(true);
     setShowAnswerPopup(true);
@@ -134,6 +147,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
         apiModel: settings.apiModel || 'gemini-2.0-flash',
         customPrompts: settings.prompts,
         isGeneralKnowledge: hasGeneralKnowledge,
+        category: effectiveCategory,
       });
 
       if (answer) {
@@ -150,10 +164,16 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
   };
 
   useEffect(() => {
+    let effectiveEndTime = lockEndTime;
+    const initialNow = getCurrentTime();
+    const maxAllowedSec = (schedule.durationMinutes || 25) * 60;
+    if (effectiveEndTime > initialNow + maxAllowedSec * 1000) {
+      effectiveEndTime = initialNow + maxAllowedSec * 1000;
+    }
+
     const update = () => {
       const now = getCurrentTime();
-      const maxAllowedSec = (schedule.durationMinutes || 25) * 60;
-      const rawRemaining = Math.max(0, Math.floor((lockEndTime - now) / 1000));
+      const rawRemaining = Math.max(0, Math.floor((effectiveEndTime - now) / 1000));
       const remaining = Math.min(maxAllowedSec, rawRemaining);
       setTimeLeft(prev => (prev !== remaining ? remaining : prev));
       
@@ -248,10 +268,23 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
       </div>
 
       <div className="max-w-3xl w-full flex flex-col items-center relative">
-        <div className="absolute top-0 right-0 flex gap-2">
+        <div className="absolute top-0 right-0 flex items-center gap-2">
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="bg-gray-900 border border-gray-700 text-indigo-300 text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-xs"
+            title="Homework Format Category"
+          >
+            <option value="auto">Auto Category</option>
+            <option value="reflection">Reflection / Essay</option>
+            <option value="coding">Coding / CS Task</option>
+            <option value="math">Math / Physics</option>
+            <option value="case_study">Case Study</option>
+            <option value="worksheets">Worksheets / Q&A</option>
+          </select>
           <button 
             onClick={() => handleGetAnswer(false)}
-            className="px-4 py-2 bg-indigo-900 hover:bg-indigo-800 text-xs text-indigo-300 font-bold rounded-lg transition-colors flex items-center"
+            className="px-4 py-2 bg-indigo-900 hover:bg-indigo-800 text-xs text-indigo-300 font-bold rounded-lg transition-colors flex items-center shadow-xs"
           >
             <Sparkles className="w-3 h-3 mr-2" />
             Get AI Answer
@@ -581,6 +614,35 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
               </h2>
               <button onClick={() => setShowAnswerPopup(false)} className="text-gray-400 hover:text-white transition-colors">
                 <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="px-6 py-3 bg-gray-950/60 border-b border-gray-800/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Format Category:</span>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => {
+                    const newCat = e.target.value;
+                    setSelectedCategory(newCat);
+                    handleGetAnswer(true, newCat);
+                  }}
+                  className="bg-gray-900 text-xs text-indigo-300 font-semibold px-3 py-1.5 rounded-lg border border-gray-700 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="auto">Auto-Detect (AI Decides)</option>
+                  <option value="reflection">Reflection / Personal Essay</option>
+                  <option value="coding">Coding / Computer Science Task</option>
+                  <option value="math">Math / Physics / Engineering</option>
+                  <option value="case_study">Case Study / Technical Analysis</option>
+                  <option value="worksheets">Standard Q&A / Worksheets</option>
+                </select>
+              </div>
+              <button 
+                onClick={() => handleGetAnswer(true)}
+                disabled={isGeneratingAnswer}
+                className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCcw className={`w-3 h-3 ${isGeneratingAnswer ? 'animate-spin' : ''}`} />
+                Regenerate
               </button>
             </div>
             <div className="p-6 overflow-y-auto font-mono text-sm leading-relaxed text-gray-300">

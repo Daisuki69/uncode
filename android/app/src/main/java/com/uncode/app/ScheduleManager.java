@@ -111,8 +111,21 @@ public final class ScheduleManager {
 
             // Check if currently inside today's active window!
             if (effectiveNow >= targetStartSim && effectiveNow < targetEndSim) {
-                Log.i(TAG, "Schedule " + id + " is active RIGHT NOW! Triggering lockdown immediately.");
-                AlarmReceiver.triggerScheduleStartDirectly(context, s, targetEndSim);
+                long lastCompletedEnd = prefs.getLong("last_completed_window_end_" + id, 0L);
+                if (targetEndSim <= lastCompletedEnd) {
+                    Log.i(TAG, "Schedule " + id + " window already completed for today. Scheduling for tomorrow.");
+                    target.add(Calendar.DAY_OF_YEAR, 1);
+                    targetStartSim = target.getTimeInMillis();
+                    long realTriggerStartMs = targetStartSim - timeOffset;
+                    int baseCode = Math.abs(id.hashCode()) % 100000;
+                    int startCode = baseCode * 10 + 0;
+                    scheduleExact(context, am, realTriggerStartMs, startCode, AlarmReceiver.ACTION_SCHEDULE_START, id, title, durationMinutes, null);
+                    activeAlarmCodes.add(String.valueOf(startCode));
+                    return;
+                }
+                long safeEnd = Math.min(targetEndSim, effectiveNow + durationMs);
+                Log.i(TAG, "Schedule " + id + " is active RIGHT NOW! Triggering lockdown immediately (safeEnd=" + safeEnd + ").");
+                AlarmReceiver.triggerScheduleStartDirectly(context, s, safeEnd);
                 return;
             }
 
@@ -194,19 +207,29 @@ public final class ScheduleManager {
             SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             Set<String> codes = prefs.getStringSet("scheduled_alarm_codes", null);
             if (codes != null) {
-                int flags = PendingIntent.FLAG_NO_CREATE;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    flags |= PendingIntent.FLAG_IMMUTABLE;
-                }
+                String[] actions = new String[]{
+                    AlarmReceiver.ACTION_SCHEDULE_START,
+                    AlarmReceiver.ACTION_SCHEDULE_WARNING,
+                    null
+                };
 
                 for (String codeStr : codes) {
                     try {
                         int code = Integer.parseInt(codeStr);
-                        Intent intent = new Intent(context, AlarmReceiver.class);
-                        PendingIntent pi = PendingIntent.getBroadcast(context, code, intent, flags);
-                        if (pi != null) {
-                            am.cancel(pi);
-                            pi.cancel();
+                        for (String action : actions) {
+                            Intent intent = new Intent(context, AlarmReceiver.class);
+                            if (action != null) {
+                                intent.setAction(action);
+                            }
+                            int pFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                pFlags |= PendingIntent.FLAG_IMMUTABLE;
+                            }
+                            PendingIntent pi = PendingIntent.getBroadcast(context, code, intent, pFlags);
+                            if (pi != null) {
+                                am.cancel(pi);
+                                pi.cancel();
+                            }
                         }
                     } catch (Exception ignore) {}
                 }

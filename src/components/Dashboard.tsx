@@ -15,8 +15,8 @@ interface DashboardProps {
   onOpenSettings: () => void;
   showError: (msg: string) => void;
   resources: SavedResource[];
-  onAddResource: (title: string, content: string) => void;
-  onUpdateResource: (id: string, title: string, content: string) => void;
+  onAddResource: (title: string, content: string, type?: 'lecture_notes' | 'case_study') => void;
+  onUpdateResource: (id: string, title: string, content: string, type?: 'lecture_notes' | 'case_study') => void;
   onRemoveResource: (id: string) => void;
   onCombineResources: (id1: string, id2: string) => void;
   onViewRubric: (schedule: ScheduleData) => void;
@@ -107,6 +107,33 @@ export function Dashboard({
   const [ocrType, setOcrType] = useState<'simple' | 'formatted'>(settings.defaultOcrType || 'simple');
   const [isDecluttering, setIsDecluttering] = useState(false);
   const [viewingHomeworkSchedule, setViewingHomeworkSchedule] = useState<ScheduleData | null>(null);
+
+  useEffect(() => {
+    const handleBack = (e: Event) => {
+      if (isAppSelectorOpen) {
+        e.preventDefault();
+        setIsAppSelectorOpen(false);
+        return;
+      }
+      if (viewingHomeworkSchedule) {
+        e.preventDefault();
+        setViewingHomeworkSchedule(null);
+        return;
+      }
+      if (editingResource) {
+        e.preventDefault();
+        setEditingResource(null);
+        return;
+      }
+      if (mergingResource) {
+        e.preventDefault();
+        setMergingResource(null);
+        return;
+      }
+    };
+    window.addEventListener('qiezka-back-press', handleBack);
+    return () => window.removeEventListener('qiezka-back-press', handleBack);
+  }, [isAppSelectorOpen, viewingHomeworkSchedule, editingResource, mergingResource]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -124,8 +151,11 @@ export function Dashboard({
   }, [editingResource, onResourceEditStateChange]);
 
 
-  const openNewResource = () => {
+  const [resourceType, setResourceType] = useState<'lecture_notes' | 'case_study'>('lecture_notes');
+
+  const openNewResource = (type: 'lecture_notes' | 'case_study' = 'lecture_notes') => {
     setNavDirection('forward');
+    setResourceType(type);
     setEditingResource('new');
     setNewResTitle('');
     setNewResContent('');
@@ -133,6 +163,7 @@ export function Dashboard({
 
   const openEditResource = (res: SavedResource) => {
     setNavDirection('forward');
+    setResourceType(res.type || 'lecture_notes');
     setEditingResource(res);
     setNewResTitle(res.title);
     setNewResContent(res.content);
@@ -155,6 +186,7 @@ export function Dashboard({
           content: newResContent,
           apiKey: settings.apiKey,
           apiModel: settings.apiModel || 'gemini-2.0-flash',
+          resourceType,
           customPrompts: settings.prompts,
         });
         if (!newResTitle.trim() && data.title) finalTitle = data.title;
@@ -175,9 +207,9 @@ export function Dashboard({
     }
 
     if (editingResource === 'new') {
-      onAddResource(finalTitle || 'Untitled Resource', finalContent);
+      onAddResource(finalTitle || 'Untitled Resource', finalContent, resourceType);
     } else if (editingResource) {
-      onUpdateResource(editingResource.id, finalTitle || 'Untitled Resource', finalContent);
+      onUpdateResource(editingResource.id, finalTitle || 'Untitled Resource', finalContent, resourceType);
     }
     { setNavDirection('backward'); setEditingResource(null); };
   };
@@ -254,7 +286,11 @@ export function Dashboard({
           >
         <div className="flex justify-between items-center mb-8">
           <h2 className="text-3xl font-black text-gray-900">
-            {editingResource === 'new' ? 'Add New Resource' : isCurrentResourceLocked ? 'View Resource (Locked)' : 'Edit Resource'}
+            {editingResource === 'new' 
+              ? (resourceType === 'case_study' ? 'Add Case Study / Article' : 'Add New Resource') 
+              : isCurrentResourceLocked 
+                ? 'View Resource (Locked)' 
+                : (resourceType === 'case_study' ? 'Edit Case Study / Article' : 'Edit Resource')}
           </h2>
           <button onClick={() => { setNavDirection('backward'); setEditingResource(null); }} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
             <X className="w-6 h-6 text-gray-500" />
@@ -310,7 +346,7 @@ export function Dashboard({
               onChange={(e) => setNewResTitle(e.target.value)}
               disabled={isCurrentResourceLocked}
               className={`w-full p-4 rounded-xl border border-gray-300 focus:ring-2 focus:ring-gray-900 bg-gray-50 text-lg font-medium ${isCurrentResourceLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
-              placeholder="E.g., Chapter 4: Memory Management"
+              placeholder={resourceType === 'case_study' ? "E.g., 2024 CrowdStrike Outage / Documentary: The Social Dilemma" : "E.g., Chapter 4: Memory Management"}
             />
           </div>
 
@@ -370,7 +406,7 @@ export function Dashboard({
                   {isDecluttering ? (
                     <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
                   ) : (
-                    <><Sparkles className="w-5 h-5 mr-2" /> Save & Clean Up</>
+                    <><Sparkles className="w-5 h-5 mr-2" /> {resourceType === 'case_study' ? 'Save & Clean Up Article' : 'Save & Clean Up'}</>
                   )}
                 </button>
               )}
@@ -686,31 +722,34 @@ export function Dashboard({
         </div>
       )}
 
-      {/* Persistent Resource Library */}
+      {/* Persistent Course Resource Library */}
       <div className="mt-8 bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-900 flex items-center">
-            <BookOpen className="w-6 h-6 mr-2 text-gray-500" />
-            Saved Resource Library
-          </h2>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 flex items-center">
+              <BookOpen className="w-6 h-6 mr-2 text-gray-500" />
+              Saved Course Resources
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">Syllabuses, lecture notes, and textbook excerpts.</p>
+          </div>
           <button
-            onClick={openNewResource}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors flex items-center"
+            onClick={() => openNewResource('lecture_notes')}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors flex items-center text-sm"
           >
             <Plus className="w-4 h-4 mr-2" />
             Add Resource
           </button>
         </div>
 
-        {resources.length === 0 ? (
+        {resources.filter(r => r.type !== 'case_study').length === 0 ? (
           <div className="flex flex-col items-center justify-center text-gray-400 p-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
             <BookOpen className="w-12 h-12 mb-4 opacity-20" />
-            <p className="font-bold text-gray-500 mb-1">Your library is empty</p>
-            <p className="text-sm">Save syllabuses or reading materials here to quickly use them in schedules.</p>
+            <p className="font-bold text-gray-500 mb-1">Your course library is empty</p>
+            <p className="text-sm">Save lecture notes or textbooks here to use them in schedules.</p>
           </div>
         ) : (
           <div className="flex flex-col space-y-3 max-h-[300px] overflow-y-auto pr-2">
-            {resources.map((res) => {
+            {resources.filter(r => r.type !== 'case_study').map((res) => {
               const isLocked = settings.schedules.some(s => s.isActive && (s.selectedResourceIds || []).includes(res.id));
               return (
               <div 
@@ -725,6 +764,60 @@ export function Dashboard({
                   <h3 className={`font-bold text-base ${isLocked ? 'text-gray-500' : 'text-gray-900'}`}>{res.title}</h3>
                 </div>
                 {isLocked && <div className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100 uppercase tracking-wider flex items-center"><ShieldAlert className="w-3 h-3 mr-1" /> Locked (View Only)</div>}
+              </div>
+            )})}
+          </div>
+        )}
+      </div>
+
+      {/* Case Studies & Articles Library */}
+      <div className="mt-8 bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 flex items-center">
+              <FileText className="w-6 h-6 mr-2 text-indigo-600" />
+              Case Studies & Articles
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">News reports, documentaries, movies, and journal articles for milestone analysis.</p>
+          </div>
+          <button
+            onClick={() => openNewResource('case_study')}
+            className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl transition-colors flex items-center text-sm cursor-pointer"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Case Study
+          </button>
+        </div>
+
+        {resources.filter(r => r.type === 'case_study').length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-gray-400 p-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+            <FileText className="w-12 h-12 mb-4 opacity-20 text-indigo-600" />
+            <p className="font-bold text-gray-500 mb-1">No case studies or articles yet</p>
+            <p className="text-sm">Save external articles, documentaries, or news reports here. They will be cleaned using Article Declutter.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col space-y-3 max-h-[300px] overflow-y-auto pr-2">
+            {resources.filter(r => r.type === 'case_study').map((res) => {
+              const isLocked = settings.schedules.some(s => s.isActive && (s.selectedResourceIds || []).includes(res.id));
+              return (
+              <div 
+                key={res.id} 
+                onClick={() => {
+                  openEditResource(res);
+                }}
+                className={`group p-4 bg-white border border-gray-200 rounded-xl transition-all shadow-sm flex items-center justify-between text-left w-full cursor-pointer ${isLocked ? 'hover:border-red-300' : 'hover:border-indigo-600'}`}
+              >
+                <div className="flex items-center min-w-0 pr-4">
+                  <FileText className={`w-5 h-5 flex-shrink-0 mr-3 transition-colors ${isLocked ? 'text-gray-300' : 'text-indigo-400 group-hover:text-indigo-600'}`} />
+                  <div className="min-w-0">
+                    <h3 className={`font-bold text-base truncate ${isLocked ? 'text-gray-500' : 'text-gray-900'}`}>{res.title}</h3>
+                    <p className="text-xs text-gray-400 line-clamp-1 mt-0.5">{res.content.slice(0, 100)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 uppercase tracking-wider">Case Study</span>
+                  {isLocked && <div className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100 uppercase tracking-wider flex items-center"><ShieldAlert className="w-3 h-3 mr-1" /> Locked</div>}
+                </div>
               </div>
             )})}
           </div>

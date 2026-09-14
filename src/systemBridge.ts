@@ -35,11 +35,19 @@ interface LockPluginInterface {
     lockEndTime: number;
     activeScheduleId?: string;
   }>;
+  exitToHome(): Promise<void>;
+  showToast(options: { message: string }): Promise<void>;
 }
 
 // Register the native plugin - falls back gracefully in browser/dev mode
 const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
   web: {
+    exitToHome: async () => {
+      console.log('[Dev] Simulating exitToHome');
+    },
+    showToast: async ({ message }: { message: string }) => {
+      console.log('[Dev] Toast:', message);
+    },
     startLockdown: async (opts: { allowedAppIds: string[]; durationMinutes?: number; lockEndTime?: number; scheduleId?: string }) => {
       console.log('[Dev] Simulating lockdown with:', opts);
     },
@@ -230,4 +238,24 @@ export const getLockStatus = async (): Promise<{
 
 export const exportBackup = async (tempFileName: string, defaultName: string): Promise<void> => {
   await LockPlugin.exportBackup({ tempFileName, defaultName });
+};
+
+export const exitToHome = async (): Promise<void> => {
+  try {
+    await LockPlugin.exitToHome();
+  } catch (e) {
+    console.error('exitToHome failed', e);
+  }
+};
+
+export const showToast = async (message: string): Promise<void> => {
+  try {
+    await LockPlugin.showToast({ message });
+  } catch (e) {
+    console.log('[Toast fallback]', message);
+  }
+};
+
+export const addBackListener = async (callback: () => void) => {
+  return await LockPlugin.addListener('backPressed', callback);
 };

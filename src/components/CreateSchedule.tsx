@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Loader2, Sparkles, Pencil, ArrowRight, Clock, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Upload, Loader2, Sparkles, Pencil, ArrowRight, ArrowLeft, X, Clock, AlertTriangle, ShieldAlert, ShieldCheck, FileText, Check, Plus } from 'lucide-react';
 import { ScheduleData, SavedResource } from '../types';
 import { parseResource } from '../api/parseResource';
 import { buildRubric } from '../api/buildRubric';
@@ -15,11 +15,12 @@ interface CreateScheduleProps {
   settings: any;
   addLog: (action: string, details?: string) => void;
   onSave: (schedule: ScheduleData) => void;
+  onAddResource?: (title: string, content: string, type?: 'lecture_notes' | 'case_study') => SavedResource;
   onCancel: () => void;
   showError: (msg: string) => void;
 }
 
-export function CreateSchedule({ role, resources, apiKey, apiModel, existingSchedules, settings, addLog, onSave, onCancel, showError }: CreateScheduleProps) {
+export function CreateSchedule({ role, resources, apiKey, apiModel, existingSchedules, settings, addLog, onSave, onAddResource, onCancel, showError }: CreateScheduleProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [scheduleTitle, setScheduleTitle] = useState(() => localStorage.getItem('draft_scheduleTitle') || 'Homework Session');
@@ -45,9 +46,98 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
   const [isRefiningRubric, setIsRefiningRubric] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [aiAdvice, setAiAdvice] = useState<{ open: boolean; reason: string } | null>(null);
   const [activePopup, setActivePopup] = useState<'none' | 'user'>('none');
   const [tempRubric, setTempRubric] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isCaseStudyDetected, setIsCaseStudyDetected] = useState(false);
+  const [showAddCaseStudyModal, setShowAddCaseStudyModal] = useState(false);
+  const [inlineCaseTitle, setInlineCaseTitle] = useState('');
+  const [inlineCaseContent, setInlineCaseContent] = useState('');
+  const [isDeclutteringCase, setIsDeclutteringCase] = useState(false);
+  const [isParsingCaseFile, setIsParsingCaseFile] = useState(false);
+  const caseFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCaseFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      showError('File is too large. Please upload a file smaller than 25MB.');
+      if (caseFileInputRef.current) caseFileInputRef.current.value = '';
+      return;
+    }
+
+    setIsParsingCaseFile(true);
+    try {
+      const data = await parseResource({
+        file,
+        type: 'transcription',
+        apiKey: apiKey || '',
+        apiModel: apiModel || 'gemini-2.0-flash',
+        ocrType,
+        simpleOcrKey: settings?.simpleOcrKey || '',
+        formattedOcrKey: settings?.formattedOcrKey || '',
+        customPrompts: settings?.prompts,
+      });
+
+      if (data.error) throw new Error(data.error);
+      setInlineCaseContent(data.content);
+      if (data.title && !inlineCaseTitle.trim()) setInlineCaseTitle(data.title);
+    } catch (err: any) {
+      showError(`Failed to parse document: ${err.message}`);
+    } finally {
+      setIsParsingCaseFile(false);
+      if (caseFileInputRef.current) caseFileInputRef.current.value = '';
+    }
+  };
+
+  const handleSaveInlineCaseStudy = async () => {
+    if (!inlineCaseTitle.trim() && !inlineCaseContent.trim()) {
+      showError('Please provide a title or content for the case study/article.');
+      return;
+    }
+
+    setIsDeclutteringCase(true);
+    let finalTitle = inlineCaseTitle;
+    let finalContent = inlineCaseContent;
+
+    try {
+      if (apiKey) {
+        const { declutterResource } = await import('../api/declutterResource');
+        const data = await declutterResource({
+          title: inlineCaseTitle,
+          content: inlineCaseContent,
+          apiKey: apiKey,
+          apiModel: apiModel || 'gemini-2.0-flash',
+          resourceType: 'case_study',
+          customPrompts: settings?.prompts,
+        });
+        if (!inlineCaseTitle.trim() && data.title) finalTitle = data.title;
+        if (data.content) finalContent = data.content;
+      }
+    } catch (err: any) {
+      console.error('Error decluttering case study:', err);
+    } finally {
+      setIsDeclutteringCase(false);
+    }
+
+    if (onAddResource) {
+      const savedRes = onAddResource(finalTitle || 'Untitled Case Study', finalContent, 'case_study');
+      setSelectedResourceIds(prev => {
+        const withoutOtherCases = prev.filter(id => {
+          const res = resources.find(x => x.id === id);
+          return res?.type !== 'case_study';
+        });
+        return [...withoutOtherCases, savedRes.id];
+      });
+      addLog('Saved & Selected Case Study', finalTitle);
+    }
+    setShowAddCaseStudyModal(false);
+    setInlineCaseTitle('');
+    setInlineCaseContent('');
+    setValidationError(null);
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -129,7 +219,10 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
 
     setIsRefiningRubric(true);
     try {
-      const resourcesText = resources.filter(r => selectedResourceIds.includes(r.id)).map(r => r.content).join('\n\n');
+      let resourcesText = resources.filter(r => selectedResourceIds.includes(r.id) && r.id !== 'ai-general-knowledge').map(r => r.content).join('\n\n');
+      if (selectedResourceIds.includes('ai-general-knowledge')) {
+        resourcesText += '\n\n=== SYSTEM NOTE ===\nThe AI is authorized to use external general knowledge to complete this task.';
+      }
 
       const rubric = await buildRubric({
         content: homeworkContent,
@@ -180,16 +273,13 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
 
     setIsValidating(true);
 
-    // Auto-bypass validation if general knowledge is selected
-    if (selectedResourceIds.includes('ai-general-knowledge')) {
-      setIsValidating(false);
-      setStep(3);
-      return;
-    }
+    const hasAiGeneral = selectedResourceIds.includes('ai-general-knowledge');
+    const specificResourceIds = selectedResourceIds.filter(id => id !== 'ai-general-knowledge');
 
-    if (selectedResourceIds.length > 0) {
+    // Case 1: Both AI General Knowledge AND specific course resources are selected
+    if (hasAiGeneral && specificResourceIds.length > 0) {
       try {
-        const selectedResources = resources.filter(r => selectedResourceIds.includes(r.id) && r.id !== 'ai-general-knowledge');
+        const selectedResources = resources.filter(r => specificResourceIds.includes(r.id));
         const resourcesText = selectedResources.map(r => `=== ${r.title} ===\n${r.content}`).join('\n\n');
 
         const data = await validateHomework({
@@ -200,8 +290,65 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
           customPrompts: settings?.prompts,
         });
 
+        if (data.valid) {
+          // Homework is completely answerable with the user's selected resources alone!
+          setAiAdvice({
+            open: true,
+            reason: data.reason || 'This homework task appears to be fully answerable using your selected course notes without needing external AI knowledge.'
+          });
+          setIsValidating(false);
+          return;
+        } else {
+          // Course resources alone are NOT sufficient, so AI General Knowledge is legitimately needed. Proceed smoothly!
+          setIsValidating(false);
+          setStep(3);
+          return;
+        }
+      } catch (err: any) {
+        console.error('Validation error with AI General Knowledge', err);
+        // Fallback gracefully to Step 3 if validation API fails
+        setIsValidating(false);
+        setStep(3);
+        return;
+      }
+    }
+
+    // Case 2: Only AI General Knowledge is selected (no other course resources)
+    if (hasAiGeneral && specificResourceIds.length === 0) {
+      setIsValidating(false);
+      setStep(3);
+      return;
+    }
+
+    // Case 3: Specific course resources selected, but AI General Knowledge is OFF
+    if (!hasAiGeneral && specificResourceIds.length > 0) {
+      try {
+        const selectedResources = resources.filter(r => specificResourceIds.includes(r.id));
+        const resourcesText = selectedResources.map(r => `=== ${r.title} ===\n${r.content}`).join('\n\n');
+
+        const data = await validateHomework({
+          content: homeworkContent,
+          resourcesText,
+          apiKey: apiKey || '',
+          apiModel: apiModel || 'gemini-2.0-flash',
+          customPrompts: settings?.prompts,
+        });
+
+        if (data.isCaseStudy) {
+          const hasCaseStudy = selectedResourceIds.some(id => {
+            const r = resources.find(res => res.id === id);
+            return r?.type === 'case_study';
+          });
+          if (!hasCaseStudy && !hasAiGeneral) {
+            setIsCaseStudyDetected(true);
+            setValidationError(data.reason || 'Case Study Detected: This assignment requires analyzing a real-world issue, news report, documentary, or article.');
+            setIsValidating(false);
+            return;
+          }
+        }
+
         if (!data.valid) {
-          setValidationError(`Wait! Your homework task does not seem to be covered by the selected resources.\n\n${data.reason}\n\nPlease revise your homework task or select the correct resources in Step 1.`);
+          setValidationError(data.reason || 'Wait! Your homework task does not seem to be covered by the selected resources.');
           setIsValidating(false);
           return;
         }
@@ -279,12 +426,38 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
       <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm min-h-[500px] flex flex-col">
         
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-2xl font-black text-gray-900 uppercase">Create Schedule</h2>
-          <div className="flex space-x-2">
-            {[1, 2, 3, 4].map(s => (
-              <div key={s} className={`h-2 w-8 rounded-full ${step >= s ? 'bg-red-500' : 'bg-gray-200'}`} />
-            ))}
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (step > 1) {
+                  setStep(s => (s - 1) as 1 | 2 | 3 | 4);
+                } else {
+                  onCancel();
+                }
+              }}
+              className="flex items-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-xl transition-colors shadow-2xs"
+              title={step > 1 ? 'Previous Step' : 'Cancel to Dashboard'}
+            >
+              <ArrowLeft className="w-4 h-4 mr-1.5 text-gray-600" /> Back
+            </button>
+            <h2 className="text-xl sm:text-2xl font-black text-gray-900 uppercase">Create Schedule</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex space-x-2">
+              {[1, 2, 3, 4].map(s => (
+                <div key={s} className={`h-2 w-6 sm:w-8 rounded-full ${step >= s ? 'bg-red-500' : 'bg-gray-200'}`} />
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-700 transition-colors"
+              title="Cancel to Dashboard"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
@@ -324,7 +497,14 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
                       }}
                       className="w-5 h-5 text-red-600 rounded border-gray-300 focus:ring-red-500"
                     />
-                    <span className="ml-3 font-bold text-gray-700">{r.title}</span>
+                    <span className="ml-3 font-bold text-gray-700 flex items-center gap-2">
+                      {r.title}
+                      {(r as any).type === 'case_study' && (
+                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 uppercase tracking-wider">
+                          Case Study
+                        </span>
+                      )}
+                    </span>
                   </label>
                 ))
               )}
@@ -419,28 +599,171 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
               </div>
             )}
 
-            {validationError && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm whitespace-pre-wrap flex items-start">
-                <ShieldAlert className="w-5 h-5 flex-shrink-0 mr-3 mt-0.5" />
-                <div>{validationError}</div>
+            {isCaseStudyDetected && (
+              <div className="mb-6 p-5 bg-indigo-50/80 border-2 border-indigo-300 rounded-2xl flex flex-col space-y-4">
+                <div className="flex items-start">
+                  <FileText className="w-6 h-6 flex-shrink-0 mr-3 mt-0.5 text-indigo-600" />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-indigo-950 text-base">Case Study / Real-World Article Required</span>
+                      <span className="text-[10px] uppercase tracking-wider bg-indigo-200/80 text-indigo-800 font-bold px-2 py-0.5 rounded-full">Required to Proceed</span>
+                    </div>
+                    <p className="mt-1 text-indigo-900 text-sm leading-relaxed">
+                      {validationError || 'This milestone activity requires evaluating a real-world issue, news clip, documentary, or article. Please select which case study or article to use:'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* List of Case Studies */}
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {resources.filter(r => r.type === 'case_study').length === 0 ? (
+                    <div className="p-4 bg-white/80 border border-dashed border-indigo-200 rounded-xl text-center">
+                      <p className="text-xs font-bold text-indigo-900">No saved case studies found in your library.</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">Click "+ Add Case Study / Article" below to attach one, or let AI use General Knowledge.</p>
+                    </div>
+                  ) : (
+                    resources.filter(r => r.type === 'case_study').map(r => {
+                      const isSelected = selectedResourceIds.includes(r.id);
+                      return (
+                        <div
+                          key={r.id}
+                          onClick={() => {
+                            setSelectedResourceIds(prev => {
+                              const withoutOtherCases = prev.filter(id => {
+                                const res = resources.find(x => x.id === id);
+                                return res?.type !== 'case_study';
+                              });
+                              return isSelected ? withoutOtherCases : [...withoutOtherCases, r.id];
+                            });
+                            setValidationError(null);
+                          }}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                            isSelected 
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' 
+                              : 'bg-white hover:bg-indigo-50 border-indigo-200 text-gray-800'
+                          }`}
+                        >
+                          <div className="flex items-center min-w-0 pr-2">
+                            <FileText className={`w-4 h-4 mr-2.5 flex-shrink-0 ${isSelected ? 'text-white' : 'text-indigo-600'}`} />
+                            <div className="min-w-0">
+                              <span className="font-bold text-sm block truncate">{r.title}</span>
+                              <span className={`text-[11px] block truncate ${isSelected ? 'text-indigo-100' : 'text-gray-500'}`}>
+                                {r.content.slice(0, 90)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex-shrink-0">
+                            {isSelected ? (
+                              <Check className="w-5 h-5 text-white" />
+                            ) : (
+                              <div className="w-5 h-5 rounded-full border-2 border-indigo-300" />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-indigo-200/80">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCaseStudyModal(true)}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1.5" />
+                    + Add Case Study / Article
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedResourceIds(prev => Array.from(new Set([...prev, 'ai-general-knowledge'])));
+                      setIsCaseStudyDetected(false);
+                      setValidationError(null);
+                      setStep(3);
+                    }}
+                    className="px-3.5 py-2 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 font-bold text-xs rounded-lg transition-colors flex items-center cursor-pointer active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+                    Let AI Pick Case (General Knowledge)
+                  </button>
+                </div>
               </div>
             )}
 
-            <div className="flex justify-end space-x-4">
-              <button onClick={() => setStep(1)} className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl">Back</button>
-              <button 
-                onClick={handleNextStep2} 
-                disabled={isValidating || isCheckingSimilarity || !!validationError || !!similarityError} 
-                className={`px-6 py-3 font-bold rounded-xl flex items-center transition-all ${
-                  isValidating || isCheckingSimilarity || validationError || similarityError
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                    : 'text-white bg-gray-900 hover:bg-black'
-                }`}
-              >
-                {isValidating || isCheckingSimilarity ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
-                {isValidating ? 'Validating...' : isCheckingSimilarity ? 'Checking...' : 'Next'} <ArrowRight className="w-4 h-4 ml-2" />
-              </button>
-            </div>
+            {validationError && !isCaseStudyDetected && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm whitespace-pre-wrap flex flex-col space-y-3">
+                <div className="flex items-start">
+                  <ShieldAlert className="w-5 h-5 flex-shrink-0 mr-3 mt-0.5 text-red-600" />
+                  <div className="flex-1">
+                    <span className="font-bold text-red-900">Missing Resource Coverage:</span>
+                    <p className="mt-1 text-red-800 leading-relaxed">{validationError}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-red-200/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedResourceIds(prev => Array.from(new Set([...prev, 'ai-general-knowledge'])));
+                      setValidationError(null);
+                      setStep(3);
+                    }}
+                    className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center shadow-sm cursor-pointer active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                    Enable AI General Knowledge & Proceed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setValidationError(null);
+                      setStep(1);
+                    }}
+                    className="px-3.5 py-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 font-bold text-xs rounded-lg transition-colors cursor-pointer active:scale-95"
+                  >
+                    Back to Select Resources
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(() => {
+              const hasCaseStudyAttached = selectedResourceIds.some(id => {
+                const r = resources.find(res => res.id === id);
+                return r?.type === 'case_study';
+              }) || selectedResourceIds.includes('ai-general-knowledge');
+
+              const isNextDisabled = isValidating || isCheckingSimilarity || !!similarityError || (isCaseStudyDetected ? !hasCaseStudyAttached : !!validationError);
+
+              return (
+                <div className="flex items-center justify-between">
+                  <div>
+                    {isCaseStudyDetected && !hasCaseStudyAttached && (
+                      <span className="text-xs text-indigo-600 font-bold">
+                        Please select an article above to proceed
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex space-x-4">
+                    <button onClick={() => setStep(1)} className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-100 rounded-xl">Back</button>
+                    <button 
+                      onClick={handleNextStep2} 
+                      disabled={isNextDisabled} 
+                      className={`px-6 py-3 font-bold rounded-xl flex items-center transition-all ${
+                        isNextDisabled
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                          : 'text-white bg-gray-900 hover:bg-black'
+                      }`}
+                    >
+                      {isValidating || isCheckingSimilarity ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
+                      {isValidating ? 'Validating...' : isCheckingSimilarity ? 'Checking...' : 'Next'} <ArrowRight className="w-4 h-4 ml-2" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -588,6 +911,142 @@ export function CreateSchedule({ role, resources, apiKey, apiModel, existingSche
                   </button>
                 );
               })()}
+            </div>
+          </div>
+        )}
+        {aiAdvice && aiAdvice.open && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-gray-100 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mb-4">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              
+              <h3 className="text-xl font-black text-gray-900 mb-2">
+                AI General Knowledge May Not Be Needed
+              </h3>
+              
+              <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+                {aiAdvice.reason}
+              </p>
+
+              <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 leading-relaxed mb-6 flex items-start">
+                <ShieldCheck className="w-4 h-4 text-amber-700 flex-shrink-0 mr-2 mt-0.5" />
+                <span>
+                  <strong>Tip:</strong> Turning off AI General Knowledge keeps your resource flashcards clean and prevents assignment-specific details (like formulas or weights) from being harvested into your permanent notes.
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Turn off AI General Knowledge
+                    setSelectedResourceIds(prev => prev.filter(id => id !== 'ai-general-knowledge'));
+                    setAiAdvice(null);
+                    setStep(3);
+                  }}
+                  className="flex-1 py-3 px-4 bg-gray-900 hover:bg-black text-white font-bold text-sm rounded-xl transition-all shadow-md active:scale-95 cursor-pointer text-center"
+                >
+                  Turn Off AI Knowledge & Continue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Keep AI General Knowledge
+                    setAiAdvice(null);
+                    setStep(3);
+                  }}
+                  className="py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-xl transition-all active:scale-95 cursor-pointer text-center"
+                >
+                  Keep Enabled Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Case Study Modal */}
+        {showAddCaseStudyModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl border border-gray-100 flex flex-col max-h-[90vh]">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-6 h-6 text-indigo-600" />
+                  <h3 className="text-xl font-black text-gray-900">Add Case Study / Article</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCaseStudyModal(false)}
+                  className="p-1 text-gray-400 hover:text-gray-700 rounded-full hover:bg-gray-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 mb-4">
+                Upload or paste the external article, news clip transcript, documentary summary, or thesis. It will be decluttered using the <strong>Article Declutter</strong> prompt.
+              </p>
+
+              <div className="space-y-4 flex-1 overflow-y-auto pr-1">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Article / Case Title</label>
+                  <input
+                    type="text"
+                    value={inlineCaseTitle}
+                    onChange={(e) => setInlineCaseTitle(e.target.value)}
+                    placeholder="e.g. Documentary: The Social Dilemma / 2024 CrowdStrike Outage"
+                    className="w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
+                  />
+                </div>
+
+                <div>
+                  <input
+                    type="file"
+                    ref={caseFileInputRef}
+                    onChange={handleCaseFileUpload}
+                    accept="text/plain, image/*, .docx, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => caseFileInputRef.current?.click()}
+                    disabled={isParsingCaseFile}
+                    className="w-full py-3 border-2 border-dashed border-indigo-200 hover:border-indigo-400 rounded-xl flex items-center justify-center text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 transition-colors cursor-pointer"
+                  >
+                    {isParsingCaseFile ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                    {isParsingCaseFile ? 'Parsing file...' : 'Upload Article File (DOCX, TXT, Image)'}
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Content / Transcript / Summary</label>
+                  <textarea
+                    value={inlineCaseContent}
+                    onChange={(e) => setInlineCaseContent(e.target.value)}
+                    placeholder="Paste the news story, case facts, documentary summary, or research paper details here..."
+                    className="w-full min-h-[160px] p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-xs text-gray-800 resize-y"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCaseStudyModal(false)}
+                  className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-xl text-sm cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveInlineCaseStudy}
+                  disabled={isDeclutteringCase || (!inlineCaseTitle.trim() && !inlineCaseContent.trim())}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm flex items-center disabled:opacity-50 cursor-pointer active:scale-95"
+                >
+                  {isDeclutteringCase ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                  {isDeclutteringCase ? 'Decluttering...' : 'Save & Attach Article'}
+                </button>
+              </div>
             </div>
           </div>
         )}

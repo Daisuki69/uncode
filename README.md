@@ -11,7 +11,7 @@
    ╚══▀▀═╝ ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
 ```
 
-### *The Uncompromising, AI-Evaluated Study Lockdown & Focus Enforcement System for Android*
+### *This app is specifically made for me, do not blame me for bricked phones*
 
 [![Android](https://img.shields.io/badge/Platform-Android%2010%20to%2016%20(API%2029--36)-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
 [![React](https://img.shields.io/badge/Frontend-React%2019%20%7C%20TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
@@ -39,101 +39,14 @@
 
 </div>
 
----
-
-## 🎯 Philosophy: Procrastination Prevention
-
-> ### *"We just want students to finish their homework. We didn't say prevent them from using modern tools — the sole enemy is procrastination."*
-
-<div align="center">
-
-```
-   ╔═══════════════════════════════════════════════════════════════════════════════════╗
-   ║                           THE ENEMY IS PROCRASTINATION                            ║
-   ║                            NOT RESEARCH, NOTES, OR AI                             ║
-   ╚═══════════════════════════════════════════════════════════════════════════════════╝
-```
-
-</div>
-
-Most productivity apps on Android and iOS fail because they operate at one of two counterproductive extremes:
+Most productivity apps fail because they operate at one of two counterproductive extremes:
 
 1. **The "Honor System" (Too Soft)**: Apps like *Forest*, *StayFree*, or standard Pomodoro timers show polite reminder dialogs, draw virtual trees, or set soft timers. When a student feels cognitive friction or boredom, they dismiss the dialog with a single swipe, disable the timer, and plunge right back into endless scrolling.
 2. **The "Dumb Phone" Brick (Blindly Restrictive)**: Traditional kiosk and extreme lockdown tools disable the entire phone or block every app except phone calls. This completely ruins modern academic workflows: students can't access lecture slides in Google Drive, consult PDF textbooks in Adobe Acrobat, write down thoughts in Obsidian or Samsung Notes, translate Latin or German homework in DeepL, or ask Google Gemini to explain a complex physics derivation.
 
 **QIEZKA rejects both extremes.**
 
-Our design directive is uncompromising: **Obliterate the algorithmic dopamine pits of wasted time, while keeping the full homework, research, and AI arsenal permanently armed and accessible.**
-
-```
-   ┌─────────────────────────────────────────────────────────────────────────────────┐
-   │                               THE QIEZKA TRINITY                                │
-   ├─────────────────────────────────┬───────────────────────────────────────────────┤
-   │ 🔒 HARD ENFORCEMENT             │ You cannot cancel, dismiss, or swipe away     │
-   │                                 │ the session. Uninstallation is blocked.       │
-   ├─────────────────────────────────┼───────────────────────────────────────────────┤
-   │ 🧠 INTELLECTUAL FREEDOM         │ AI tutors, notes, LMS portals, STEM solvers,  │
-   │                                 │ and research tools are ALWAYS permitted.      │
-   ├─────────────────────────────────┼───────────────────────────────────────────────┤
-   │ 📸 PROOF-OF-WORK VERIFICATION   │ The phone does NOT unlock by waiting. You     │
-   │                                 │ must photograph your completed homework and   │
-   │                                 │ pass multimodal AI grading to escape.         │
-   └─────────────────────────────────┴───────────────────────────────────────────────┘
-```
-
----
-
-## ⚖️ QIEZKA vs Traditional App Blockers
-
-| Feature | Standard Blockers *(Forest, Opal, StayFree)* | Kiosk / "Dumb Phone" Bricks | ⚡ QIEZKA Focus Enforcement System |
-|---|---|---|---|
-| **Exit Mechanism** | Cancel button or wait out timer | Wait out timer or reboot device | **Submit handwritten homework photo & pass AI evaluation** |
-| **Uninstall Prevention** | Easily uninstalled in Android Settings | Requires paid MDM subscription | **Device Administrator + Accessibility Settings Lockout** |
-| **AI Assistants (Gemini, ChatGPT)** | Usually blocked or unmanaged | Strictly blocked | **Hardcoded ALWAYS allowed (AI is your 24/7 tutor)** |
-| **Document Pickers & Media** | Often crash when browsing files | Crashed or disabled | **System DocumentUI & SAF providers fully exempt** |
-| **Floating HUD Timer** | None or simple status bar notification | None (entire UI locked) | **Draggable, edge-snapping Floating Ball Overlay (`WindowManager`)** |
-| **Notification Shade Protection** | Can pull down Quick Settings & Airplane Mode | Often bypassable via Safe Mode | **Real-time auto-collapse of Quick Settings tile menu** |
-| **Duration Policy** | Unlimited (promotes fake 8-hour sessions) | Static or arbitrary | **Strict 90-minute cap (based on human ultradian rhythms)** |
-| **Offline Privacy** | Telemetry, cloud accounts, monthly fees | Proprietary server sync | **100% BYOK (Bring Your Own Key), Zero central servers** |
-| **Knowledge Auto-Harvesting** | None | None | **Auto-merges & declutters AI research into your study notes** |
-
----
-
-## 🛑 What We Obliterate vs ⚡ What We Empower
-
-### 🛑 The Distraction Pit (Strictly Blocked)
-Algorithmically engineered dopamine traps that hijack human psychology and steal hours of student life:
-
-* 📱 **Short-Form Doomscrolling**: TikTok, Instagram Reels, YouTube Shorts, X/Twitter, Reddit, Facebook, Threads, CapCut.
-* 🍿 **Streaming & Piracy Black Holes**: Bilibili, KissKH (`id.kisskh.twa`), Netflix, Disney+, WeTV, iQIYI, Crunchyroll, Loklok, CloudStream, Mihon, and micro-drama reels (ReelShort, DramaBox, ShortMax).
-* 📖 **Web Novels & Fanfic Sinks**: Wattpad, Webnovel, MangaToon, NovelToon, Wuxiaworld, Shosetsu.
-* 📹 **Live Video Feeds & Stranger Chats**: OmeTV, Bigo Live, Tango, 17LIVE, Yubo.
-* 💬 **Dating & Hookup Apps**: Tinder, Bumble, Hinge, Badoo, Omi, Grindr.
-* 🎲 **Gambling & Sports Betting**: Stake, 1xBet, Bet365, DraftKings, FanDuel, PokerStars.
-* 🎮 **Competitive Games & Gachas**: Roblox, Mobile Legends, Genshin Impact, Honkai: Star Rail, PUBG, Free Fire, Supercell titles, Candy Crush.
-* 🌀 **Hyper-Casual & .IO Time-Wasters**: Hole.io, Woodturning 3D, Paper.io 2, Helix Jump, Crowd City, Aquapark.io, Slither.io, Agar.io, Snake.io, Survivor!.io, Stumble Guys, Bridge Race, Tiles Hop, Magic Tiles 3, Blockudoku, and VOODOO / SayGames titles.
-* 🛍️ **Impulsive Shopping & Resale**: Shopee, Lazada, Amazon, Temu, Shein, AliExpress, Carousell, Vinted, Depop.
-* 💉 **Modded Clients & Game Hacks**: Lucky Patcher, InstaPrime, GameGuardian, ReVanced, Instander, AeroInsta.
-* 📦 **Virtual OS & Sandbox Bypassers**: VMOS, F1 VM, VPhoneGaGa, X8 Sandbox, Island, Shelter, MT Manager, NP Manager.
-
----
-
-### ⚡ The "ALWAYS" Allowed Arsenal (Hardcoded Whitelisted)
-Tools that foster deep focus, active learning, coding, note-taking, and assignment submission:
-
-| Category | Permitted Applications | Academic Rationale |
-|---|---|---|
-| 🤖 **AI Study Assistants** | **Google Gemini, ChatGPT, Claude, Microsoft Copilot, Perplexity, DeepSeek, Poe, Pi AI** | **Why AI?** AI is the ultimate 24/7 personal tutor. If an AI helps you grasp complex physics, explain calculus, draft an outline, or debug code so you finish your homework on time, **that is a win**. The goal is conquering procrastination, not denying modern intelligence. |
-| 📄 **Document Scanners & PDF Worksheets** | **Adobe Acrobat Reader, CamScanner, Adobe Scan, WPS Office, Microsoft Lens, ReadEra, Xodo PDF** | Essential for viewing homework sheets, reading textbooks, and scanning handwritten pages for submission. |
-| 📂 **System Document & Media Pickers** | **AOSP & Google DocumentsUI (`com.google.android.documentsui`), Media Providers, Samsung My Files, Files by Google** | Seamless, invisible file browsing during homework photo uploads without false-positive lockouts. |
-| 🌐 **Translation & Language Learning** | **Google Translate, DeepL Translate, Duolingo, Merriam-Webster, Oxford & Cambridge Dictionaries** | Seamless translation of source materials and foreign language homework. |
-| 📝 **All Notes Apps** | **Google Keep, Samsung Notes, Microsoft OneNote, Notion, Obsidian, Evernote, ColorNote, Squid, Simplenote** | Students must always be able to jot ideas, review lecture outlines, and brainstorm without obstacles. |
-| 🎓 **Student Platforms & Storage** | **Google Classroom, Drive, Docs, Sheets, Slides, Canvas Student, Blackboard Learn, Schoology, Quizlet, AnkiDroid** | Your textbooks, problem sets, syllabi, and submission portals must never be blocked. |
-| 🧮 **STEM Solvers & Hubs** | **Khan Academy, Symbolab, Mathway, Chegg Study, Desmos Graphing, GeoGebra, Photomath, WolframAlpha, Brilliant, Periodic Table** | Step-by-step problem solving, calculus derivations, and science lesson reviews. |
-| ☁️ **Cloud Storage & Sync** | **Microsoft OneDrive, Dropbox, Box** | Immediate access to school cloud accounts and project repositories. |
-| 💻 **CS & Coding Environments** | **Termux, Acode, Pydroid 3, GitHub** | Full-fledged Linux terminal, code editor, and Python environment for Computer Science coursework. |
-| 🛡️ **2FA Authenticators** | **Google Authenticator, Microsoft Authenticator, Duo Mobile, Authy, 2FAS, Aegis, Bitwarden** | Zero lockouts. Signing into university portals and Google accounts must remain frictionless. |
-| 🎵 **Deep Focus Audio & Browsers** | **Spotify, YouTube Music, Apple Music, Tidal, Chrome, Firefox, Brave** | Deep work requires a flow state. Background binaural beats, lo-fi study tracks, and web research are always accessible. |
+Our design directive is uncompromising: **Obliterate the algorithmic dopamine pits of wasted time, while keeping the full homework, research, and AI accessible.**
 
 ---
 
@@ -159,7 +72,7 @@ flowchart TD
         CREATE["Step-by-Step Schedule Creator<br/>• OCR Extraction & Inline Editor<br/>• Strict 90-Min Ultradian Cap"]
         LOCK["Full-Screen LockScreen View<br/>• Native Camera Document Capture<br/>• Real-Time Timer Synchronization"]
         LOGS["Homeworks Log & Session Archive<br/>• Passed Grading Transcripts<br/>• Failed / Expired Accountability Logs"]
-        RES["Study Resource Library<br/>• Markdown & Docx Local Ingestion<br/>• Auto-Harvesting & declutterResource"]
+        RES["Study Resource Library<br/>• Course Notes & Flashcards<br/>• Case Studies & Article Declutter"]
     end
 
     subgraph CloudServices ["Client-Side BYOK Cloud Services (Direct HTTPS)"]
@@ -175,7 +88,8 @@ flowchart TD
 
     LP <-->|Synchronizes Whitelist & Active Schedule| LAS
     LP <-->|Starts / Stops Floating Ball View| FOS
-    WebApp <-->|Capacitor JavaScript Bridge| LP
+    DASH <-->|Capacitor JavaScript Bridge| LP
+    LOCK <-->|Capacitor JavaScript Bridge| LP
 
     LOCK -->|Dispatches Photo Proof| OCR
     OCR -->|Returns Raw Transcribed Text| GEMINI
@@ -202,15 +116,17 @@ stateDiagram-v2
         InitializeLock --> EngageAccessibility: Set lockdown_active = true
         
         state PermittedAppWorkflow {
+            [*] --> AllowedAppOpened
             AllowedAppOpened --> FloatingBallVisible: Draggable & Snaps to Edge
-            FloatingBallVisible --> AllowedAppOpened: Research in Gemini/Docs/Notes
+            FloatingBallVisible --> AllowedAppOpened: Research in Gemini or Notes
             FloatingBallVisible --> ReturnToQiezka: Tap Ball to Submit Proof
         }
         
         state BlockedAppWorkflow {
+            [*] --> HostileAppOpened
             HostileAppOpened --> DetectPackage: Accessibility Event Fired
-            DetectPackage --> CollapseQuickSettings: If Notification Shade Pulled
-            DetectPackage --> RouteHome: If Hostile App or Settings
+            DetectPackage --> CollapseQuickSettings: Notification Shade Pulled
+            DetectPackage --> RouteHome: Hostile App or Settings Detected
             RouteHome --> ForceQiezkaFront: Re-open Qiezka Lock Screen
         }
         
@@ -218,8 +134,8 @@ stateDiagram-v2
         CaptureHomework --> CloudEvaluation: OCR.space + Gemini Evaluation
     }
     
-    CloudEvaluation --> PassUnlocked: AI Score >= Passing Threshold
-    CloudEvaluation --> ActiveLockdown: AI Score < Passing Threshold (Try Again)
+    CloudEvaluation --> PassUnlocked: AI Score Meets Passing Threshold
+    CloudEvaluation --> ActiveLockdown: AI Score Below Passing Threshold (Try Again)
     ActiveLockdown --> FailExpired: Timer Reaches 00:00 (Timeout)
     
     PassUnlocked --> HomeworksLog: Log Passed Record + Auto-Harvest Knowledge
@@ -232,7 +148,7 @@ stateDiagram-v2
 
 ## 🔮 Floating Assistive Timer Ball
 
-When a lockdown session is initiated, QIEZKA summons an elegant **Floating Assistive Ball Timer** that stays with you across all permitted apps:
+When a lockdown session is initiated, QIEZKA summons a **Floating Assistive Ball Timer** that stays with you across all permitted apps:
 
 ```
           ┌────────────────────────────────────────────────────────┐
@@ -1072,14 +988,6 @@ set "LAUNCH_APP_ON_FINISH=true"
      Exempt for homework         • Recents overview: Auto        lock after reboot
      submission without kick       re-launches if swiped
 ```
-
-### Why Standard Device Administrator Over Device Owner?
-- **Enterprise Device Owner Limitation**: Android requires that **zero** accounts (Google, WhatsApp, Telegram, etc.) exist on the device before setting a Device Owner (`IllegalStateException: Not allowed to set the device owner because there are already some accounts on the device`). Forcing users to delete their personal accounts or factory reset is impractical.
-- **The QIEZKA Solution**: Standard **Device Administrator** (`DeviceAdminReceiver`):
-  1. Once active, Android strictly prohibits the application from being uninstalled until administrator permissions are revoked in Android Settings.
-  2. Because QIEZKA's accessibility engine **blocks the Android Settings app** during lockdown, the user cannot access the menu to deactivate Device Admin or uninstall the app.
-  3. All personal accounts remain completely intact, and no root or wipe is required.
-
 ---
 
 ## 📱 OEM ROM Optimization Guide
@@ -1239,7 +1147,7 @@ No. QIEZKA operates 100% within the standard Android framework using official AP
 
 <details>
 <summary><b>5. Are my homework photos and notes stored on any server?</b></summary>
-No. QIEZKA has zero central servers, zero accounts, and zero proprietary backends. Your homework photographs and study notes stay on your device. During grading, photos are transmitted directly from your phone to Google Gemini / OCR.space over encrypted HTTPS using your personal API key.
+Dawg No 😭🙏. QIEZKA has zero central servers, zero accounts, and zero proprietary backends. Your homework photographs and study notes stay on your device. During grading, photos are transmitted directly from your phone to Google Gemini / OCR.space over encrypted HTTPS using your personal API key.
 </details>
 
 ---
@@ -1247,9 +1155,5 @@ No. QIEZKA has zero central servers, zero accounts, and zero proprietary backend
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
-
-<div align="center">
-
-**Built with uncompromising focus for students, researchers, and builders.**
 
 </div>

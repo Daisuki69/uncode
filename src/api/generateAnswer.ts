@@ -9,21 +9,40 @@ interface GenerateAnswerOptions {
   apiModel: string;
   customPrompts?: Record<string, string>;
   isGeneralKnowledge?: boolean;
+  category?: string;
 }
 
 export async function generateAnswer(opts: GenerateAnswerOptions): Promise<string> {
-  const { content, resourcesText, rubric, apiKey, apiModel, customPrompts, isGeneralKnowledge } = opts;
+  const { content, resourcesText, rubric, apiKey, apiModel, customPrompts, isGeneralKnowledge, category } = opts;
 
   if (!apiKey || !apiKey.trim()) {
     throw new Error('Missing Gemini API Key. Please add it in Settings.');
   }
 
+  const categoryMap: Record<string, string> = {
+    reflection: 'Reflection / Personal Essay',
+    coding: 'Coding / Computer Science Task',
+    math: 'Math / Physics / Engineering Problem',
+    case_study: 'Case Study / Technical Analysis',
+    worksheets: 'Standard Q&A / Worksheets',
+  };
+
+  const categoryName = category && category !== 'auto' ? (categoryMap[category] || category) : '';
+  const categorySection = categoryName
+    ? `=== CATEGORY OVERRIDE ===\nThe user has explicitly classified this assignment as: "${categoryName}".\nYou MUST strictly follow the exact tone, style, and formatting rules defined for "${categoryName}" in the FORMATTING MATRIX above. Do NOT use any other category's format.\n`
+    : '';
+
   const ai = getGeminiClient(apiKey);
-  const prompt = getPrompt('generateAnswer', {
+  let prompt = getPrompt('generateAnswer', {
     CONTENT: content,
     RESOURCES_TEXT: resourcesText,
     RUBRIC_SECTION: rubric ? `=== RUBRIC ===\n${rubric}\n` : '',
+    CATEGORY_SECTION: categorySection,
   }, customPrompts);
+
+  if (categorySection && !prompt.includes(categorySection)) {
+    prompt = `${categorySection}\n${prompt}`;
+  }
 
   const hasGeneralKnowledge = Boolean(
     isGeneralKnowledge || 

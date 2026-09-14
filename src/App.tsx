@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react';
 import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp } from './types';
 import { Dashboard } from './components/Dashboard';
 import { LockScreen } from './components/LockScreen';
@@ -6,7 +6,7 @@ import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -134,6 +134,74 @@ export default function App() {
     };
     
     verify();
+  }, [appState, navigate]);
+
+  const [backToastVisible, setBackToastVisible] = useState(false);
+  const lastBackPressRef = useRef<number>(0);
+
+  // Hardware/Gesture Back Button Handling (Option 1: Pop sub-screens, double-back on Dashboard)
+  useEffect(() => {
+    let cleanupListener: (() => void) | null = null;
+
+    addBackListener(() => {
+      // 0. Check if any inner modal (e.g. popups, sub-dialogs) handles the back press
+      const backEvent = new CustomEvent('qiezka-back-press', { cancelable: true });
+      const wasConsumed = !window.dispatchEvent(backEvent);
+      if (wasConsumed) return;
+
+      // 1. Pop sub-screens back to dashboard
+      if (
+        appState === 'settings' || 
+        appState === 'logs' || 
+        appState === 'create_schedule' || 
+        appState === 'edit_rubric'
+      ) {
+        navigate('dashboard', 'backward');
+        return;
+      }
+
+      if (appState === 'result') {
+        endLockdown();
+        setActiveScheduleId(null);
+        setLockEndTime(null);
+        setLockPauseTime(null);
+        navigate('dashboard', 'backward');
+        return;
+      }
+
+      if (appState === 'permission_walkthrough') {
+        navigate('dashboard', 'backward');
+        return;
+      }
+
+      // 2. In active lock mode: pressing back minimizes app so allowed apps can be opened (overlay ball stays active)
+      if (appState === 'locked') {
+        exitToHome();
+        return;
+      }
+
+      // 3. On dashboard / root screens: double press to exit
+      const now = Date.now();
+      if (now - lastBackPressRef.current < 2000) {
+        setBackToastVisible(false);
+        exitToHome();
+      } else {
+        lastBackPressRef.current = now;
+        showToast('Press back again to exit');
+        setBackToastVisible(true);
+        setTimeout(() => {
+          setBackToastVisible(false);
+        }, 2000);
+      }
+    }).then(sub => {
+      cleanupListener = () => sub.remove();
+    }).catch(err => {
+      console.warn('Failed to attach backPressed listener', err);
+    });
+
+    return () => {
+      if (cleanupListener) cleanupListener();
+    };
   }, [appState, navigate]);
 
   const resumeLock = () => {
@@ -371,6 +439,10 @@ export default function App() {
             const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
             startLockdown(safeAllowedApps.map(a => a.id), schedule.durationMinutes, lockEnd, schedule.id);
             navigate('locked');
+          } else if (appState === 'locked' && lockEndTime !== lockEnd) {
+            setLockEndTime(lockEnd);
+            const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+            startLockdown(safeAllowedApps.map(a => a.id), schedule.durationMinutes, lockEnd, schedule.id);
           }
           foundActive = true;
           return; // Exit out of checkSchedule completely
@@ -408,7 +480,7 @@ export default function App() {
     checkSchedule();
     const interval = setInterval(checkSchedule, 1000);
     return () => clearInterval(interval);
-  }, [settings.schedules, appState, timeOffset, isLoaded]);
+  }, [settings.schedules, appState, timeOffset, isLoaded, lockEndTime]);
 
   const notifyUser = (message: string) => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
@@ -447,7 +519,9 @@ export default function App() {
         transcribedText: '(No submission — timer expired)',
         feedback: skipped ? 'Lock session was skipped in test mode.' : 'Session failed: Timer expired before homework was submitted and passed.',
         passed: false,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        durationMinutes: activeSchedule.durationMinutes,
+        selectedResourceIds: activeSchedule.selectedResourceIds,
       }, ...prev]);
     }
 
@@ -495,12 +569,14 @@ export default function App() {
     navigate('dashboard', 'backward');
   };
 
-  const handleAddResource = (title: string, content: string) => {
-    setResources([...resources, { id: crypto.randomUUID(), title, content, createdAt: Date.now() }]);
+  const handleAddResource = (title: string, content: string, type: 'lecture_notes' | 'case_study' = 'lecture_notes'): SavedResource => {
+    const newRes: SavedResource = { id: crypto.randomUUID(), title, content, createdAt: Date.now(), type };
+    setResources(prev => [...prev, newRes]);
+    return newRes;
   };
 
-  const handleUpdateResource = (id: string, title: string, content: string) => {
-    setResources(resources.map(r => r.id === id ? { ...r, title, content } : r));
+  const handleUpdateResource = (id: string, title: string, content: string, type?: 'lecture_notes' | 'case_study') => {
+    setResources(resources.map(r => r.id === id ? { ...r, title, content, ...(type ? { type } : {}) } : r));
   };
 
   const handleRemoveResource = (id: string) => {
@@ -561,7 +637,9 @@ export default function App() {
         transcribedText: data.transcribedText || '',
         feedback: data.feedback || '',
         passed: data.passed || false,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        durationMinutes: activeSchedule?.durationMinutes,
+        selectedResourceIds: activeSchedule?.selectedResourceIds,
       }, ...prev]);
 
       if (data.passed) {
@@ -598,10 +676,26 @@ export default function App() {
           }
         }
 
-        // Only clean up the lockscreen data if the student passed
+        // Deactivate the completed schedule immediately so neither React nor native background re-locks it
+        const updatedSchedules = (settings.schedules || []).map(s => 
+          s.id === scheduleId ? { ...s, isActive: false } : s
+        );
+        setSettings(prev => ({
+          ...prev,
+          schedules: updatedSchedules
+        }));
+
+        const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
+
+        // Clean up lockscreen local storage
         localStorage.removeItem(`lockscreen_data_${scheduleId}`);
         localStorage.removeItem('lockscreen_last_draft');
-        endLockdown(); // Release the OS lock!
+
+        endLockdown(); // Release the OS lock and dismiss FloatingOverlayService ball!
+        setActiveScheduleId(null);
+        setLockEndTime(null);
+        setLockPauseTime(null);
         navigate('result');
       } else {
         navigate('result');
@@ -645,6 +739,12 @@ export default function App() {
               <X className="w-5 h-5" />
             </button>
           </div>
+        </div>
+      )}
+
+      {backToastVisible && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] bg-gray-950/95 backdrop-blur-md text-white border border-gray-700/80 px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 text-xs font-bold tracking-wide pointer-events-none animate-in fade-in slide-in-from-bottom duration-200">
+          <span>Press back again to exit</span>
         </div>
       )}
       
@@ -710,6 +810,7 @@ export default function App() {
                 settings={settings}
                 addLog={addLog}
                 onSave={handleSaveSchedule}
+                onAddResource={handleAddResource}
                 onCancel={() => navigate('dashboard', 'backward')}
               />
             </Suspense>
@@ -776,12 +877,10 @@ export default function App() {
             <EvaluationResult 
               result={evaluationResult}
               onReset={() => {
-                if (activeScheduleId) {
-                  setSettings(prev => ({
-                    ...prev,
-                    schedules: prev.schedules.map(s => s.id === activeScheduleId ? { ...s, isActive: false } : s)
-                  }));
-                }
+                endLockdown();
+                setActiveScheduleId(null);
+                setLockEndTime(null);
+                setLockPauseTime(null);
                 navigate('dashboard', 'backward');
               }}
               onRetry={resumeLock}
@@ -808,8 +907,19 @@ export default function App() {
             <Suspense fallback={<div className="p-8 flex items-center justify-center text-red-500"><Loader2 className="w-8 h-8 animate-spin" /></div>}>
               <HomeworksPage 
                 homeworks={completedHomeworks}
+                schedules={settings.schedules || []}
                 onBack={() => navigate('dashboard', 'backward')}
                 onClear={() => setCompletedHomeworks([])}
+                onReschedule={(updatedSchedules) => {
+                  setSettings(prev => {
+                    const inactive = (prev.schedules || []).filter(s => !s.isActive);
+                    return {
+                      ...prev,
+                      schedules: [...updatedSchedules, ...inactive]
+                    };
+                  });
+                  addLog('Emergency Reschedule', `Cascaded ${updatedSchedules.length} active schedules`);
+                }}
               />
             </Suspense>
           </ModalTransition>

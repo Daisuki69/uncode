@@ -23,6 +23,8 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.TextView;
 import androidx.core.app.NotificationCompat;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class FloatingOverlayService extends Service {
 
@@ -113,6 +115,16 @@ public class FloatingOverlayService extends Service {
         long storedEnd = prefs.getLong("lock_end_time", 0L);
         if (storedEnd > 0) {
             lockEndTime = storedEnd;
+        }
+
+        long timeOffset = prefs.getLong("time_offset", 0L);
+        long effectiveNow = System.currentTimeMillis() + timeOffset;
+        int maxDurationMinutes = getActiveScheduleDurationMinutes(prefs);
+        long maxRemainingSec = maxDurationMinutes * 60L;
+        if (lockEndTime > effectiveNow + (maxRemainingSec * 1000L)) {
+            lockEndTime = effectiveNow + (maxRemainingSec * 1000L);
+            prefs.edit().putLong("lock_end_time", lockEndTime).apply();
+            Log.i(TAG, "onStartCommand: Clamped lockEndTime to duration " + maxDurationMinutes + "m");
         }
 
         // Promote to Foreground Service
@@ -303,26 +315,39 @@ public class FloatingOverlayService extends Service {
         long storedEnd = prefs.getLong("lock_end_time", 0L);
         if (storedEnd > 0) {
             lockEndTime = storedEnd;
+        } else {
+            lockEndTime = 0L;
         }
 
         long timeOffset = prefs.getLong("time_offset", 0L);
         long effectiveNow = System.currentTimeMillis() + timeOffset;
 
-        // Only trigger session completion if lockdown was legitimately active and the clock has passed the end
-        if (isLockdownActive && lockEndTime > 0 && effectiveNow >= lockEndTime) {
-            onLockSessionFinished(prefs);
-            return;
-        }
-
-        // If lockdown was cancelled or released externally, cleanly dismiss
-        if (!isLockdownActive && lockEndTime == 0L) {
+        // If lockdown was cancelled or released externally, cleanly dismiss immediately
+        if (!isLockdownActive) {
+            Log.i(TAG, "FloatingOverlayService: lockdown_active is false, cleanly dismissing floating view and stopping service");
             removeFloatingView();
             stopForeground(true);
             stopSelf();
             return;
         }
 
+        // Only trigger session completion if lockdown was legitimately active and the clock has passed the end
+        if (lockEndTime > 0 && effectiveNow >= lockEndTime) {
+            onLockSessionFinished(prefs);
+            return;
+        }
+
+        int maxDurationMinutes = getActiveScheduleDurationMinutes(prefs);
+        long maxRemainingSec = maxDurationMinutes * 60L;
+
         long remainingSec = lockEndTime > effectiveNow ? (lockEndTime - effectiveNow) / 1000L : 0L;
+        if (remainingSec > maxRemainingSec) {
+            Log.w(TAG, "Remaining time (" + remainingSec + "s) exceeds schedule duration (" + maxRemainingSec + "s). Clamping.");
+            remainingSec = maxRemainingSec;
+            lockEndTime = effectiveNow + (maxRemainingSec * 1000L);
+            prefs.edit().putLong("lock_end_time", lockEndTime).apply();
+        }
+
         long hours = remainingSec / 3600;
         long minutes = (remainingSec % 3600) / 60;
         long seconds = remainingSec % 60;
@@ -365,6 +390,28 @@ public class FloatingOverlayService extends Service {
         removeFloatingView();
         stopForeground(true);
         stopSelf();
+    }
+
+    private int getActiveScheduleDurationMinutes(SharedPreferences prefs) {
+        String activeSchedId = prefs.getString("active_schedule_id", null);
+        String schedulesJson = prefs.getString("schedules_json", "[]");
+        if (activeSchedId != null && !activeSchedId.trim().isEmpty()) {
+            try {
+                JSONArray arr = new JSONArray(schedulesJson);
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject obj = arr.optJSONObject(i);
+                    if (obj != null && activeSchedId.equals(obj.optString("id"))) {
+                        int dur = obj.optInt("durationMinutes", 0);
+                        if (dur > 0) {
+                            return Math.min(90, dur);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Error parsing schedules_json for duration: " + e.getMessage());
+            }
+        }
+        return 90;
     }
 
     private void removeFloatingView() {

@@ -111,6 +111,12 @@ public class LockPlugin extends Plugin {
                 lockEndTime = effectiveNow + (durationMinutes * 60L * 1000L);
             }
 
+            long maxAllowedEnd = effectiveNow + (durationMinutes * 60L * 1000L);
+            if (lockEndTime > maxAllowedEnd) {
+                Log.w(TAG, "startLockdown: Clamping lockEndTime (" + lockEndTime + ") to maxAllowedEnd (" + maxAllowedEnd + ")");
+                lockEndTime = maxAllowedEnd;
+            }
+
             Set<String> whitelist = new HashSet<>();
             whitelist.add(getActivity().getPackageName()); // Always allow QIEZKA itself
 
@@ -186,12 +192,22 @@ public class LockPlugin extends Plugin {
     @PluginMethod
     public void endLockdown(PluginCall call) {
         try {
-            prefs.edit()
+            String activeScheduleId = prefs.getString("active_schedule_id", "");
+            long timeOffset = prefs.getLong("time_offset", 0L);
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+            long currentLockEnd = prefs.getLong("lock_end_time", effectiveNow);
+
+            SharedPreferences.Editor editor = prefs.edit()
                     .putBoolean("lockdown_active", false)
                     .remove("lock_end_time")
                     .remove("active_schedule_id")
-                    .putStringSet("whitelist", new HashSet<>())
-                    .apply();
+                    .putStringSet("whitelist", new HashSet<>());
+
+            if (activeScheduleId != null && !activeScheduleId.trim().isEmpty()) {
+                editor.putLong("last_completed_window_end_" + activeScheduleId, currentLockEnd);
+                Log.i(TAG, "endLockdown: recorded completed window for schedule " + activeScheduleId + " until " + currentLockEnd);
+            }
+            editor.apply();
 
             AlarmReceiver.cancelLockEndAlarm(getActivity());
             FloatingOverlayService.stopService(getActivity());
@@ -1062,6 +1078,39 @@ public class LockPlugin extends Plugin {
             }
         } else {
             call.reject("User canceled");
+        }
+    }
+
+    public boolean hasBackListeners() {
+        return hasListeners("backPressed");
+    }
+
+    public void triggerBackPressed() {
+        notifyListeners("backPressed", new JSObject());
+    }
+
+    @PluginMethod
+    public void exitToHome(PluginCall call) {
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(() -> {
+                getActivity().moveTaskToBack(true);
+                call.resolve();
+            });
+        } else {
+            call.resolve();
+        }
+    }
+
+    @PluginMethod
+    public void showToast(PluginCall call) {
+        String message = call.getString("message", "");
+        if (message != null && !message.trim().isEmpty() && getActivity() != null) {
+            getActivity().runOnUiThread(() -> {
+                android.widget.Toast.makeText(getActivity(), message, android.widget.Toast.LENGTH_SHORT).show();
+                call.resolve();
+            });
+        } else {
+            call.resolve();
         }
     }
 }

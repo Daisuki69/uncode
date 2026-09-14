@@ -1,10 +1,11 @@
-export type AppState = 'onboarding' | 'dashboard' | 'create_schedule' | 'locked' | 'evaluating' | 'result' | 'settings' | 'edit_rubric' | 'permission_walkthrough';
+export type AppState = 'onboarding' | 'dashboard' | 'create_schedule' | 'locked' | 'evaluating' | 'result' | 'settings' | 'edit_rubric' | 'permission_walkthrough' | 'logs';
 
 export interface SavedResource {
   id: string;
   title: string;
   content: string;
   createdAt: number;
+  type?: 'lecture_notes' | 'case_study';
 }
 
 export interface ScheduleData {
@@ -76,6 +77,8 @@ export interface CompletedHomework {
   feedback: string;
   passed: boolean;
   timestamp: number;
+  durationMinutes?: number;
+  selectedResourceIds?: string[];
 }
 
 declare global {

@@ -6,18 +6,20 @@ interface DeclutterOptions {
   content: string;
   apiKey: string;
   apiModel: string;
+  resourceType?: 'lecture_notes' | 'case_study';
   customPrompts?: Record<string, string>;
 }
 
 export async function declutterResource(opts: DeclutterOptions): Promise<{ title: string; content: string }> {
-  const { title, content, apiKey, apiModel, customPrompts } = opts;
+  const { title, content, apiKey, apiModel, resourceType, customPrompts } = opts;
 
   if (!apiKey || !apiKey.trim()) {
     throw new Error('Missing Gemini API Key. Please add it in Settings.');
   }
 
   const ai = getGeminiClient(apiKey);
-  const promptText = getPrompt('parseResource', {}, customPrompts);
+  const promptKey = resourceType === 'case_study' ? 'articleDeclutter' : 'parseResource';
+  const promptText = getPrompt(promptKey, {}, customPrompts);
 
   const response = await ai.models.generateContent({
     model: apiModel || 'gemini-2.0-flash',

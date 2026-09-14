@@ -762,6 +762,12 @@ public class LockAccessibilityService extends AccessibilityService {
                     }
 
                     if (inWindow && !isLockdownActive) {
+                        long lastCompletedEnd = prefs.getLong("last_completed_window_end_" + s.optString("id", ""), 0L);
+                        if (windowEnd <= lastCompletedEnd) {
+                            // This schedule session was already completed or ended! Do NOT restart lockdown!
+                            continue;
+                        }
+
                         Log.i(TAG, "Ticker: schedule " + s.optString("id") + " starting NOW! (windowEnd=" + windowEnd + ")");
                         prefs.edit()
                                 .putBoolean("lockdown_active", true)
@@ -1082,6 +1088,10 @@ public class LockAccessibilityService extends AccessibilityService {
 
                 // Check today's window
                 if (effectiveNow >= schedStartTime && effectiveNow < schedEndTime) {
+                    long lastCompletedEnd = prefs.getLong("last_completed_window_end_" + s.optString("id", ""), 0L);
+                    if (schedEndTime <= lastCompletedEnd) {
+                        continue;
+                    }
                     prefs.edit()
                             .putBoolean("lockdown_active", true)
                             .putLong("lock_end_time", schedEndTime)
@@ -1107,6 +1117,10 @@ public class LockAccessibilityService extends AccessibilityService {
                 long yesterdayStart = schedStartTime - (24L * 3600L * 1000L);
                 long yesterdayEnd = yesterdayStart + durationMs;
                 if (effectiveNow >= yesterdayStart && effectiveNow < yesterdayEnd) {
+                    long lastCompletedEnd = prefs.getLong("last_completed_window_end_" + s.optString("id", ""), 0L);
+                    if (yesterdayEnd <= lastCompletedEnd) {
+                        continue;
+                    }
                     prefs.edit()
                             .putBoolean("lockdown_active", true)
                             .putLong("lock_end_time", yesterdayEnd)

@@ -63,6 +63,31 @@ public class AlarmReceiver extends BroadcastReceiver {
         String title = intent.getStringExtra(EXTRA_SCHEDULE_TITLE);
         long durationMinutes = intent.getLongExtra(EXTRA_DURATION_MINUTES, 25L);
 
+        // Verify that this schedule actually exists and is active in schedules_json
+        String schedulesJson = prefs.getString("schedules_json", null);
+        boolean scheduleExistsAndActive = false;
+        if (schedulesJson != null && scheduleId != null) {
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray(schedulesJson);
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject s = arr.getJSONObject(i);
+                    if (scheduleId.equals(s.optString("id", ""))) {
+                        if (s.optBoolean("isActive", true)) {
+                            scheduleExistsAndActive = true;
+                            durationMinutes = s.optLong("durationMinutes", durationMinutes);
+                            title = s.optString("title", title);
+                        }
+                        break;
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+
+        if (!scheduleExistsAndActive) {
+            Log.w(TAG, "handleScheduleStart: schedule " + scheduleId + " does not exist in schedules_json or is inactive — discarding orphaned alarm!");
+            return;
+        }
+
         long timeOffset = prefs.getLong("time_offset", 0L);
         long effectiveNow = System.currentTimeMillis() + timeOffset;
         long lockEndTime = effectiveNow + (durationMinutes * 60L * 1000L);
@@ -122,15 +147,20 @@ public class AlarmReceiver extends BroadcastReceiver {
             String title = s.optString("title", "Study Session");
             long durationMinutes = s.optLong("durationMinutes", 25L);
 
+            long timeOffset = prefs.getLong("time_offset", 0L);
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+            long maxLockEnd = effectiveNow + (durationMinutes * 60L * 1000L);
+            long safeLockEndTime = Math.min(lockEndTime, maxLockEnd);
+
             boolean alreadyActive = prefs.getBoolean("lockdown_active", false);
 
             prefs.edit()
                     .putBoolean("lockdown_active", true)
-                    .putLong("lock_end_time", lockEndTime)
+                    .putLong("lock_end_time", safeLockEndTime)
                     .putString("active_schedule_id", scheduleId)
                     .apply();
 
-            scheduleLockEndAlarm(context, lockEndTime, scheduleId);
+            scheduleLockEndAlarm(context, safeLockEndTime, scheduleId);
 
             // Only show notification and bring activity to front if this is a fresh transition into lockdown
             if (!alreadyActive) {
@@ -153,7 +183,7 @@ public class AlarmReceiver extends BroadcastReceiver {
             }
 
             // Start Floating Assistive Timer Ball Overlay
-            FloatingOverlayService.startService(context, lockEndTime, title);
+            FloatingOverlayService.startService(context, safeLockEndTime, title);
 
             if (!alreadyActive && LockAccessibilityService.instance != null) {
                 LockAccessibilityService.instance.onScheduleStartTriggered();
@@ -192,6 +222,36 @@ public class AlarmReceiver extends BroadcastReceiver {
     }
 
     private void handleScheduleWarning(Context context, Intent intent) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        boolean isLockdownActive = prefs.getBoolean("lockdown_active", false);
+        if (isLockdownActive) {
+            Log.i(TAG, "handleScheduleWarning: lockdown already active, suppressing advance warning");
+            return;
+        }
+
+        String scheduleId = intent.getStringExtra(EXTRA_SCHEDULE_ID);
+        String schedulesJson = prefs.getString("schedules_json", null);
+        boolean scheduleExistsAndActive = false;
+        if (schedulesJson != null && scheduleId != null) {
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray(schedulesJson);
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject s = arr.getJSONObject(i);
+                    if (scheduleId.equals(s.optString("id", ""))) {
+                        if (s.optBoolean("isActive", true)) {
+                            scheduleExistsAndActive = true;
+                        }
+                        break;
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+
+        if (!scheduleExistsAndActive) {
+            Log.w(TAG, "handleScheduleWarning: schedule " + scheduleId + " does not exist in schedules_json or is inactive — discarding orphaned warning!");
+            return;
+        }
+
         String warningText = intent.getStringExtra(EXTRA_WARNING_TEXT);
         int notifId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, NOTIF_ID_WARNING);
         if (warningText == null || warningText.trim().isEmpty()) {
