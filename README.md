@@ -1580,7 +1580,11 @@ This section details every major engineering revision, architectural refinement,
     - Synchronizes `block_web_games` preference to native bridge on boot and upon saving settings.
 
 ---
-
+### 16. Upcomming Milestone 16: School-Grade Network Intelligence architecture
+- **Why It Was Added**:
+  - Dawg i cant literally update blocked wbesites myself i can jsut use what school uses
+- **What Was Implemented**:
+---
 ## 🔮 Future Roadmap & Potential Enhancements
 
 This section outlines features and architectural improvements planned for future releases of QIEZKA, explaining **why** each enhancement is needed and **how** it will be engineered.
