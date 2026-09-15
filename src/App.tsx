@@ -6,7 +6,7 @@ import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -17,6 +17,7 @@ const SettingsOverlay = React.lazy(() => import('./components/SettingsOverlay').
 const EditRubric = React.lazy(() => import('./components/EditRubric').then(m => ({ default: m.EditRubric })));
 const HomeworksPage = React.lazy(() => import('./components/HomeworksPage').then(m => ({ default: m.HomeworksPage })));
 const PermissionWalkthrough = React.lazy(() => import('./components/PermissionWalkthrough').then(m => ({ default: m.PermissionWalkthrough })));
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const modalVariants = {
   initial: { opacity: 0 },
@@ -224,6 +225,11 @@ export default function App() {
     if (isLoaded) saveData('studom_completed_homeworks', completedHomeworks);
   }, [completedHomeworks, isLoaded]);
 
+  const completedHomeworksRef = useRef(completedHomeworks);
+  useEffect(() => {
+    completedHomeworksRef.current = completedHomeworks;
+  }, [completedHomeworks]);
+
 
   const addLog = (action: string, details?: string) => {
     setLogs(prev => [{
@@ -289,6 +295,7 @@ export default function App() {
       setOperatingMode(loadedSettings.operatingMode || 'safemode');
       setWebProtectionMode(loadedSettings.webProtectionMode || 'accessibility');
       setAllowYoutube(loadedSettings.allowYoutube ?? false);
+      setBlockWebGames(loadedSettings.blockWebGames !== false);
       setResources(loadedResources);
       setLogs(loadedLogs);
       setCompletedHomeworks(loadedCompletedHomeworks);
@@ -297,8 +304,31 @@ export default function App() {
       // Check native lock status immediately upon loading
       try {
         const lockStatus = await getLockStatus();
-        if (lockStatus && lockStatus.isLockActive) {
-          if (lockStatus.lockEndTime > 0) setLockEndTime(lockStatus.lockEndTime);
+        if (lockStatus && lockStatus.isConsequenceActive) {
+          const hasFailedHomework = loadedCompletedHomeworks.some(h => !h.passed);
+          if (!hasFailedHomework) {
+            // Orphaned consequence state (e.g. from blank backup import or cleared homeworks)
+            // Auto-heal by clearing native consequence and resetting setting
+            endLockdown().catch(() => {});
+            setConsequenceActive(false).catch(() => {});
+            loadedSettings.consequenceActive = false;
+            delete (loadedSettings as any).consequenceScheduleId;
+            setSettings(prev => ({ ...prev, consequenceActive: false, consequenceScheduleId: undefined }));
+            setActiveScheduleId(null);
+            setLockEndTime(null);
+            setAppState(loadedSettings.onboardingComplete ? 'dashboard' : 'onboarding');
+          } else {
+            setSettings(prev => ({
+              ...prev,
+              consequenceActive: true,
+              consequenceScheduleId: lockStatus.activeScheduleId || prev.consequenceScheduleId
+            }));
+            setActiveScheduleId(lockStatus.activeScheduleId || null);
+            setLockEndTime(null);
+            setAppState('dashboard');
+          }
+        } else if (lockStatus && lockStatus.isLockActive && lockStatus.lockEndTime > 0) {
+          setLockEndTime(lockStatus.lockEndTime);
           if (lockStatus.activeScheduleId) setActiveScheduleId(lockStatus.activeScheduleId);
           setAppState('locked');
         } else {
@@ -318,12 +348,32 @@ export default function App() {
           try { localStorage.setItem('studom_installed_apps', JSON.stringify(installed)); } catch {}
 
           setSettings(prev => {
+            const existingIds = new Set((prev.allowedApps || []).map(a => a.id));
+            const autoAllowedCustom = installed.filter(a => 
+              a.isAutoAllowed && 
+              !a.isHardcoded && 
+              !isAppBlacklisted(a.id) && 
+              !isHiddenSystemExemptApp(a.id, a.name) && 
+              !existingIds.has(a.id)
+            );
+
             if (!prev.allowedAppsInitialized) {
               const messagingApps = installed.filter(a => isMessagingPackage(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+              const combined = [...(prev.allowedApps || [])];
+              for (const a of [...messagingApps, ...autoAllowedCustom]) {
+                if (!combined.some(c => c.id === a.id)) combined.push(a);
+              }
               return {
                 ...prev,
-                allowedApps: messagingApps.length > 0 ? messagingApps : prev.allowedApps,
+                allowedApps: combined,
                 allowedAppsInitialized: true
+              };
+            }
+
+            if (autoAllowedCustom.length > 0) {
+              return {
+                ...prev,
+                allowedApps: [...(prev.allowedApps || []), ...autoAllowedCustom]
               };
             }
             return prev;
@@ -344,10 +394,28 @@ export default function App() {
       if (document.visibilityState === 'visible') {
         try {
           const status = await getLockStatus();
-          if (status && status.isLockActive) {
-            if (status.lockEndTime > 0) {
-              setLockEndTime(prev => (prev !== status.lockEndTime ? status.lockEndTime : prev));
+          if (status && status.isConsequenceActive) {
+            const hasFailed = completedHomeworksRef.current.some(h => !h.passed);
+            if (!hasFailed) {
+              // Auto-heal orphaned consequence!
+              endLockdown().catch(() => {});
+              setConsequenceActive(false).catch(() => {});
+              setSettings(prev => ({ ...prev, consequenceActive: false, consequenceScheduleId: undefined }));
+              setActiveScheduleId(null);
+              setLockEndTime(null);
+            } else {
+              setSettings(prev => ({
+                ...prev,
+                consequenceActive: true,
+                consequenceScheduleId: status.activeScheduleId || prev.consequenceScheduleId
+              }));
+              setLockEndTime(null);
+              if (appState === 'locked') {
+                setAppState('dashboard');
+              }
             }
+          } else if (status && status.isLockActive && status.lockEndTime > 0) {
+            setLockEndTime(prev => (prev !== status.lockEndTime ? status.lockEndTime : prev));
             if (status.activeScheduleId) {
               setActiveScheduleId(prev => (prev !== status.activeScheduleId ? status.activeScheduleId : prev));
             }
@@ -465,10 +533,10 @@ export default function App() {
 
       if (!foundActive) {
         if (appState === 'locked') {
-          if (!settings.consequenceActive) {
-            endLockdown();
-          }
-          navigate('dashboard');
+          // If the lock session ended without submission, trigger handleTimeout
+          // so the session is logged to completedHomeworks (failed) and Consequence Mode engages
+          handleTimeout();
+          return;
         }
 
         if (nearestUpcomingTime !== null && nearestScheduleDate !== null) {
@@ -509,6 +577,37 @@ export default function App() {
     setTimeOffset(newOffset);
   };
 
+  const handleClearConsequence = useCallback(async () => {
+    try {
+      await endLockdown();
+      await setConsequenceActive(false);
+    } catch (e) {
+      console.warn('Failed to clear native consequence', e);
+    }
+    setSettings(prev => ({ ...prev, consequenceActive: false, consequenceScheduleId: undefined }));
+    setActiveScheduleId(null);
+    setLockEndTime(null);
+    addLog('Cleared Consequence Mode', 'Orphaned consequence manually dismissed from Dashboard');
+  }, []);
+
+  const handleResetLockdown = useCallback(async () => {
+    try {
+      await endLockdown();
+      await setConsequenceActive(false);
+    } catch (e) {
+      console.warn('Failed to end lockdown natively', e);
+    }
+    setTimeOffset(0);
+    setSettings(prev => ({ ...prev, consequenceActive: false, consequenceScheduleId: undefined }));
+    setActiveScheduleId(null);
+    setLockEndTime(null);
+    setLockPauseTime(null);
+    if (appState === 'locked') {
+      navigate('dashboard', 'backward');
+    }
+    addLog('Reset All Locks & Time Offset', 'Triggered from Dashboard debug bar');
+  }, [appState, navigate]);
+
 const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | 'hardcore'): boolean => {
   if (operatingMode === 'hardcore') return true;
   const now = new Date(Date.now() + timeOffset);
@@ -521,7 +620,11 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
 
   const handleTimeout = useCallback((skipped?: boolean) => {
     // Add failed session to completedHomeworks log
-    const activeSchedule = (settings.schedules || []).find(s => s.id === activeScheduleId);
+    const activeSchedule = (settings.schedules || []).find(s => s.id === activeScheduleId) ||
+                           (settings.schedules || []).find(s => s.isActive) ||
+                           (settings.schedules && settings.schedules.length > 0 ? settings.schedules[0] : null);
+    const targetScheduleId = activeSchedule ? activeSchedule.id : activeScheduleId;
+
     if (activeSchedule) {
       setCompletedHomeworks(prev => {
         // Prevent duplicate logs within 15 seconds for the same schedule
@@ -555,26 +658,26 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
         ...prev,
         consequenceActive: false,
         consequenceScheduleId: undefined,
-        schedules: (prev.schedules || []).filter(s => s.id !== activeScheduleId)
+        schedules: (prev.schedules || []).filter(s => s.id !== targetScheduleId)
       }));
       notifyUser('Lock skipped (Test mode). Device access restored.');
     } else {
       // Legitimate timeout: Activate Consequence Mode!
       // Do NOT call endLockdown; retain app restrictions during operating hours (7 PM - 3 AM or 24/7 in Hardcore) until rescheduled & passed
       const updatedSchedules = (settings.schedules || []).map(s => 
-        s.id === activeScheduleId ? { ...s, isActive: false } : s
+        s.id === targetScheduleId ? { ...s, isActive: false } : s
       );
 
       setSettings(prev => ({
         ...prev,
         consequenceActive: true,
-        consequenceScheduleId: activeScheduleId || undefined,
+        consequenceScheduleId: targetScheduleId || undefined,
         schedules: updatedSchedules
       }));
 
       const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
       syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
-      setConsequenceActive(true, activeScheduleId || undefined);
+      setConsequenceActive(true, targetScheduleId || undefined, safeAllowedApps.map(a => a.id));
 
       const operatingHoursMsg = settings.operatingMode === 'hardcore'
         ? '⚠️ Homework Expired — Consequence Active (Hardcore 24/7): Distracting apps remain restricted around the clock until rescheduled and passed.'
@@ -582,8 +685,8 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
       notifyUser(operatingHoursMsg);
     }
 
-    if (activeScheduleId) {
-      localStorage.removeItem(`lockscreen_data_${activeScheduleId}`);
+    if (targetScheduleId) {
+      localStorage.removeItem(`lockscreen_data_${targetScheduleId}`);
       localStorage.removeItem('lockscreen_last_draft');
     }
 
@@ -591,20 +694,44 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
     setLockEndTime(null);
     setLockPauseTime(null);
     navigate('dashboard', 'backward');
-  }, [activeScheduleId, settings.schedules, settings.allowedApps]);
+  }, [activeScheduleId, settings.schedules, settings.allowedApps, settings.operatingMode, navigate]);
 
-  const handleCompleteOnboarding = async (role: 'student' | 'teacher' | 'just a guy') => {
+  const handleCompleteOnboarding = async (config?: Partial<AppSettings>) => {
     let initialAllowed = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
     if (!settings.allowedAppsInitialized) {
       try {
         const installed = installedApps.length > 0 ? installedApps : await getInstalledApps();
         const messagingApps = (installed || []).filter(a => isMessagingPackage(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
-        if (messagingApps.length > 0) {
-          initialAllowed = messagingApps;
+        const autoAllowedApps = (installed || []).filter(a => a.isAutoAllowed && !a.isHardcoded && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        const combined = [...initialAllowed];
+        for (const a of [...messagingApps, ...autoAllowedApps]) {
+          if (!combined.some(c => c.id === a.id)) combined.push(a);
+        }
+        if (combined.length > 0) {
+          initialAllowed = combined;
         }
       } catch (e) {}
     }
-    setSettings(prev => ({ ...prev, onboardingComplete: true, role, allowedApps: initialAllowed, allowedAppsInitialized: true }));
+    const role = config?.role || settings.role || 'just a guy';
+    setSettings(prev => ({ 
+      ...prev, 
+      ...config, 
+      onboardingComplete: true, 
+      role, 
+      allowedApps: initialAllowed, 
+      allowedAppsInitialized: true 
+    }));
+
+    if (config?.operatingMode) {
+      setOperatingMode(config.operatingMode);
+    }
+    if (config?.webProtectionMode) {
+      setWebProtectionMode(config.webProtectionMode);
+    }
+    if (config?.allowYoutube !== undefined) {
+      setAllowYoutube(config.allowYoutube);
+    }
+
     navigate('dashboard', 'forward');
   };
 
@@ -762,12 +889,13 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
         navigate('result');
       } else {
         // Failed evaluation: Maintain consequence mode!
+        const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
         setSettings(prev => ({
           ...prev,
           consequenceActive: true,
           consequenceScheduleId: scheduleId,
         }));
-        setConsequenceActive(true, scheduleId);
+        setConsequenceActive(true, scheduleId, safeAllowedApps.map(a => a.id));
         navigate('result');
       }
     } catch (error: any) {
@@ -837,6 +965,9 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
               timeOffset={timeOffset}
               onTimeOverride={handleTimeOverride}
               onResetTime={() => setTimeOffset(0)}
+              onResetLockdown={handleResetLockdown}
+              completedHomeworks={completedHomeworks}
+              onClearConsequence={handleClearConsequence}
               onSettingsChange={(updates) => setSettings(prev => ({ ...prev, ...updates }))}
               onResourceEditStateChange={setIsResourceEditing} 
               settings={settings}
@@ -910,7 +1041,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
           </motion.div>
         )}
 
-        {appState === 'locked' && lockEndTime && (
+        {appState === 'locked' && (
           <motion.div key="locked" custom={navDirection} variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.3, ease: 'easeOut' }} className="absolute inset-0 overflow-y-auto bg-gray-50 flex flex-col w-full h-full">
             <LockScreen 
               schedule={
@@ -929,7 +1060,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
               }
               settings={settings}
               resources={resources}
-              lockEndTime={lockEndTime}
+              lockEndTime={lockEndTime || (Date.now() + 25 * 60000)}
               onSubmitHomework={(file, ocrType, text) => handleSubmitHomework(file, activeScheduleId || 'active-session', ocrType, text)}
               onTimeout={handleTimeout}
               getCurrentTime={getCurrentTime}
@@ -974,55 +1105,62 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
       <AnimatePresence>
         {appState === 'logs' && (
           <ModalTransition keyStr="logs">
-            <Suspense fallback={<div className="p-8 flex items-center justify-center text-red-500"><Loader2 className="w-8 h-8 animate-spin" /></div>}>
-              <HomeworksPage 
-                homeworks={completedHomeworks}
-                schedules={settings.schedules || []}
-                consequenceActive={settings.consequenceActive}
-                consequenceScheduleId={settings.consequenceScheduleId}
-                operatingMode={settings.operatingMode}
-                onBack={() => navigate('dashboard', 'backward')}
-                onClear={() => setCompletedHomeworks([])}
-                onReschedule={(updatedSchedules) => {
-                  setSettings(prev => {
-                    const inactive = (prev.schedules || []).filter(s => !s.isActive);
-                    const all = [...updatedSchedules, ...inactive];
-                    const safeAllowedApps = (prev.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
-                    syncSchedules(all, safeAllowedApps.map(a => a.id));
-                    return {
-                      ...prev,
-                      schedules: all
-                    };
-                  });
-                  addLog('Emergency Reschedule', `Cascaded ${updatedSchedules.length} active schedules`);
-                }}
-              />
-            </Suspense>
+            <ErrorBoundary fallbackTitle="Homeworks Log Error" onReset={() => navigate('dashboard', 'backward')}>
+              <Suspense fallback={<div className="p-8 flex items-center justify-center text-red-500"><Loader2 className="w-8 h-8 animate-spin" /></div>}>
+                <HomeworksPage 
+                  homeworks={completedHomeworks}
+                  schedules={settings.schedules || []}
+                  consequenceActive={settings.consequenceActive}
+                  consequenceScheduleId={settings.consequenceScheduleId}
+                  operatingMode={settings.operatingMode}
+                  onBack={() => navigate('dashboard', 'backward')}
+                  onClear={() => setCompletedHomeworks([])}
+                  onReschedule={(updatedSchedules) => {
+                    setSettings(prev => {
+                      const inactive = (prev.schedules || []).filter(s => !s.isActive);
+                      const all = [...updatedSchedules, ...inactive];
+                      const safeAllowedApps = (prev.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+                      syncSchedules(all, safeAllowedApps.map(a => a.id));
+                      return {
+                        ...prev,
+                        schedules: all
+                      };
+                    });
+                    addLog('Emergency Reschedule', `Cascaded ${updatedSchedules.length} active schedules`);
+                  }}
+                />
+              </Suspense>
+            </ErrorBoundary>
           </ModalTransition>
         )}
         {appState === 'settings' && (
           <ModalTransition keyStr="settings">
-            <Suspense fallback={<div className="p-8 flex items-center justify-center text-red-500"><Loader2 className="w-8 h-8 animate-spin" /></div>}>
-              <SettingsOverlay
-                settings={settings}
-                logs={logs}
-                onClearLogs={() => setLogs([])}
-                onSave={(updates) => {
-                  if (updates.operatingMode) {
-                    setOperatingMode(updates.operatingMode);
-                  }
-                  if (updates.webProtectionMode) {
-                    setWebProtectionMode(updates.webProtectionMode);
-                  }
-                  if (updates.allowYoutube !== undefined) {
-                    setAllowYoutube(updates.allowYoutube);
-                  }
-                  setSettings(prev => ({ ...prev, ...updates }));
-                  navigate('dashboard', 'backward');
-                }}
-                onClose={() => navigate('dashboard', 'backward')}
-              />
-            </Suspense>
+            <ErrorBoundary fallbackTitle="Settings Error" onReset={() => navigate('dashboard', 'backward')}>
+              <Suspense fallback={<div className="p-8 flex items-center justify-center text-red-500"><Loader2 className="w-8 h-8 animate-spin" /></div>}>
+                <SettingsOverlay
+                  settings={settings}
+                  logs={logs}
+                  onClearLogs={() => setLogs([])}
+                  onSave={(updates) => {
+                    if (updates.operatingMode) {
+                      setOperatingMode(updates.operatingMode);
+                    }
+                    if (updates.webProtectionMode) {
+                      setWebProtectionMode(updates.webProtectionMode);
+                    }
+                    if (updates.allowYoutube !== undefined) {
+                      setAllowYoutube(updates.allowYoutube);
+                    }
+                    if (updates.blockWebGames !== undefined) {
+                      setBlockWebGames(updates.blockWebGames);
+                    }
+                    setSettings(prev => ({ ...prev, ...updates }));
+                    navigate('dashboard', 'backward');
+                  }}
+                  onClose={() => navigate('dashboard', 'backward')}
+                />
+              </Suspense>
+            </ErrorBoundary>
           </ModalTransition>
         )}
       </AnimatePresence>

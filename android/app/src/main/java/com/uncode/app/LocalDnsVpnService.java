@@ -6,21 +6,30 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * LocalDnsVpnService:
@@ -40,14 +49,14 @@ public class LocalDnsVpnService extends VpnService {
     private static final String CHANNEL_ID = "qiezka_dns_vpn";
     private static final int NOTIF_ID = 8801;
 
-    private static final String VPN_ADDRESS = "10.111.222.1";
-    private static final String UPSTREAM_DNS_PRIMARY = "1.1.1.1";
-    private static final String UPSTREAM_DNS_SECONDARY = "8.8.8.8";
+    private static final String VPN_INTERFACE_IP = "10.111.222.1";
+    private static final String VPN_DNS_SERVER_IP = "10.111.222.2";
 
     public static volatile boolean isRunning = false;
 
     private ParcelFileDescriptor vpnInterface = null;
     private Thread workerThread = null;
+    private ExecutorService dnsExecutor = null;
     private volatile boolean shouldRun = false;
 
     // Distracting domains sinkholed at the socket/DNS level
@@ -66,6 +75,89 @@ public class LocalDnsVpnService extends VpnService {
         "webtoons.com", "mangadex.org", "mangakakalot.com", "bilibili.tv", "bilibili.com",
         "roblox.com", "rbxcdn.com",
         "9gag.com", "pinterest.com", "tumblr.com"
+    ));
+
+    // Comprehensive Web-Based Games Database (250+ Domains)
+    private static final Set<String> WEB_GAMING_DOMAINS = new HashSet<>(Arrays.asList(
+        // A. Mega Portals & Aggregators
+        "poki.com", "poki-gdn.com", "poki.cz", "poki.nl", "poki.com.br",
+        "crazygames.com", "crazygames.co.uk", "crazygames.fr", "crazygames.io",
+        "coolmathgames.com", "coolmath-games.com", "coolmath.com",
+        "kongregate.com", "kongregate.io",
+        "armorgames.com", "armorgamesonline.com",
+        "newgrounds.com", "ungrounded.net",
+        "y8.com", "y8games.com", "id.net",
+        "friv.com", "friv5.me", "friv.cm", "friv.today", "friv.cool", "frivclassic.com", "friv-2017.com",
+        "miniplay.com", "minijuegos.com",
+        "addictinggames.com", "silvergames.com",
+        "kizi.com", "kizi10.org",
+        "gamepix.com", "lagged.com",
+        "agame.com", "a-game.com", "gamesgames.com",
+        "snokido.com", "snokido.fr", "snokido.net",
+        "kbhgames.com", "playhop.com", "1001games.com",
+        "twoplayergames.org", "2playergames.com", "pomu.com", "paisdelosjuegos.com",
+        "games2girls.com", "girlsgogames.com", "mousebreaker.com", "stickpage.com",
+        "speele.nl", "jetztspielen.de", "gry.pl", "jeuxjeuxjeux.fr",
+        "arkadium.com", "gameforge.com", "gameflare.com", "gamepost.com",
+        "titotu.io", "kevin.games", "zone.msn.com", "plays.org", "bubbleshooter.net",
+
+        // B. Viral .IO & Multiplayer Arena Games
+        "slither.io", "slitherio.org", "agar.io", "agar.pro", "agariogame.club",
+        "diep.io", "krunker.io", "yendis.ch",
+        "1v1.lol", "1v1.school", "justfall.lol",
+        "paper.io", "paper-io.com", "paperio2.com",
+        "hole.io", "hole-io.com",
+        "surviv.io", "survev.io", "suroi.io",
+        "skribbl.io", "gartic.io", "garticphone.com", "drawasaurus.org",
+        "shellshock.io", "eggcombat.com", "shellshockers.io",
+        "deeeep.io", "bloxd.io", "voxiom.io", "smashkarts.io",
+        "ev.io", "zombs.io", "zombsroyale.io", "starve.io", "moomoo.io",
+        "narrow.one", "venge.io", "bonk.io", "bonk2.io",
+        "wings.io", "brutal.io", "splix.io", "lordz.io",
+        "flyordie.io", "evojaws.io", "evoworld.io",
+        "digdig.io", "yohoho.io", "taming.io", "betrayal.io",
+        "battledudes.io", "lolbeans.io", "warbrokers.io",
+        "curvefever.pro", "curvefever.com", "littlebigsnake.com", "arrow.io",
+        "iogames.space", "iogames.onl", "io-games.io",
+
+        // C. Cloud Gaming & Web APK Streaming Backdoors
+        "now.gg", "nowgg.me", "nowgg.io",
+        "play.geforcenow.com", "geforcenow.com",
+        "luna.amazon.com",
+        "boosteroid.com", "cloud.boosteroid.com",
+        "shadow.tech", "vortex.gg", "airgpu.com",
+
+        // D. Indie Web Runtimes & CDNs
+        "itch.zone", "itch.io", "gamejolt.com", "gx.games",
+        "simmer.io", "lexaloffle.com", "flowlab.io", "arcade.construct.net",
+
+        // E. Web Emulators & Retro Gaming
+        "emulatoronline.com", "retrogames.cc", "playretrogames.com", "vimm.net",
+        "emupedia.net", "emupedia.org", "afterplay.io", "eclipseemu.me",
+        "webretro.org", "game-oldies.com", "ssega.com", "playminigames.net",
+        "playclassic.games", "dosgames.com", "playdosgames.com",
+        "online-emulators.com", "retrogames.onl", "myabandonware.com",
+        "consoleroms.com", "archaic-bingo.com", "wowroms.com", "freeroms.com",
+
+        // F. Unblocked Games Dedicated Networks & Mirrors
+        "unblocked-games.com", "unblockedgames66.com", "unblockedgames66plus.com", "unblockedgames66ez.com",
+        "unblockedgames76.com", "unblockedgames77.com", "unblockedgames99.com",
+        "unblockedgames500.com", "unblockedgames119.com", "unblockedgames24h.com",
+        "classroom6x.com", "classroom-6x.org",
+        "slope-game.com", "slopeunblocked.org", "slopegame.online",
+        "hoodamath.com", "mathplayground.com", "abcya.com", "primarygames.com",
+        "freeonlinegames.com", "b-games.com", "unblocked-games-76.com",
+        "unblockedgame76.com", "unblockedgamesworld.com", "unblockedgamespod.com",
+        "unblockedgames.me", "unblocked-games-s.com", "unblockedgame.io", "unblockedgamesfree.com",
+
+        // G. Casual, Board, Puzzle & Incremental Games
+        "chess.com", "lichess.org", "chess24.com", "chessbomb.com",
+        "geoguessr.com", "worldle.teuteuf.fr", "globle-game.com", "geoguess.games", "city-guesser.com",
+        "2048game.com", "play2048.co", "2048.io",
+        "sudoku.com", "websudoku.com", "nonograms.org",
+        "wordlewebsite.com", "wordle.org", "quordle.com", "octordle.com", "sedecordle.com",
+        "solitaired.com", "cardgames.io", "solitaireparadise.com", "247solitaire.com",
+        "sporcle.com", "jetpunk.com", "tetr.io", "jstris.jezevec10.com", "cookieclicker.ee"
     ));
 
     private static final Set<String> YOUTUBE_DOMAINS = new HashSet<>(Arrays.asList(
@@ -99,7 +191,22 @@ public class LocalDnsVpnService extends VpnService {
     public int onStartCommand(Intent intent, int flags, int startId) {
         createNotificationChannel();
         Notification notif = buildNotification();
-        startForeground(NOTIF_ID, notif);
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
+            } catch (Exception e) {
+                Log.w(TAG, "systemExempted startForeground failed, falling back to specialUse: " + e.getMessage());
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
+            } catch (Exception e) {
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            }
+        } else {
+            startForeground(NOTIF_ID, notif);
+        }
 
         startDnsSinkhole();
         return START_STICKY;
@@ -108,6 +215,15 @@ public class LocalDnsVpnService extends VpnService {
     @Override
     public void onDestroy() {
         stopDnsSinkhole();
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE);
+            } else {
+                stopForeground(true);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "stopForeground error: " + e.getMessage());
+        }
         super.onDestroy();
     }
 
@@ -119,9 +235,13 @@ public class LocalDnsVpnService extends VpnService {
             builder.setSession("QIEZKA DNS Guard");
             builder.setMtu(1500);
 
-            builder.addAddress(VPN_ADDRESS, 32);
-            builder.addDnsServer(VPN_ADDRESS);
-            builder.addRoute(VPN_ADDRESS, 32); // ONLY capture traffic to our virtual DNS IP!
+            builder.addAddress(VPN_INTERFACE_IP, 24);
+            builder.addDnsServer(VPN_DNS_SERVER_IP);
+            builder.addRoute(VPN_DNS_SERVER_IP, 32); // ONLY capture traffic to our virtual DNS IP!
+
+            try {
+                builder.addDisallowedApplication(getPackageName());
+            } catch (Exception ignore) {}
 
             builder.setBlocking(true);
 
@@ -135,9 +255,10 @@ public class LocalDnsVpnService extends VpnService {
             shouldRun = true;
             isRunning = true;
 
+            dnsExecutor = Executors.newFixedThreadPool(8);
             workerThread = new Thread(new DnsWorker(), "QiezkaDnsWorker");
             workerThread.start();
-            Log.i(TAG, "LocalDnsVpnService started successfully on " + VPN_ADDRESS);
+            Log.i(TAG, "LocalDnsVpnService started successfully. Interface=" + VPN_INTERFACE_IP + ", DNS=" + VPN_DNS_SERVER_IP);
         } catch (Exception e) {
             Log.e(TAG, "Error establishing DNS VPN: " + e.getMessage(), e);
             stopSelf();
@@ -151,6 +272,11 @@ public class LocalDnsVpnService extends VpnService {
         if (workerThread != null) {
             workerThread.interrupt();
             workerThread = null;
+        }
+
+        if (dnsExecutor != null) {
+            dnsExecutor.shutdownNow();
+            dnsExecutor = null;
         }
 
         if (vpnInterface != null) {
@@ -169,28 +295,28 @@ public class LocalDnsVpnService extends VpnService {
 
             FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor());
             FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor());
-            byte[] packet = new byte[32767];
+            byte[] buffer = new byte[32767];
 
             SharedPreferences prefs = getSharedPreferences("UncodeLockPrefs", Context.MODE_PRIVATE);
 
             while (shouldRun && !Thread.currentThread().isInterrupted()) {
                 try {
-                    int length = in.read(packet);
+                    int length = in.read(buffer);
                     if (length <= 0) continue;
 
                     // IPv4 Header verification
                     if (length < 28) continue;
-                    int version = (packet[0] >> 4) & 0x0F;
+                    int version = (buffer[0] >> 4) & 0x0F;
                     if (version != 4) continue; // IPv4 only
 
-                    int protocol = packet[9] & 0xFF;
+                    int protocol = buffer[9] & 0xFF;
                     if (protocol != 17) continue; // UDP only (17)
 
-                    int ipHeaderLength = (packet[0] & 0x0F) * 4;
+                    int ipHeaderLength = (buffer[0] & 0x0F) * 4;
                     if (length < ipHeaderLength + 8) continue;
 
-                    int srcPort = ((packet[ipHeaderLength] & 0xFF) << 8) | (packet[ipHeaderLength + 1] & 0xFF);
-                    int dstPort = ((packet[ipHeaderLength + 2] & 0xFF) << 8) | (packet[ipHeaderLength + 3] & 0xFF);
+                    int srcPort = ((buffer[ipHeaderLength] & 0xFF) << 8) | (buffer[ipHeaderLength + 1] & 0xFF);
+                    int dstPort = ((buffer[ipHeaderLength + 2] & 0xFF) << 8) | (buffer[ipHeaderLength + 3] & 0xFF);
 
                     if (dstPort != 53) continue; // Only handle DNS queries
 
@@ -198,33 +324,21 @@ public class LocalDnsVpnService extends VpnService {
                     int dnsLength = length - dnsOffset;
                     if (dnsLength < 12) continue; // Minimum DNS header size
 
-                    // Parse DNS QNAME
-                    String queryDomain = parseDnsQuestionDomain(packet, dnsOffset, length);
-                    if (queryDomain == null) queryDomain = "";
+                    final byte[] packetData = Arrays.copyOf(buffer, length);
+                    final int finalIpHeaderLen = ipHeaderLength;
+                    final int finalSrcPort = srcPort;
+                    final int finalDstPort = dstPort;
+                    final int finalDnsOffset = dnsOffset;
+                    final int finalDnsLength = dnsLength;
 
-                    boolean allowYoutube = prefs.getBoolean("allow_youtube", false);
-                    boolean isBlacklisted = isDomainBlocked(queryDomain, allowYoutube);
-
-                    if (isBlacklisted) {
-                        // Synthesize local sinkhole 0.0.0.0 DNS response
-                        byte[] responseDns = buildSinkholeResponse(packet, dnsOffset, dnsLength);
-                        if (responseDns != null) {
-                            byte[] responseIpPacket = buildUdpIpPacket(
-                                packet, ipHeaderLength, dstPort, srcPort, responseDns
-                            );
-                            out.write(responseIpPacket);
-                            Log.d(TAG, "Sinkholed DNS query: " + queryDomain);
-                        }
-                    } else {
-                        // Forward query to upstream DNS using a protected socket
-                        byte[] dnsPayload = Arrays.copyOfRange(packet, dnsOffset, dnsOffset + dnsLength);
-                        byte[] upstreamResponse = forwardToUpstreamDns(dnsPayload);
-                        if (upstreamResponse != null) {
-                            byte[] responseIpPacket = buildUdpIpPacket(
-                                packet, ipHeaderLength, dstPort, srcPort, upstreamResponse
-                            );
-                            out.write(responseIpPacket);
-                        }
+                    if (dnsExecutor != null && !dnsExecutor.isShutdown()) {
+                        dnsExecutor.execute(() -> {
+                            try {
+                                handleDnsPacket(packetData, finalIpHeaderLen, finalSrcPort, finalDstPort, finalDnsOffset, finalDnsLength, prefs, out);
+                            } catch (Exception e) {
+                                Log.d(TAG, "handleDnsPacket error: " + e.getMessage());
+                            }
+                        });
                     }
                 } catch (Exception e) {
                     if (!shouldRun) break;
@@ -233,7 +347,46 @@ public class LocalDnsVpnService extends VpnService {
         }
     }
 
-    private boolean isDomainBlocked(String domain, boolean allowYoutube) {
+    private void handleDnsPacket(byte[] packet, int ipHeaderLength, int srcPort, int dstPort, int dnsOffset, int dnsLength, SharedPreferences prefs, FileOutputStream out) {
+        String queryDomain = parseDnsQuestionDomain(packet, dnsOffset, packet.length);
+        if (queryDomain == null) queryDomain = "";
+
+        boolean allowYoutube = prefs.getBoolean("allow_youtube", false);
+        boolean blockWebGames = prefs.getBoolean("block_web_games", true);
+        boolean isBlacklisted = isDomainBlocked(queryDomain, allowYoutube, blockWebGames);
+
+        if (isBlacklisted) {
+            // Synthesize local sinkhole NXDOMAIN response
+            byte[] responseDns = buildSinkholeResponse(packet, dnsOffset, dnsLength);
+            if (responseDns != null) {
+                byte[] responseIpPacket = buildUdpIpPacket(
+                    packet, ipHeaderLength, dstPort, srcPort, responseDns
+                );
+                synchronized (out) {
+                    try {
+                        out.write(responseIpPacket);
+                    } catch (Exception ignore) {}
+                }
+                Log.d(TAG, "Sinkholed DNS query (NXDOMAIN): " + queryDomain);
+            }
+        } else {
+            // Forward query to upstream DNS using a protected socket
+            byte[] dnsPayload = Arrays.copyOfRange(packet, dnsOffset, dnsOffset + dnsLength);
+            byte[] upstreamResponse = forwardToUpstreamDns(dnsPayload);
+            if (upstreamResponse != null) {
+                byte[] responseIpPacket = buildUdpIpPacket(
+                    packet, ipHeaderLength, dstPort, srcPort, upstreamResponse
+                );
+                synchronized (out) {
+                    try {
+                        out.write(responseIpPacket);
+                    } catch (Exception ignore) {}
+                }
+            }
+        }
+    }
+
+    private boolean isDomainBlocked(String domain, boolean allowYoutube, boolean blockWebGames) {
         if (domain == null || domain.isEmpty()) return false;
         String lower = domain.toLowerCase(Locale.US);
 
@@ -252,6 +405,22 @@ public class LocalDnsVpnService extends VpnService {
                 return true;
             }
         }
+
+        // Web-based games (250+ curated domains and dynamic CDN/mirror patterns)
+        if (blockWebGames) {
+            for (String g : WEB_GAMING_DOMAINS) {
+                if (lower.equals(g) || lower.endsWith("." + g)) {
+                    return true;
+                }
+            }
+            if (lower.endsWith(".itch.zone") || lower.endsWith(".poki-gdn.com")) {
+                return true;
+            }
+            if (lower.contains("unblocked") && (lower.contains("game") || lower.contains("66") || lower.contains("76") || lower.contains("slope"))) {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -276,39 +445,24 @@ public class LocalDnsVpnService extends VpnService {
 
     private byte[] buildSinkholeResponse(byte[] packet, int dnsOffset, int dnsLength) {
         try {
-            ByteBuffer buf = ByteBuffer.allocate(dnsLength + 16);
+            ByteBuffer buf = ByteBuffer.allocate(dnsLength);
             // 1. Transaction ID (2 bytes)
             buf.put(packet[dnsOffset]);
             buf.put(packet[dnsOffset + 1]);
 
-            // 2. Flags: Standard query response, No error (0x8180)
+            // 2. Flags: Response, Opcode 0, Authoritative, Recursion Available, RCODE = 3 (NXDOMAIN)
             buf.put((byte) 0x81);
-            buf.put((byte) 0x80);
+            buf.put((byte) 0x83);
 
-            // 3. QDCOUNT = 1
-            buf.put((byte) 0x00);
-            buf.put((byte) 0x01);
-
-            // 4. ANCOUNT = 1
-            buf.put((byte) 0x00);
-            buf.put((byte) 0x01);
-
-            // 5. NSCOUNT = 0, ARCOUNT = 0
+            // 3. QDCOUNT = 1, ANCOUNT = 0, NSCOUNT = 0, ARCOUNT = 0
+            buf.putShort((short) 1);
+            buf.putShort((short) 0);
             buf.putShort((short) 0);
             buf.putShort((short) 0);
 
-            // 6. Copy original Question Section
+            // 4. Copy original Question Section
             int qLen = dnsLength - 12;
             buf.put(packet, dnsOffset + 12, qLen);
-
-            // 7. Answer Section (Pointer to name at offset 12: 0xC00C)
-            buf.put((byte) 0xC0);
-            buf.put((byte) 0x0C);
-            buf.putShort((short) 1);     // TYPE: A (IPv4)
-            buf.putShort((short) 1);     // CLASS: IN
-            buf.putInt(60);              // TTL: 60s
-            buf.putShort((short) 4);     // RDLENGTH: 4 bytes
-            buf.put(new byte[]{0, 0, 0, 0}); // IP: 0.0.0.0
 
             return Arrays.copyOf(buf.array(), buf.position());
         } catch (Exception e) {
@@ -316,38 +470,63 @@ public class LocalDnsVpnService extends VpnService {
         }
     }
 
+    private List<InetAddress> getUpstreamDnsServers() {
+        List<InetAddress> servers = new ArrayList<>();
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                Network activeNetwork = cm.getActiveNetwork();
+                if (activeNetwork != null) {
+                    LinkProperties lp = cm.getLinkProperties(activeNetwork);
+                    if (lp != null) {
+                        for (InetAddress dns : lp.getDnsServers()) {
+                            if (dns instanceof Inet4Address) {
+                                String host = dns.getHostAddress();
+                                if (!host.equals(VPN_INTERFACE_IP) && !host.equals(VPN_DNS_SERVER_IP)) {
+                                    servers.add(dns);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+
+        // Fallback to robust public DNS resolvers
+        try {
+            servers.add(InetAddress.getByName("1.1.1.1"));
+            servers.add(InetAddress.getByName("8.8.8.8"));
+            servers.add(InetAddress.getByName("9.9.9.9"));
+            servers.add(InetAddress.getByName("1.0.0.1"));
+        } catch (Exception ignore) {}
+
+        return servers;
+    }
+
     private byte[] forwardToUpstreamDns(byte[] queryPayload) {
+        List<InetAddress> upstreamServers = getUpstreamDnsServers();
         DatagramSocket socket = null;
         try {
             socket = new DatagramSocket();
             protect(socket); // ESSENTIAL: Exclude this socket from the VPN TUN interface!
-            socket.setSoTimeout(2500);
+            socket.setSoTimeout(1500);
 
-            InetAddress upstream = InetAddress.getByName(UPSTREAM_DNS_PRIMARY);
-            DatagramPacket outPacket = new DatagramPacket(queryPayload, queryPayload.length, upstream, 53);
-            socket.send(outPacket);
-
-            byte[] recvBuf = new byte[2048];
-            DatagramPacket inPacket = new DatagramPacket(recvBuf, recvBuf.length);
-            socket.receive(inPacket);
-
-            return Arrays.copyOf(inPacket.getData(), inPacket.getLength());
-        } catch (Exception e1) {
-            // Fallback to secondary upstream DNS (8.8.8.8)
-            try {
-                if (socket != null && !socket.isClosed()) {
-                    InetAddress upstreamSec = InetAddress.getByName(UPSTREAM_DNS_SECONDARY);
-                    DatagramPacket outPacket = new DatagramPacket(queryPayload, queryPayload.length, upstreamSec, 53);
+            for (InetAddress server : upstreamServers) {
+                try {
+                    DatagramPacket outPacket = new DatagramPacket(queryPayload, queryPayload.length, server, 53);
                     socket.send(outPacket);
 
                     byte[] recvBuf = new byte[2048];
                     DatagramPacket inPacket = new DatagramPacket(recvBuf, recvBuf.length);
                     socket.receive(inPacket);
+
                     return Arrays.copyOf(inPacket.getData(), inPacket.getLength());
+                } catch (Exception nextServer) {
+                    // Try next upstream server
                 }
-            } catch (Exception e2) {
-                // Secondary failed as well
             }
+            return null;
+        } catch (Exception e) {
             return null;
         } finally {
             if (socket != null && !socket.isClosed()) {

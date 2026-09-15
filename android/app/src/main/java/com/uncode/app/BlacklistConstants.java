@@ -218,6 +218,7 @@ public final class BlacklistConstants {
         "jp.konami.pesam",                     // eFootball
         "com.nianticlabs.pokemongo",           // Pokémon GO
         "jp.pokemon.pokemonunite",             // Pokémon UNITE
+        "coxeta",                              // Coxeta Rhythm Game
         "com.taptap",                          // TapTap
         "com.taptap.global",                   // TapTap Global
         "com.epicgames.portal",                // Epic Games Store
@@ -417,6 +418,7 @@ public final class BlacklistConstants {
                lower.contains("saygames") ||
                lower.contains("lionstudios") ||
                lower.contains("crazylabs") ||
-               lower.contains("ketchapp");
+               lower.contains("ketchapp") ||
+               lower.contains("coxeta");
     }
 }

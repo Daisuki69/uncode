@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video } from 'lucide-react';
+import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2 } from 'lucide-react';
 import { AppSettings, LogEntry, SavedResource, AllowedApp } from '../types';
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
@@ -33,6 +33,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
 
   const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off'>(settings.webProtectionMode || 'accessibility');
   const [allowYoutube, setAllowYoutubeState] = useState<boolean>(settings.allowYoutube || false);
+  const [blockWebGames, setBlockWebGamesState] = useState<boolean>(settings.blockWebGames !== false);
   const [webError, setWebError] = useState<string | null>(null);
   
   const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
@@ -111,6 +112,15 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
     setAllowYoutubeState(allow);
   };
 
+  const handleToggleBlockWebGames = (block: boolean) => {
+    setWebError(null);
+    if (isLockedOrConsequence) {
+      setWebError('Web protection settings are locked during active lockdown or consequence mode.');
+      return;
+    }
+    setBlockWebGamesState(block);
+  };
+
   const handleSaveGeneral = () => {
     onSave({ 
       apiKey: apiKey.trim() || undefined,
@@ -120,7 +130,8 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
       uiScale: uiScale,
       operatingMode: operatingMode,
       webProtectionMode: webProtectionMode,
-      allowYoutube: allowYoutube
+      allowYoutube: allowYoutube,
+      blockWebGames: blockWebGames
     });
   };
 
@@ -174,6 +185,10 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
   };
 
   const handleImport = () => {
+    if (isLockedOrConsequence) {
+      alert("Backup import is disabled during active lockdown or consequence mode. Complete and pass your homework session first.");
+      return;
+    }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
@@ -194,6 +209,21 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
               data.settings.allowedAppsInitialized = true;
             }
             await saveData('studom_settings', data.settings);
+
+            // Synchronize with native SharedPreferences
+            try {
+              const { endLockdown, setConsequenceActive, syncSchedules } = await import('../systemBridge');
+              if (!data.settings.consequenceActive) {
+                endLockdown();
+                await setConsequenceActive(false);
+              }
+              if (data.settings.schedules) {
+                const safeAllowed = (data.settings.allowedApps || []).map((a: AllowedApp) => a.id);
+                await syncSchedules(data.settings.schedules, safeAllowed);
+              }
+            } catch (nativeErr) {
+              console.warn('Failed to sync native settings on import', nativeErr);
+            }
           } else if (data.customApps || data.allowedApps) {
             const currentSettings = await loadData<AppSettings>('studom_settings', settings);
             const rawAllowed = data.customApps || data.allowedApps;
@@ -669,6 +699,47 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                     </button>
                   </div>
                 </div>
+
+                {/* Block Web-Based Games Option */}
+                <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 mt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="p-2 rounded-xl bg-purple-100 text-purple-600 mt-0.5">
+                        <Gamepad2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-gray-900">Block Web-Based Games</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                            blockWebGames ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600'
+                          }`}>
+                            {blockWebGames ? '250+ Sites • Portals, .IO & Cloud APKs Protected' : 'Unrestricted Web Games'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                          Blocks browser gaming portals (Poki, CrazyGames), viral .IO games (Slither, Agar), cloud game portals (now.gg), web emulators, browser mini-games (Chrome Dino), and unblocked game mirrors.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={blockWebGames}
+                      onClick={() => handleToggleBlockWebGames(!blockWebGames)}
+                      disabled={isLockedOrConsequence}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        blockWebGames ? 'bg-purple-600' : 'bg-gray-300'
+                      } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          blockWebGames ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="mb-8 border-t border-gray-200 pt-6">
@@ -708,20 +779,33 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                   <div className="flex gap-4">
                     <button
                       onClick={handleExport}
-                      className="flex-1 flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 text-gray-700 py-3 rounded-xl font-bold transition-colors border border-gray-200"
+                      className="flex-1 flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 text-gray-700 py-3 rounded-xl font-bold transition-colors border border-gray-200 cursor-pointer"
                     >
                       Export Backup
                     </button>
                     <button
+                      disabled={isLockedOrConsequence}
                       onClick={handleImport}
-                      className="flex-1 flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 text-gray-700 py-3 rounded-xl font-bold transition-colors border border-gray-200"
+                      className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-colors border ${
+                        isLockedOrConsequence
+                          ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                          : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200 cursor-pointer'
+                      }`}
+                      title={isLockedOrConsequence ? 'Backup import is disabled during active lockdown or consequence mode' : 'Import backup JSON'}
                     >
-                      Import Backup
+                      {isLockedOrConsequence && <Lock className="w-4 h-4 text-gray-400" />}
+                      <span>Import Backup</span>
                     </button>
                   </div>
-                  <p className="text-xs text-gray-400 mt-3 text-center">
-                    Exports everything including your custom allowed apps, resources, schedules, and logs into a single .json file.
-                  </p>
+                  {isLockedOrConsequence ? (
+                    <p className="text-xs text-red-500 font-semibold mt-3 text-center">
+                      🔒 Backup import is disabled during active lockdown or consequence mode. Complete and pass your session first.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-3 text-center">
+                      Exports everything including your custom allowed apps, resources, schedules, and logs into a single .json file.
+                    </p>
+                  )}
                 </div>
             </div>
           )}

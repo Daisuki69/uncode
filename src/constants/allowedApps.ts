@@ -504,13 +504,70 @@ export function isDocumentPickerPackage(packageId?: string | null, appName?: str
 }
 
 /**
+ * Known Package Installers and App Store package IDs.
+ * These are system infrastructure exemptions that are always exempt natively
+ * so manual APK installations, updates, and Play Store update calls are never blocked,
+ * but hidden from the student's study apps grid.
+ */
+export const KNOWN_INSTALLER_AND_STORE_PACKAGES: string[] = [
+  'com.android.vending',
+  'com.google.android.feedback',
+  'com.google.android.gms',
+  'com.google.android.packageinstaller',
+  'com.android.packageinstaller',
+  'com.samsung.android.packageinstaller',
+  'com.sec.android.app.samsungapps',
+  'com.miui.packageinstaller',
+  'com.xiaomi.mipicks',
+  'com.coloros.packageinstaller',
+  'com.oppo.packageinstaller',
+  'com.heytap.market',
+  'com.vivo.packageinstaller',
+  'com.vivo.appstore',
+  'com.transsion.packageinstaller',
+  'com.huawei.appmarket',
+  'com.hihonor.appmarket',
+  'com.lenovo.safecenter',
+];
+
+const INSTALLER_SET = new Set(KNOWN_INSTALLER_AND_STORE_PACKAGES.map(p => p.toLowerCase()));
+
+export function isInstallerOrStorePackage(packageId?: string | null, appName?: string | null): boolean {
+  if (packageId) {
+    const lowerId = packageId.trim().toLowerCase();
+    if (
+      INSTALLER_SET.has(lowerId) ||
+      lowerId.includes('packageinstaller') ||
+      lowerId.endsWith('.packageinstaller') ||
+      lowerId.includes('.installer')
+    ) {
+      return true;
+    }
+  }
+  if (appName) {
+    const lowerName = appName.trim().toLowerCase();
+    if (
+      lowerName === 'package installer' ||
+      lowerName.includes('package installer') ||
+      lowerName.includes('app installer') ||
+      lowerName === 'google play store' ||
+      lowerName === 'play store'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Returns true if an application is an internal OS infrastructure exemption
- * (keyboards, camera extension proxies, lens launchers, stub players, document pickers).
+ * (keyboards, camera extension proxies, lens launchers, stub players, document pickers, package installers).
  * These apps are completely allowed during lockdown, but their icons are hidden from the UI.
  */
 export function isHiddenSystemExemptApp(packageId?: string | null, appName?: string | null): boolean {
   if (isKeyboardPackage(packageId, appName)) return true;
   if (isDocumentPickerPackage(packageId, appName)) return true;
+  if (isInstallerOrStorePackage(packageId, appName)) return true;
 
   if (packageId) {
     const lowerId = packageId.trim().toLowerCase();
@@ -552,7 +609,6 @@ export function isHardcodedApp(app: AllowedApp): boolean {
   if (isHiddenSystemExemptApp(app.id, app.name)) return false;
   if (
     app.isHardcoded || 
-    app.isAutoAllowed || 
     app.isBrowser || 
     app.isMusic || 
     app.isCamera || 

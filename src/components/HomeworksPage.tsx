@@ -511,7 +511,9 @@ export function HomeworksPage({
                         Consequence Lockdown Active
                       </h4>
                       <p className="text-xs text-red-800 mt-1 leading-relaxed font-medium">
-                        This failed session has triggered device consequences. Distracting apps will remain restricted during operating hours (7:00 PM – 3:00 AM) until you click <strong>"Add Again (Reschedule)"</strong>, complete the session, and pass AI evaluation.
+                        {operatingMode === 'hardcore'
+                          ? 'This failed session has triggered device consequences. Distracting apps will remain restricted around the clock (Hardcore 24/7) until you click "Add Again (Reschedule)", complete the session, and pass AI evaluation.'
+                          : 'This failed session has triggered device consequences. Distracting apps will remain restricted during operating hours (7:00 PM – 3:00 AM) until you click "Add Again (Reschedule)", complete the session, and pass AI evaluation.'}
                       </p>
                     </div>
                   </div>

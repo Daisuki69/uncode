@@ -59,6 +59,41 @@ public final class AppClassifier {
     ));
 
     /**
+     * Known System Package Installers and App Store packages.
+     * Exempt from blocking so manual APK installations, updates, and Play Store update calls
+     * run uninterrupted during lockdown.
+     */
+    public static final Set<String> INSTALLER_AND_STORE_PACKAGES = new HashSet<>(Arrays.asList(
+        "com.android.vending",                     // Google Play Store
+        "com.google.android.feedback",             // Play Store feedback
+        "com.google.android.gms",                  // Google Play Services
+        "com.google.android.packageinstaller",     // Google Package Installer
+        "com.android.packageinstaller",            // AOSP Package Installer
+        "com.samsung.android.packageinstaller",    // Samsung Package Installer
+        "com.sec.android.app.samsungapps",         // Samsung Galaxy Store
+        "com.miui.packageinstaller",               // Xiaomi Package Installer
+        "com.xiaomi.mipicks",                      // Xiaomi GetApps
+        "com.coloros.packageinstaller",            // ColorOS Package Installer
+        "com.oppo.packageinstaller",               // Oppo Package Installer
+        "com.heytap.market",                       // Oppo / Realme App Market
+        "com.vivo.packageinstaller",               // Vivo Package Installer
+        "com.vivo.appstore",                       // Vivo App Store
+        "com.transsion.packageinstaller",          // Transsion Package Installer
+        "com.huawei.appmarket",                    // Huawei AppGallery
+        "com.hihonor.appmarket",                   // Honor App Market
+        "com.lenovo.safecenter"                    // Lenovo Package Installer / Security
+    ));
+
+    public static boolean isInstallerOrStorePackage(String pkg) {
+        if (pkg == null) return false;
+        if (INSTALLER_AND_STORE_PACKAGES.contains(pkg)) return true;
+        String lower = pkg.toLowerCase(Locale.ROOT);
+        return lower.contains("packageinstaller") || 
+               lower.endsWith(".packageinstaller") ||
+               lower.contains(".installer");
+    }
+
+    /**
      * Negative Distraction Keywords.
      * If an app's label or package name contains any of these terms, it is strictly BLOCKED,
      * even if the APK falsely declares itself as CATEGORY_PRODUCTIVITY.
@@ -146,13 +181,23 @@ public final class AppClassifier {
             return false;
         }
 
-        // Tier 1c: Hardcoded Distraction Blacklist & Hostile Signatures MUST take precedence!
+        // Tier 1c: System Package Installers & App Store update calls
+        if (isInstallerOrStorePackage(pkg)) {
+            return false;
+        }
+
+        // Tier 1d: Hardcoded Distraction Blacklist & Hostile Signatures MUST take precedence!
         // YouTube native app, TikTok, games, and social media can NEVER be allowed.
         if (BlacklistConstants.isBlacklisted(pkg)) {
             return true;
         }
 
-        // Tier 1d: Explicit User Whitelist from AppSettings
+        // Tier 1e: Category Game, Category Social & Negative Distraction Heuristics can NEVER be whitelisted!
+        if (isForbiddenDistraction(context, pkg)) {
+            return true;
+        }
+
+        // Tier 1f: Explicit User Whitelist from AppSettings (valid only for non-game, non-social tools)
         if (userWhitelist != null && userWhitelist.contains(pkg)) {
             return false;
         }
@@ -282,7 +327,34 @@ public final class AppClassifier {
         return true;
     }
 
-    private static boolean hasNegativeDistractionSignals(String lowerLabel, String lowerPkg) {
+    public static boolean isForbiddenDistraction(Context context, String pkg) {
+        if (pkg == null || context == null) return false;
+        if (pkg.equals("com.android.settings")) return true;
+        if (BlacklistConstants.isBlacklisted(pkg)) return true;
+        try {
+            PackageManager pm = context.getPackageManager();
+            if (pm == null) return false;
+            ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (appInfo.category == ApplicationInfo.CATEGORY_GAME ||
+                    appInfo.category == ApplicationInfo.CATEGORY_SOCIAL) {
+                    return true;
+                }
+            }
+            if ((appInfo.flags & ApplicationInfo.FLAG_IS_GAME) != 0) {
+                return true;
+            }
+            CharSequence labelChar = pm.getApplicationLabel(appInfo);
+            String appLabel = labelChar != null ? labelChar.toString().toLowerCase(Locale.ROOT) : "";
+            String lowerPkg = pkg.toLowerCase(Locale.ROOT);
+            if (hasNegativeDistractionSignals(appLabel, lowerPkg)) {
+                return true;
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
+    public static boolean hasNegativeDistractionSignals(String lowerLabel, String lowerPkg) {
         for (String kw : NEGATIVE_LABEL_KEYWORDS) {
             if (lowerLabel.contains(kw)) {
                 return true;

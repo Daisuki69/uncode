@@ -28,6 +28,9 @@ interface DashboardProps {
   onResetTime: () => void;
   onSettingsChange?: (updates: Partial<AppSettings>) => void;
   installedApps?: AllowedApp[];
+  completedHomeworks?: import('../types').CompletedHomework[];
+  onClearConsequence?: () => void;
+  onResetLockdown?: () => void;
 }
 
 const pageVariants = {
@@ -43,14 +46,18 @@ const pageVariants = {
 };
 
 const SIMULATED_APPS: AllowedApp[] = [
-  { id: 'com.google.chrome', name: 'Chrome', iconName: 'Globe', isHardcoded: true, isBrowser: true },
-  { id: 'com.spotify.music', name: 'Spotify', iconName: 'Music', isHardcoded: true, isMusic: true },
-  { id: 'com.google.android.apps.youtube.music', name: 'YT Music', iconName: 'Music', isHardcoded: true, isMusic: true },
-  { id: 'com.sec.android.app.camera', name: 'Camera', iconName: 'Camera', isHardcoded: true, isCamera: true },
-  { id: 'com.apple.calculator', name: 'Calculator', iconName: 'Calculator' },
-  { id: 'com.microsoft.word', name: 'Word', iconName: 'FileText' },
-  { id: 'notion.id', name: 'Notion', iconName: 'BookOpen' },
-  { id: 'com.apple.MobileSMS', name: 'Messages', iconName: 'MessageSquare' },
+  { id: 'com.instagram.android', name: 'Instagram', iconName: 'Camera' },
+  { id: 'com.zhiliaoapp.musically', name: 'TikTok', iconName: 'Music' },
+  { id: 'com.twitter.android', name: 'X / Twitter', iconName: 'MessageSquare' },
+  { id: 'com.google.android.youtube', name: 'YouTube', iconName: 'MonitorPlay' },
+  { id: 'com.reddit.frontpage', name: 'Reddit', iconName: 'MessageSquare' },
+  { id: 'com.facebook.katana', name: 'Facebook', iconName: 'Globe' },
+  { id: 'com.discord', name: 'Discord', iconName: 'MessageSquare' },
+  { id: 'com.dts.freefireth', name: 'Free Fire', iconName: 'LayoutGrid' },
+  { id: 'com.mobile.legends', name: 'Mobile Legends', iconName: 'LayoutGrid' },
+  { id: 'com.roblox.client', name: 'Roblox', iconName: 'LayoutGrid' },
+  { id: 'com.netflix.mediaclient', name: 'Netflix', iconName: 'MonitorPlay' },
+  { id: 'tv.twitch.android.app', name: 'Twitch', iconName: 'MonitorPlay' }
 ];
 
 export function Dashboard({ 
@@ -74,7 +81,10 @@ export function Dashboard({
   onTimeOverride,
   onResetTime,
   onSettingsChange,
-  installedApps = []
+  installedApps = [],
+  completedHomeworks = [],
+  onClearConsequence,
+  onResetLockdown
 }: DashboardProps) {
   const [isAppSelectorOpen, setIsAppSelectorOpen] = useState(false);
   const [availableApps, setAvailableApps] = useState<AllowedApp[]>([]);
@@ -524,25 +534,26 @@ export function Dashboard({
                 onChange={onTimeOverride}
                 className="bg-transparent text-sm font-mono text-gray-900 font-bold focus:outline-none"
               />
-              {timeOffset !== 0 && (
+              {(timeOffset !== 0 || settings.consequenceActive) && (
                 <button 
-                  onClick={onResetTime}
-                  className="ml-2 text-xs font-bold text-red-500 hover:text-red-700 bg-red-100 px-2 py-0.5 rounded"
+                  onClick={onResetLockdown || onResetTime}
+                  className="ml-2 text-xs font-bold text-red-500 hover:text-red-700 bg-red-100 hover:bg-red-200 px-2 py-0.5 rounded cursor-pointer whitespace-nowrap transition-colors"
+                  title="Reset simulated time and clear all active locks & consequences"
                 >
-                  Reset
+                  {settings.consequenceActive ? 'Reset All Locks' : 'Reset Time'}
                 </button>
               )}
             </div>
             <button
               onClick={onOpenLogs}
-              className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
+              className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors cursor-pointer"
               title="Failed Homeworks"
             >
               <AlertTriangle className="w-5 h-5" />
             </button>
             <button
               onClick={onOpenSettings}
-              className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors"
+              className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors cursor-pointer"
               title="Settings"
             >
               <Settings className="w-5 h-5" />
@@ -551,28 +562,64 @@ export function Dashboard({
         </header>
 
         {settings.consequenceActive && (
-          <div className="mb-6 p-4 md:p-5 rounded-2xl bg-red-50 border-2 border-red-500 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in slide-in-from-top duration-300">
-            <div className="flex items-start gap-3.5">
-              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
-                <AlertTriangle className="w-6 h-6" />
+          (() => {
+            const hasFailedHomework = (completedHomeworks || []).some(h => !h.passed);
+            if (!hasFailedHomework) {
+              return (
+                <div className="mb-6 p-4 md:p-5 rounded-2xl bg-amber-50 border-2 border-amber-500 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in slide-in-from-top duration-300">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                      <AlertTriangle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-amber-950 text-base uppercase tracking-wide">
+                        Consequence Active (No Failed Homeworks)
+                      </h3>
+                      <p className="text-xs text-amber-900 mt-0.5 leading-relaxed font-medium">
+                        Device restrictions are active in background, but no failed homework session was found in your records.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 self-stretch sm:self-auto shrink-0">
+                    <button
+                      type="button"
+                      onClick={onClearConsequence}
+                      className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center gap-1.5 justify-center cursor-pointer flex-1 sm:flex-initial whitespace-nowrap"
+                    >
+                      Clear Orphaned Consequence
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="mb-6 p-4 md:p-5 rounded-2xl bg-red-50 border-2 border-red-500 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in slide-in-from-top duration-300">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-red-950 text-base uppercase tracking-wide">
+                      Consequence Active: Homework Failed
+                    </h3>
+                    <p className="text-xs text-red-800 mt-0.5 leading-relaxed font-medium">
+                      {settings.operatingMode === 'hardcore'
+                        ? 'Study session expired without passing. Distracting apps remain restricted around the clock (Hardcore 24/7) until rescheduled and passed.'
+                        : 'Study session expired without passing. Distracting apps remain restricted during operating hours (7:00 PM – 3:00 AM) until rescheduled and passed.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenLogs}
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap self-stretch sm:self-auto justify-center cursor-pointer"
+                >
+                  View Failed Homeworks
+                </button>
               </div>
-              <div>
-                <h3 className="font-black text-red-950 text-base uppercase tracking-wide">
-                  Consequence Active: Homework Failed
-                </h3>
-                <p className="text-xs text-red-800 mt-0.5 leading-relaxed font-medium">
-                  Study session expired without passing. Distracting apps remain restricted during operating hours (7:00 PM – 3:00 AM) until rescheduled and passed.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onOpenLogs}
-              className="px-5 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap self-stretch sm:self-auto justify-center cursor-pointer"
-            >
-              View Failed Homeworks
-            </button>
-          </div>
+            );
+          })()
         )}
 
       {activeSchedules.length === 0 ? (
@@ -911,7 +958,7 @@ export function Dashboard({
               <div 
                 key={app.id} 
                 className="flex flex-col items-center group relative w-full text-center" 
-                title={isHardcoded ? (app.isAutoAllowed && !app.isHardcoded ? `${app.name} (Auto-Allowed Study App)` : `${app.name} (Always Allowed by System)`) : app.name}
+                title={isHardcoded ? `${app.name} (Always Allowed by System)` : app.name}
               >
                 <div className="relative">
                   {isHardcoded ? (
@@ -948,7 +995,7 @@ export function Dashboard({
                 <span className="text-[11px] sm:text-xs font-semibold text-gray-700 w-full text-center truncate px-1 mt-1.5">{app.name}</span>
                 {isHardcoded && (
                   <span className="text-[9px] font-bold uppercase tracking-tight text-emerald-600">
-                    {app.isAutoAllowed && !app.isHardcoded ? 'Auto' : 'Always'}
+                    Always
                   </span>
                 )}
               </div>

@@ -40,6 +40,8 @@
 **[🚀 Setup & ADB](#-setup-guide)** • 
 **[📱 OEM Guides](#-oem-rom-optimization-guide)** • 
 **[📂 Codebase Tour](#-codebase-architecture--tour)** • 
+**[📜 Engineering Changelog](#-engineering-changelog--architecture-evolution-log)** • 
+**[🔮 Future Roadmap](#-future-roadmap--potential-enhancements)** • 
 **[❓ FAQ](#-frequently-asked-questions-faq)**
 
 </div>
@@ -322,8 +324,49 @@ To prevent procrastination loops while allowing legitimate lecture research:
      - **YouTube Shorts (`youtube.com/shorts/*` or `#shorts`) are strictly blocked** in real-time, instantly issuing a `GLOBAL_ACTION_BACK` and displaying an alert toast.
      - The native YouTube app remains 100% blocked.
 
-### 3. Anti-Cheat Lockout Guard
-Just like Operating Mode settings, **Web & Browser Protection and YouTube settings cannot be changed or disabled during an active lockdown session or during Consequence Mode**. The student must complete and pass their homework submission first.
+### 3. Web-Based Game Armor (250+ Domains, Dynamic Heuristics & Search Game Blocking)
+
+When native games (such as *Coxeta*, *Genshin Impact*, or *Roblox*) are blocked by QIEZKA's hierarchical classifier, students frequently turn to allowed web browsers (Google Chrome, Samsung Internet, Firefox, Brave, Microsoft Edge) to play browser-based games. 
+
+To eliminate this evasion vector without breaking legitimate academic research, QIEZKA implements an uncompromising **Web-Based Game Armor Protocol**:
+
+#### A. Comprehensive 250+ Gaming Domain Database
+Integrated into both the **Local DNS Sinkhole (`LocalDnsVpnService`)** and the **Real-Time Accessibility URL Guard (`LockAccessibilityService`)**:
+- **Mega Portals & Hubs (60+ Domains)**: Poki (`poki.com`), CrazyGames (`crazygames.com`), Coolmath Games (`coolmathgames.com`), Kongregate, Armor Games, Newgrounds, Y8, Friv, Miniplay, Silvergames, Kizi, Agame, Snokido, Playhop, 1001 Games, etc.
+- **Viral .IO Multiplayer Arena Games (50+ Domains)**: Slither.io, Agar.io, Diep.io, Krunker.io, 1v1.lol, Paper.io, Hole.io, Surviv.io, Skribbl.io, Gartic, Shell Shockers, Bloxd.io, Voxiom, Ev.io, Zombs, Bonk.io, Narrow.one, etc.
+- **Cloud Gaming & Web APK Streaming Backdoors (15+ Domains)**: `now.gg` (the primary platform used by students to stream native Android APKs like Roblox and Coxeta inside web browsers), GeForce NOW, Xbox Cloud Gaming, Amazon Luna, Boosteroid.
+- **Indie Web Runtimes & CDNs (15+ Domains)**: `*.itch.zone` (sandboxed iframe runtime hosting all 100,000+ HTML5 games on itch.io), GameJolt, Opera GX (`gx.games`), Simmer.io, Pico-8 (`lexaloffle.com`).
+- **Web Emulators & Retro Gaming (25+ Domains)**: EmulatorOnline, RetroGames.cc, PlayRetroGames, Vimm's Lair, EmuPedia, Afterplay.io, EclipseEmu, PlayClassic.games, DosGames.
+- **Dedicated School "Unblocked Games" Networks (40+ Domains)**: `unblocked-games.com`, `unblockedgames66/76/77/99/500/24h`, `classroom6x.com`, `slope-game.com`, `hoodamath.com`, `mathplayground.com`, `abcya.com`, etc.
+- **Casual, Board & Puzzle Sites (30+ Domains)**: Chess.com, Lichess, GeoGuessr, 2048, Sudoku.com, Wordle clones, Tetr.io, Cookie Clicker.
+
+#### B. Dynamic Heuristic Defense Engine
+1. **Browser Internal Game Schemes**:
+   - Blocks `chrome://dino` and `chrome://network-error/-106` (Chrome Dinosaur runner)
+   - Blocks `edge://surf` and `opera://game`
+   - *Action*: Automatically triggers `GLOBAL_ACTION_BACK` with alert toast: *"⚠️ Browser mini-games are blocked during study sessions"*.
+2. **Google & Bing Search-Embedded Canvas Games**:
+   - Detects interactive HTML5 canvas game triggers inside search result queries:
+     `snake`, `play snake`, `tic tac toe`, `pacman`, `minesweeper`, `solitaire`, `atari breakout`, `dreidel`, `fidget spinner`, `earth day quiz`, `memory game`, `play game`
+   - *Action*: Backs out of the search result with alert toast: *"⚠️ Search-embedded mini-games are blocked during focus mode"*.
+3. **Unblocked Game Mirror & Proxy Heuristics**:
+   - Detects unblocked game mirror signatures in URL host and path:
+     - Host tokens: `unblocked`, `classroom6x`, `slope-game`, `slopegame`, `retrobowl`, `moto-x3m`
+     - Hosting mirrors: `sites.google.com/view/*unblocked*`, `*.github.io/*slope*`, `*.github.io/*unblocked*`
+4. **Sub-Path Game Blocking on Portal & News Sites**:
+   - Blocks `/games/`, `/crosswords/`, `/puzzles/` on general news portals (`nytimes.com/games`, `washingtonpost.com/crossword`, `theguardian.com/crosswords`, `zone.msn.com`, `yandex.com/games`) while leaving legitimate news and research articles fully accessible.
+
+#### C. Ironclad Academic Safe-List Immunity
+Legitimate educational and documentation resources are explicitly exempted from keyword heuristics so research is never hindered:
+- **Academic Platforms**: `wikipedia.org`, `wikimedia.org`, all university `.edu` domains (Stanford, MIT, Harvard, Berkeley, etc.), `khanacademy.org`, `coursera.org`, `edx.org`, `udemy.com`, `quizlet.com`, `brainly.com`, `chegg.com`, `duolingo.com`
+- **Developer Documentation**: `developer.mozilla.org` (MDN), `github.com` (source repositories), `stackoverflow.com`, `stackexchange.com`, `docs.unity3d.com`, `docs.godotengine.org`, `unrealengine.com`
+- **Scientific Journals**: `arxiv.org`, `researchgate.net`, `jstor.org`, `nature.com`, `sciencedirect.com`
+
+#### D. Settings Toggle
+In **Settings > General > Web & Browser Protection**, students can toggle **"Block Web-Based Games"** (enabled by default). Locked during active lockdown and consequence mode.
+
+### 4. Anti-Cheat Lockout Guard
+Just like Operating Mode settings, **Web & Browser Protection, YouTube settings, and Web-Based Game Armor cannot be changed or disabled during an active lockdown session or during Consequence Mode**. The student must complete and pass their homework submission first.
 
 ---
 
@@ -1192,6 +1235,53 @@ set "LAUNCH_APP_ON_FINISH=true"
      Exempt for homework         • Recents overview: Auto        lock after reboot
      submission without kick       re-launches if swiped
 ```
+
+### 1. Canonical State Machine & Teardown Architecture
+To eliminate race conditions, state drift, and lingering lock states, QIEZKA routes all session transitions through two centralized routines in `LockPlugin.java`:
+
+- **`clearLockdownState(Context context)` [Authoritative Teardown]**:
+  - Clears `lockdown_active`, `consequence_mode`, `consequence_schedule_id`, and `scheduled_end_time` in `SharedPreferences`.
+  - Cancels all pending `AlarmManager` alarms.
+  - Stops `FloatingOverlayService` (removes floating ball).
+  - Stops `LocalDnsVpnService` (restores normal DNS resolution).
+  - Cancels ongoing foreground and alert notifications.
+  - Unblocks Device Owner uninstall blocks via `DevicePolicyManager.setUninstallBlocked(admin, pkg, false)`.
+  - *All exit points* (`endLockdown()`, `setConsequenceActive(false)`, and `getLockStatus()` automatic timeout expiration) invoke this authoritative routine.
+
+- **`startConsequenceState(Context context, String scheduleId, Set<String> whitelist)` [Authoritative Engagement]**:
+  - Persists consequence flags and whitelisted package IDs.
+  - Activates anti-uninstall protection via Device Policy Manager.
+  - Launches `LocalDnsVpnService` (DNS sinkhole for distracting domains).
+  - Starts `FloatingOverlayService` with the "⚠️ RETRY" state badge.
+  - Displays persistent high-priority notification with quick-reschedule actions.
+  - Immediately triggers `enforceBlock()` via `LockAccessibilityService` to evict any active hostile app.
+
+### 2. Operating Hours Gate: Safemode vs. Hardcore Mode
+During **Consequence Mode**, enforcement depends on your active operating mode:
+- **Safemode (Default)**: Consequence enforcement is restricted to **7:00 PM – 3:00 AM**. During daytime hours (3:00 AM – 7:00 PM), enforcement is suspended so university students can freely attend daytime lectures, consult campus portals, and navigate public transit. If tested at 1:00 PM under Safemode, the app will pause blocking until 7:00 PM.
+- **Hardcore Mode**: Enforcement is **24/7 continuous**. Once Consequence Mode is triggered, all distracting apps and blacklisted domains remain blocked around the clock until the student reschedules and successfully passes the homework submission.
+
+### 3. Emergency ADB Recovery Procedures
+If Device Owner or Device Admin lock states ever need to be manually reset from a host PC:
+```bash
+# Force-remove Device Administrator / Device Owner privileges:
+adb shell dpm remove-active-admin com.uncode.app/.AdminReceiver
+
+# Force-stop the app process and background services:
+adb shell am force-stop com.uncode.app
+
+# (Optional) Clear app data if a clean slate is desired:
+adb shell pm clear com.uncode.app
+```
+
+### 4. Sandbox Isolation & Anti-Tampering
+- **Restricted FileProvider**: Configured strictly to app-private cache and files directories (`Pictures/` and `cache/`), preventing host path traversal or external storage leaks.
+- **Backup Disabled**: `android:allowBackup="false"` in `AndroidManifest.xml` prevents users or malicious tools from exporting or restoring stale SharedPreferences to bypass active lockdown sessions.
+
+### 5. App Installation & Update Policy (Manual APKs & Google Play Store)
+- **Non-Interrupted Updates & Installs**: Official OEM package installers (`com.google.android.packageinstaller`, `com.android.packageinstaller`, `com.samsung.android.packageinstaller`, etc.) and the Google Play Store (`com.android.vending`) are declared as infrastructure exemptions. Sideloading APKs, accepting system updates, and updating study tools through Google Play Store will never be aborted or kicked to the home screen.
+- **Real-Time Defense on Launch**: Even if a student downloads or updates a distracting app (e.g. TikTok, a game, or a streaming app), QIEZKA's real-time Accessibility interceptor evaluates the package the moment it attempts to open. Any blacklisted or non-whitelisted app is instantly intercepted and routed back to the Home Screen / Lock overlay within 50ms.
+- **Clean UI**: Package installers and store components are marked as internal infrastructure exemptions (`isHiddenSystemExemptApp`), ensuring they never clutter the user's study app launcher grid on the Dashboard or Lock Screen.
 ---
 
 ## 📱 OEM ROM Optimization Guide
@@ -1250,12 +1340,15 @@ qiezka/
 ├── android/app/src/main/java/com/uncode/app/
 │   ├── AdminReceiver.java            # DeviceAdminReceiver: intercepts & prevents uninstall attempts
 │   ├── AlarmReceiver.java            # BroadcastReceiver: triggers exact wall-clock schedule alarms
+│   ├── AppClassifier.java            # On-device 5-layer heuristic application classifier
 │   ├── BlacklistConstants.java       # Native blacklist database: package IDs & heuristic regexes
 │   ├── BootReceiver.java             # Auto-resumes active lockdown sessions after device reboot
 │   ├── FloatingOverlayService.java   # Draggable WindowManager floating ball timer with edge-snapping
+│   ├── LocalDnsVpnService.java       # On-device loopback DNS sinkhole blocking distracting web domains
 │   ├── LockAccessibilityService.java # Core Accessibility engine: window monitoring & app interception
-│   ├── LockPlugin.java               # Capacitor two-way IPC bridge between React and native services
+│   ├── LockPlugin.java               # Capacitor two-way IPC bridge & canonical lockdown state machine
 │   ├── MainActivity.java             # Android activity entry point & Capacitor bridge initializer
+│   ├── PunishmentManager.java        # Consequence manager & accountability tracking
 │   └── ScheduleManager.java          # Native schedule persistence & AlarmManager coordinator
 ├── src/
 │   ├── api/
@@ -1283,6 +1376,277 @@ qiezka/
 ├── qiezka.bat                        # Automated Windows ADB setup, permission grant & launch script
 └── package.json                      # Project metadata, scripts, and dependencies
 ```
+
+---
+
+## 📜 Engineering Changelog & Architecture Evolution Log
+
+This section details every major engineering revision, architectural refinement, and bug fix implemented in QIEZKA, documenting **why** specific mechanisms were introduced (the underlying problem, bypass vector, or usability trap) and **what** exact classes, components, and logic were modified.
+
+---
+
+### 1. Milestone 1: The Core Selective Focus Protocol
+- **Why It Was Added**:
+  - Existing app blockers failed at two extremes: soft "honor system" timers (easily bypassed during cognitive fatigue) or blunt "dumb phone" locks (disabling academic tools like lecture PDFs, notes, and AI explanation).
+  - Modern academic workflows require active access to reference materials, course slide viewers, and AI tutors while completely cutting off algorithmic dopamine feeds (reels, games, social feeds).
+- **What Was Implemented**:
+  - **90-Minute Ultradian Limit**: Hard ceiling on scheduled sessions matching human biological attention spans to prevent burnout.
+  - **BYOK Gemini Multimodal Evaluation**: Client-side direct HTTPS grading of photographed handwritten homework against custom rubrics without proprietary backends.
+  - **Device Administrator Anti-Uninstall**: Blocks premature uninstallation or app removal via Android's `DevicePolicyManager`.
+  - **Draggable WindowManager Overlay Ball**: Custom Android `TYPE_APPLICATION_OVERLAY` service with physics edge-snapping and timer countdown, keeping students oriented across allowed apps.
+
+---
+
+### 2. Milestone 2: Phantom Alarm Elimination & Exact Alarm Cancellation
+- **Why It Was Changed**:
+  - Students reported alarms triggering upcoming schedule notifications and starting lockdowns even after schedules were deleted, disabled, or updated to a different time.
+  - When opened, no schedule was active for that time, causing the app to cancel the lock and return to the dashboard without blocking apps.
+- **Root Cause & Technical Fix**:
+  - In `ScheduleManager.java`, `cancelAllScheduledAlarms()` previously used a bare `Intent` with `action = null`. Because the scheduled alarms used `ACTION_SCHEDULE_START` and `ACTION_SCHEDULE_WARNING`, Android's `Intent.filterEquals()` failed to match them, leaving orphaned pending intents active in `AlarmManager`.
+  - In `AlarmReceiver.java`, alarms were executed blindly without verifying whether the schedule still existed in persistent storage.
+- **Modifications**:
+  - [ScheduleManager.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ScheduleManager.java): Systematically cancels pending intents matching explicit action strings (`ACTION_SCHEDULE_START`, `ACTION_SCHEDULE_WARNING`, and legacy `null`). Clamps `targetEndSim` so it cannot exceed `effectiveNow + durationMs`.
+  - [AlarmReceiver.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AlarmReceiver.java): Added verification that `scheduleId` exists and is marked `isActive: true` in `schedules_json` before firing notifications or launching lock sessions.
+
+---
+
+### 3. Milestone 3: Floating Ball Timer Clamping & LockScreen Countdown Synchronization
+- **Why It Was Changed**:
+  - The floating overlay ball timer frequently started at `1:00:00` (1 hour) regardless of whether the schedule duration was set to 25, 40, or 60 minutes.
+  - On the full-screen `LockScreen.tsx`, the timer remained frozen at `40:00` and would not tick down until 20 minutes later (when 1 hour dropped below 40 minutes).
+- **Root Cause & Technical Fix**:
+  - `FloatingOverlayService` had no knowledge of `durationMinutes` and blindly computed `(lockEndTime - effectiveNow) / 1000L`. If `lock_end_time` in `SharedPreferences` had a stale 1-hour timestamp from a previous session, it displayed `1:00:00`.
+  - In `LockScreen.tsx`, `const remaining = Math.min(maxAllowedSec, rawRemaining)` clamped `timeLeft` to 2400 seconds (40 min) while `rawRemaining` was 3600 seconds, freezing the visual display until `rawRemaining` caught up.
+- **Modifications**:
+  - [FloatingOverlayService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.java): Added `getActiveScheduleDurationMinutes(prefs)` to inspect `active_schedule_id` and clamp `remainingSec = maxDurationMinutes * 60L` and adjust `lock_end_time` in `SharedPreferences`.
+  - [LockScreen.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/LockScreen.tsx): Added `effectiveEndTime` clamping against `initialNow + maxAllowedSec * 1000` so countdown starts immediately (39:59, 39:58...) without delay.
+  - [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java): Added strict clamping in `startLockdown()` so `lockEndTime` cannot exceed `effectiveNow + (durationMinutes * 60L * 1000L)`.
+
+---
+
+### 4. Milestone 4: Evaluation Completion Dismissal & State Deactivation
+- **Why It Was Changed**:
+  - When students submitted homework and passed AI evaluation, the floating timer ball remained on screen, continuing to count down. Tapping or exiting returned the student back into the locked schedule.
+- **Root Cause & Technical Fix**:
+  - In `FloatingOverlayService.java`, `updateTimerDisplay()` required `if (!isLockdownActive && lockEndTime == 0L)` to dismiss the ball. When `endLockdown()` removed `lock_end_time` from preferences, `storedEnd` was 0, so `this.lockEndTime` was not reset and remained > 0, bypassing dismissal.
+  - In `App.tsx`, `handleSubmitHomework()` called `endLockdown()` but did not mark the schedule as inactive (`schedule.isActive = false`). Because the current wall-clock time was still within the schedule window, the native background accessibility ticker saw `isActive: true` and re-locked the device.
+- **Modifications**:
+  - [FloatingOverlayService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.java): Resets `lockEndTime = 0L` when `storedEnd <= 0`. If `!isLockdownActive`, immediately removes the floating view from `WindowManager`, stops the foreground service, and calls `stopSelf()`.
+  - [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java): In `endLockdown()`, writes `last_completed_window_end_<scheduleId>` to `SharedPreferences`.
+  - [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java) & [ScheduleManager.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ScheduleManager.java): Skips lock engagement if `windowEnd <= lastCompletedEnd`.
+  - [App.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx): In `handleSubmitHomework()`, when evaluation passes, immediately sets `isActive: false`, syncs via `syncSchedules()`, and invokes `endLockdown()`.
+
+---
+
+### 5. Milestone 5: Intelligent Resource & AI General Knowledge Validation
+- **Why It Was Changed**:
+  - When students selected both course notes and "AI General Knowledge", Step 2 in the Schedule Creator previously skipped validation entirely.
+  - If an assignment was completely answerable using course notes alone (e.g. Student Grade Calculator), leaving AI General Knowledge enabled caused the auto-harvester to harvest scenario-specific details (like quiz weights and formulas) into clean resource notes upon passing.
+  - If a student didn't select AI knowledge and validation failed, they were stuck on Step 2 with no clear progression path.
+- **Modifications**:
+  - [defaultPrompts.ts](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/defaultPrompts.ts): Added Rule 3 to `validateHomework`: self-contained problem scenarios, formulas, or parameters where core principles exist in notes are explicitly validated as complete without needing outside AI knowledge.
+  - [CreateSchedule.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/CreateSchedule.tsx): Validates homework against course notes first. If notes are sufficient, displays the **"AI General Knowledge May Not Be Needed"** modal offering **"Turn Off AI Knowledge & Continue" (Recommended)** to prevent note pollution. If notes are insufficient and AI wasn't selected, provides an inline **"Enable AI General Knowledge & Proceed"** one-click shortcut.
+
+---
+
+### 6. Milestone 6: Homeworks Log "Add Again" Cascade Rescheduling (Option B)
+- **Why It Was Added**:
+  - Students with failed or expired homework sessions in the Homeworks Log needed a way to re-attempt their assignments without causing schedule overlap conflicts.
+- **What Was Implemented**:
+  - In [HomeworksPage.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/HomeworksPage.tsx):
+    - **Midpoint Preemption**:
+      - If requested emergency time is **below midpoint (< 50%)** of an existing schedule: the Emergency schedule preempts the conflicting schedule at the chosen time; the conflicting schedule starts after the emergency session + 30-minute buffer.
+      - If requested emergency time is **at or above midpoint (≥ 50%)**: the conflicting schedule finishes its duration; the Emergency schedule starts after it + 30-minute buffer.
+    - **30-Minute Break Buffer**: Enforces mandatory 30-minute rest intervals between consecutive sessions (no buffer trailing the final session).
+    - **3:00 AM Curfew Enforcement**: Rejects schedule cascades exceeding 3:00 AM with `"Too many schedules / exceeds 3:00 AM curfew"`.
+
+---
+
+### 7. Milestone 7: Simulated Time Bridge & Clock Synchronization
+- **Why It Was Added**:
+  - Testing schedule triggers, countdown transitions, and consequence operating windows required waiting hours for real wall-clock time.
+  - Simulating time purely in React caused severe desynchronization with native Android `AlarmManager`, `FloatingOverlayService`, and `LockAccessibilityService`.
+- **What Was Implemented**:
+  - In [Dashboard.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/Dashboard.tsx): Added simulated time header with live clock, time override picker, and quick reset.
+  - In [systemBridge.ts](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/systemBridge.ts) & [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java): Implemented `syncTimeOffset(offsetMs)` persisting `simulated_time_offset` into `SharedPreferences`.
+  - In [FloatingOverlayService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.java) & [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java): All calculations use `effectiveNow = System.currentTimeMillis() + timeOffset`.
+
+---
+
+### 8. Milestone 8: Accessibility Service Self-Exemption & Safe Schedule Start
+- **Why It Was Changed**:
+  - Under certain race conditions when lockdown engaged, opening QIEZKA to view instructions or capture homework photos caused QIEZKA itself to be intercepted or minimized by its own accessibility service.
+- **What Was Implemented**:
+  - In [AppClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java) & [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java): Added explicit self-package exemption (`pkg.equals(context.getPackageName())`) at Tier 1 before any heuristic checks.
+
+---
+
+### 9. Milestone 9: Consequence Mode Accountability & Failed Homework Archiving
+- **Why It Was Changed**:
+  - When a student abandoned a session or let the timer expire without submitting, the app previously closed itself and left the failed schedule in limbo, failing to enforce accountability.
+- **What Was Implemented**:
+  - In [App.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx): When timer expires, `handleTimeout()` logs the failed session into `completedHomeworks` with detailed diagnostic feedback and transitions smoothly to Dashboard.
+  - Distracting apps remain locked during operating hours (7 PM – 3 AM in Safemode, or 24/7 in Hardcore) until the failed homework is rescheduled and passed.
+  - In [Dashboard.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/Dashboard.tsx): Prominently displays the red **"⚠️ Consequence Active: Homework Failed"** banner with a direct link to the Homeworks Log.
+
+---
+
+### 10. Milestone 10: Preserving App Installation & Play Store Package Installers
+- **Why It Was Changed**:
+  - Updating or installing apps (via Google Play Store, Samsung Galaxy Store, or manual APK installation) was blocked by the accessibility window monitor during study hours because package installer activities had unknown or system category.
+- **What Was Implemented**:
+  - In [AppClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java) & [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java):
+    - Added `INSTALLER_AND_STORE_PACKAGES` whitelist containing Google Play Store, Google Package Installer, AOSP Package Installer, Samsung Galaxy Store, MIUI Package Installer, ColorOS Package Installer, and Huawei AppGallery.
+    - Implemented `isInstallerOrStorePackage(pkg)` checking package name signatures (`.packageinstaller`, `.installer`).
+    - Added package installer exemption to Tier 1 of the classification engine so installations and updates run uninterrupted.
+
+---
+
+### 11. Milestone 11: Operating Modes (Safemode vs Hardcore 24/7) & Local DNS Sinkhole VPN
+- **Why It Was Added**:
+  - Standard Consequence Mode operates only during study hours (7:00 PM – 3:00 AM). University students requested a "Hardcore" mode enforcing 24/7 round-the-clock restrictions.
+  - In-app browser tabs and WebViews allowed bypassing app-level blocks to access distracting websites.
+- **What Was Implemented**:
+  - In [SettingsOverlay.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx) & [App.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx): Added Operating Mode toggle (`safemode` vs `hardcore`) with a dedicated Hardcore confirmation dialog.
+  - In [LocalDnsVpnService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java): Integrated on-device DNS loopback sinkhole intercepting UDP port 53 DNS queries and returning `0.0.0.0` for blacklisted domains (TikTok, Instagram, Netflix, KissKH, etc.).
+  - Added Web Protection Mode selector (`accessibility`, `dns_vpn`, `dual_hybrid`, `off`) with native permission triggers.
+
+---
+
+### 12. Milestone 12: YouTube Academic Browsing Mode
+- **Why It Was Added**:
+  - STEM students require access to YouTube coding tutorials, physics lectures, and 3Blue1Brown explanations, but the native YouTube app is an extreme distraction vector with Shorts and algorithm feeds.
+- **What Was Implemented**:
+  - In [SettingsOverlay.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx), [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java), and [LocalDnsVpnService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java):
+    - Added **"Allow YouTube in Browser"** toggle.
+    - **Native App Strictly Blocked**: `com.google.android.youtube` remains strictly blocked under all circumstances.
+    - **Browser Filtering**: Web browsers are permitted to load `m.youtube.com` and `youtube.com/watch`, but URL keywords matching `shorts`, `feed/explore`, and `gaming` are immediately intercepted by Accessibility Guard.
+
+---
+
+### 13. Milestone 13: 5-Step Interactive Onboarding Wizard & Device Permissions Setup
+- **Why It Was Changed**:
+  - First-run setup was too brief, missing interactive explanations of selective focus, proof-of-work expectations (photographing/screenshotting handwritten work or code), terms and conditions, and system permission verification.
+- **What Was Implemented**:
+  - In [Onboarding.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/Onboarding.tsx):
+    - Re-architected into a 5-step interactive wizard with full vertical touch scrolling (`overflow-y-auto`, `overscroll-contain`):
+      1. **Step 1: The Protocol**: Explains selective focus, floating timer ball, unlocking via photograph/screenshot of completed homework, and consequence mode.
+      2. **Step 2: Nuclear Agreement**: Transparent Terms & Conditions with individual acknowledgment cards and "Accept All Terms" shortcut.
+      3. **Step 3: Device Permissions**: In-app permission manager with live status badges and direct intent launchers for Accessibility Service (with Android 13+ restricted settings shortcut), Post Notifications, Battery Optimization, and Device Administrator.
+      4. **Step 4: Optional Quick Setup**: Front-loads BYOK Gemini API key, Free OCR key, Operating Mode (with Hardcore confirmation modal), and Web Protection (with Android system VPN prompt). Includes **"Skip for Now"** button.
+      5. **Step 5: Ready to Focus**: Summary overview card and direct launch into the Dashboard.
+
+---
+
+### 14. Milestone 14: Consequence Mode Import Protection & Orphan Auto-Recovery
+- **Why It Was Changed**:
+  - A user attempted to reset the app by importing a blank JSON backup (with empty schedules, empty completedHomeworks, and `consequenceActive: false`).
+  - However, native Android SharedPreferences (`uncode_lock.xml`) still had `consequence_active = true`. On boot, `getLockStatus()` queried native preferences and reinstated `consequenceActive: true`, leaving the user deadlocked in Consequence Mode with 0 failed homeworks available to reschedule and pass.
+  - Furthermore, allowing students to import backups during active lockdown or consequence mode would undermine the anti-cheat protocol.
+- **What Was Implemented**:
+  - In [SettingsOverlay.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx):
+    - "Import Backup" is disabled during active lockdown or consequence mode (`isLockedOrConsequence`) with a lock badge and tooltip: `"🔒 Backup import is disabled during active lockdown or consequence mode. Complete and pass your session first."`.
+    - "Export Backup" remains 100% functional at all times so students never lose their data.
+    - On valid import outside lockdown/consequence, native preferences are synchronized via `endLockdown()`, `setConsequenceActive(false)`, and `syncSchedules(...)`.
+  - In [Dashboard.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/Dashboard.tsx):
+    - Consequence banner checks if `completedHomeworks` has any failed sessions (`completedHomeworks.some(h => !h.passed)`).
+    - If false (orphaned state), renders an amber card: **"⚠️ Consequence Mode Active (No Failed Homeworks Found)"** with a direct **"Clear Orphaned Consequence"** button.
+    - Added **"Reset All Locks"** quick-action button in the simulated time debug header.
+  - In [App.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx):
+    - In `loadAll()`, auto-heals orphaned consequence states if native consequence is active but failed homework count is 0.
+    - In `handleVisibilityChange()`, checks `completedHomeworksRef` before reinstating consequence mode.
+
+---
+
+### 15. Milestone 15: Web-Based Game Armor & Browser Gaming Defense Protocol
+- **Why It Was Added**:
+  - When native game apps (like *Coxeta*, *Genshin*, or *Roblox*) were blocked, students bypassed restrictions by opening allowed browsers (Chrome, Samsung Internet, Firefox, Brave, Edge) to play web-based games, viral .IO multiplayer games, retro emulators, cloud-streamed APKs (`now.gg`), or search-embedded mini-games (Chrome Dino, Google Snake).
+- **What Was Implemented**:
+  - In [LocalDnsVpnService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java):
+    - Integrated a comprehensive **250+ gaming domain database** covering web game mega-portals (Poki, CrazyGames, Coolmath Games, Kongregate, Armor Games, Newgrounds, Y8, Friv), viral .IO arenas (Slither, Agar, Krunker, 1v1.lol, Paper.io, Hole.io, Surviv, Bloxd, Ev.io), cloud APK streaming (`now.gg`, GeForce NOW, Luna), indie iframe runtimes (`*.itch.zone`), web emulators, and unblocked game networks.
+    - Sinkholes UDP port 53 DNS lookups for gaming domains to RFC-standard `NXDOMAIN` responses.
+  - In [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java):
+    - **Real-Time Address Bar Interception**: Synchronized with the 250+ web gaming domain set.
+    - **Browser Internal Mini-Game Scheme Defense**: Intercepts `chrome://dino`, `chrome://network-error/-106`, `edge://surf`, and `opera://game`, immediately executing `GLOBAL_ACTION_BACK` with alert toast: *"⚠️ Browser mini-games are blocked during study sessions"*.
+    - **Search-Embedded Interactive Canvas Game Defense**: Detects Google Search and Bing query parameters launching embedded HTML5 games (`snake`, `play snake`, `tic tac toe`, `pacman`, `minesweeper`, `solitaire`, `atari breakout`, `dreidel`, `fidget spinner`, `earth day quiz`, `memory game`), backing out before the game canvas renders.
+    - **Unblocked Game Mirror & Proxy Heuristics**: Detects unblocked game mirror signatures across `sites.google.com/view/*`, `*.github.io/*`, and keywords (`unblocked-games`, `classroom6x`, `slope-game`, `retrobowl`, `moto-x3m`).
+    - **Sub-Path Game Blocking**: Blocks `/games/`, `/crosswords/`, `/puzzles/` on general news portals (`nytimes.com/games`, `zone.msn.com`, `yandex.com/games`) while keeping legitimate news articles readable.
+    - **Ironclad Academic Safe-List Immunity**: Explicitly exempts Wikipedia, university `.edu` domains, MDN Web Docs, Khan Academy, Coursera, GitHub repositories, and game engine documentation from heuristic filters to guarantee zero false positives during research.
+  - In [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java) & [systemBridge.ts](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/systemBridge.ts):
+    - Added `setBlockWebGames(boolean)` persisting `block_web_games` into `SharedPreferences`.
+  - In [SettingsOverlay.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx):
+    - Added dedicated **"Block Web-Based Games"** card with toggle switch (enabled by default) with badge `250+ Sites • Portals, .IO & Cloud APKs Protected`. Disabled during active lockdown and consequence mode.
+  - In [App.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx):
+    - Synchronizes `block_web_games` preference to native bridge on boot and upon saving settings.
+
+---
+
+## 🔮 Future Roadmap & Potential Enhancements
+
+This section outlines features and architectural improvements planned for future releases of QIEZKA, explaining **why** each enhancement is needed and **how** it will be engineered.
+
+---
+
+### 1. Automatic Game Category Detection (`ApplicationInfo.CATEGORY_GAME`)
+- **Why It Is Needed**:
+  - During testing, it was observed that unlisted indie games (such as *Coxeta*) could be selected in the "Allowed Apps" customization picker and run during lockdown.
+  - **Why this happens currently**:
+    1. In `LockPlugin.java` (`getInstalledApps()`), candidate packages are only filtered against `BlacklistConstants.isBlacklisted(pkg)`. While major games (Roblox, Genshin, PUBG, MLBB, etc.) are blacklisted, indie or newly installed games are not in the hardcoded blacklist.
+    2. Once a student adds an unlisted game to their `allowedApps` whitelist, `AppClassifier.isPackageBlocked()` grants an explicit bypass because `userWhitelist.contains(pkg)` is evaluated before category heuristics.
+- **Proposed Implementation**:
+  - In [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java):
+    - When iterating installed apps in `getInstalledApps()`, inspect `appInfo.category == ApplicationInfo.CATEGORY_GAME` (API 26+) and check for negative gaming keywords in the app label.
+    - Exclude games from the candidate list so they cannot be selected in the Allowed Apps picker.
+  - In [AppClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java):
+    - Elevate `CATEGORY_GAME` and `hasNegativeDistractionSignals()` above `userWhitelist.contains(pkg)` so that even if a student modifies local storage or imports a manipulated JSON file with game package IDs, the native accessibility service intercepts and blocks the game immediately.
+
+---
+
+### 2. Fully Offline On-Device OCR (Google ML Kit Text Recognition)
+- **Why It Is Needed**:
+  - Currently, extracting text from photographed homework relies on OCR.space's REST API. If the student has poor internet connectivity, rate-limit issues, or an expired API key, OCR extraction fails.
+- **Proposed Implementation**:
+  - Integrate `@google-mlkit/text-recognition` into Android native code as a Capacitor plugin method (`recognizeTextOffline(base64Image)`).
+  - Runs fully on-device on the Neural Processing Unit (NPU/CPU) via Google Play Services in under 300ms with zero network traffic.
+  - Uses OCR.space as an optional secondary fallback for complex multi-column handwritten equations.
+
+---
+
+### 3. Fine-Grained Allowed App Time Quotas
+- **Why It Is Needed**:
+  - Whitelisting essential communication apps (like WhatsApp or Telegram) or web browsers is necessary for asking classmates questions or researching, but students can easily get sidetracked and spend 45 minutes chatting instead of studying.
+- **Proposed Implementation**:
+  - Add a configurable per-session time quota (e.g. max 10 minutes total for messaging apps per 90-minute study session).
+  - In `LockAccessibilityService.java`, track cumulative foreground time for secondary whitelisted apps. Once the quota is exhausted, the accessibility service displays a floating toast `"Messaging quota reached for this study session"` and minimizes the app back to QIEZKA.
+
+---
+
+### 4. Encrypted Cloud Backup & Multi-Device Synchronization
+- **Why It Is Needed**:
+  - Currently, backups are exported as plaintext JSON files via Android's Storage Access Framework (SAF). Students who switch devices or reinstall the OS must manually transfer JSON files, and storing raw Gemini API keys in plaintext presents a security concern.
+- **Proposed Implementation**:
+  - Implement client-side AES-256-GCM encryption with a user-defined password before writing backup files or uploading to Google Drive / WebDAV.
+  - Decrypts only on the target device when the correct master passphrase is provided.
+
+---
+
+### 5. Consequence Mode Audio & Haptic Alarm Alerts
+- **Why It Was Requested**:
+  - When a lock session expires without submission, the app currently posts an Android system notification. However, if the phone is placed across the desk or in silent mode, the student may not realize that Consequence Mode has engaged.
+- **Proposed Implementation**:
+  - Implement an optional audible tone and distinct haptic vibration pattern in `AlarmReceiver` upon lock timeout using Android's `RingtoneManager.TYPE_ALARM` and `Vibrator` API, ensuring immediate awareness.
+
+---
+
+### 6. Academic Performance Analytics & Study Streak Tracking
+- **Why It Is Needed**:
+  - Students want positive reinforcement and visual feedback on their long-term focus habits.
+- **Proposed Implementation**:
+  - In `Dashboard.tsx`, add an "Academic Insights" analytics card showing:
+    - Weekly total focus minutes.
+    - Ratio of passed homeworks vs failed consequence triggers.
+    - Consecutive day study streak counter.
+    - Visual timeline of daily focus sessions.
 
 ---
 

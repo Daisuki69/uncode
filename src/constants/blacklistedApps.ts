@@ -208,6 +208,7 @@ export const HARDCODED_BLACKLISTED_PACKAGES: string[] = [
   'jp.konami.pesam',                     // eFootball
   'com.nianticlabs.pokemongo',           // Pokémon GO
   'jp.pokemon.pokemonunite',             // Pokémon UNITE
+  'coxeta',                              // Coxeta Rhythm Game
   'com.taptap',                          // TapTap
   'com.taptap.global',                   // TapTap Global
   'com.epicgames.portal',                // Epic Games Store
@@ -411,5 +412,6 @@ export function isAppBlacklisted(packageId?: string | null): boolean {
          lower.includes('saygames') ||
          lower.includes('lionstudios') ||
          lower.includes('crazylabs') ||
-         lower.includes('ketchapp');
+         lower.includes('ketchapp') ||
+         lower.includes('coxeta');
 }

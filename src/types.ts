@@ -57,6 +57,7 @@ export interface AppSettings {
   operatingMode?: 'safemode' | 'hardcore';
   webProtectionMode?: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off';
   allowYoutube?: boolean;
+  blockWebGames?: boolean;
 }
 
 export interface EvaluationResult {

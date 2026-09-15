@@ -33,6 +33,9 @@ import android.content.Intent;
 import android.net.Uri;
 import android.net.VpnService;
 import android.app.Activity;
+import android.app.Notification;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.activity.result.ActivityResult;
 import com.getcapacitor.annotation.ActivityCallback;
 import java.io.File;
@@ -199,9 +202,10 @@ public class LockPlugin extends Plugin {
         }
     }
 
-    @PluginMethod
-    public void endLockdown(PluginCall call) {
+    public static void clearLockdownState(Context context) {
+        if (context == null) return;
         try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             String activeScheduleId = prefs.getString("active_schedule_id", "");
             long timeOffset = prefs.getLong("time_offset", 0L);
             long effectiveNow = System.currentTimeMillis() + timeOffset;
@@ -217,21 +221,129 @@ public class LockPlugin extends Plugin {
 
             if (activeScheduleId != null && !activeScheduleId.trim().isEmpty()) {
                 editor.putLong("last_completed_window_end_" + activeScheduleId, currentLockEnd);
-                Log.i(TAG, "endLockdown: recorded completed window for schedule " + activeScheduleId + " until " + currentLockEnd);
+                Log.i(TAG, "clearLockdownState: recorded completed window for " + activeScheduleId + " until " + currentLockEnd);
             }
             editor.apply();
             AppClassifier.clearCache();
 
-            AlarmReceiver.cancelLockEndAlarm(getActivity());
-            FloatingOverlayService.stopService(getActivity());
-            LocalDnsVpnService.stopVpn(getActivity());
+            // 1. Cancel Alarms
+            AlarmReceiver.cancelLockEndAlarm(context);
 
-            // If Device Owner: re-allow uninstall when lockdown ends
-            if (dpm.isDeviceOwnerApp(getActivity().getPackageName())) {
-                dpm.setUninstallBlocked(adminComponent, getActivity().getPackageName(), false);
-                Log.i(TAG, "Lockdown ended — uninstall re-enabled");
+            // 2. Stop Floating Overlay Service
+            FloatingOverlayService.stopService(context);
+
+            // 3. Stop Local DNS Sinkhole VPN
+            LocalDnsVpnService.stopVpn(context);
+
+            // 4. Cancel Notifications
+            android.app.NotificationManager nm = (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.cancel(AlarmReceiver.NOTIF_ID_STATUS);
+                nm.cancel(AlarmReceiver.NOTIF_ID_COMPLETED);
             }
 
+            // 5. Device Owner unblock uninstall
+            DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+            ComponentName adminComponent = new ComponentName(context, AdminReceiver.class);
+            if (dpm != null && dpm.isDeviceOwnerApp(context.getPackageName())) {
+                try {
+                    dpm.setUninstallBlocked(adminComponent, context.getPackageName(), false);
+                    Log.i(TAG, "clearLockdownState: Device Owner uninstall re-enabled");
+                } catch (Exception e) {
+                    Log.w(TAG, "clearLockdownState setUninstallBlocked error: " + e.getMessage());
+                }
+            }
+
+            Log.i(TAG, "clearLockdownState: complete and authoritative unlock executed successfully");
+        } catch (Exception e) {
+            Log.e(TAG, "clearLockdownState error", e);
+        }
+    }
+
+    public static void startConsequenceState(Context context, String scheduleId, Set<String> whitelist) {
+        if (context == null) return;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putBoolean("consequence_active", true)
+                    .putBoolean("lockdown_active", true)
+                    .remove("lock_end_time");
+
+            if (scheduleId != null && !scheduleId.trim().isEmpty()) {
+                editor.putString("consequence_schedule_id", scheduleId);
+            }
+            if (whitelist != null && !whitelist.isEmpty()) {
+                editor.putStringSet("whitelist", whitelist);
+            }
+            editor.apply();
+
+            // 1. Clear classification cache so whitelist takes immediate effect
+            AppClassifier.clearCache();
+
+            // 2. Device Owner: block uninstalls during consequence mode
+            DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+            ComponentName adminComponent = new ComponentName(context, AdminReceiver.class);
+            if (dpm != null && dpm.isDeviceOwnerApp(context.getPackageName())) {
+                try {
+                    dpm.setUninstallBlocked(adminComponent, context.getPackageName(), true);
+                    Log.i(TAG, "startConsequenceState: Device Owner uninstall blocked");
+                } catch (Exception e) {
+                    Log.w(TAG, "startConsequenceState setUninstallBlocked error: " + e.getMessage());
+                }
+            }
+
+            // 3. Start Local DNS Sinkhole VPN if configured
+            String webMode = prefs.getString("web_protection_mode", "accessibility");
+            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
+                LocalDnsVpnService.startVpn(context);
+            }
+
+            // 4. Start Floating Overlay Service with Consequence Mode indicator
+            FloatingOverlayService.startService(context, 0L, "Consequence Mode");
+
+            // 5. Post Status Notification
+            long timeOffset = prefs.getLong("time_offset", 0L);
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+            boolean inOperatingHours = LockAccessibilityService.isInOperatingHours(context, effectiveNow);
+            String notifMsg = inOperatingHours
+                    ? "Distracting apps are restricted until homework is rescheduled and passed."
+                    : "Consequence active: Enforcement paused during daytime (resumes at 7:00 PM).";
+
+            AlarmReceiver.createNotificationChannels(context);
+            AlarmReceiver.showNotificationStatic(
+                    context,
+                    AlarmReceiver.NOTIF_ID_STATUS,
+                    AlarmReceiver.CHANNEL_ID_STATUS,
+                    "⚠️ QIEZKA Consequence Mode",
+                    notifMsg,
+                    Notification.PRIORITY_HIGH,
+                    true
+            );
+
+            // 6. Immediately kick user out if currently inside a blocked app (if in operating hours)
+            if (inOperatingHours) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    try {
+                        if (LockAccessibilityService.getInstance() != null) {
+                            String activePkg = LockAccessibilityService.getInstance().detectCurrentForegroundPackage();
+                            if (activePkg != null && LockAccessibilityService.getInstance().isPackageBlocked(activePkg)) {
+                                LockAccessibilityService.getInstance().enforceBlock(activePkg);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }, 300L);
+            }
+
+            Log.i(TAG, "startConsequenceState: complete consequence enforcement engaged (inOperatingHours=" + inOperatingHours + ")");
+        } catch (Exception e) {
+            Log.e(TAG, "startConsequenceState error", e);
+        }
+    }
+
+    @PluginMethod
+    public void endLockdown(PluginCall call) {
+        try {
+            clearLockdownState(getActivity());
             call.resolve();
         } catch (Exception e) {
             Log.e(TAG, "endLockdown failed", e);
@@ -245,26 +357,18 @@ public class LockPlugin extends Plugin {
             boolean active = call.getBoolean("active", false);
             String scheduleId = call.getString("scheduleId", "");
 
-            SharedPreferences.Editor editor = prefs.edit()
-                    .putBoolean("consequence_active", active);
-
             if (active) {
-                if (scheduleId != null && !scheduleId.trim().isEmpty()) {
-                    editor.putString("consequence_schedule_id", scheduleId);
+                JSArray rawWhitelist = call.getArray("whitelist");
+                Set<String> whitelist = new HashSet<>();
+                if (rawWhitelist != null) {
+                    for (int i = 0; i < rawWhitelist.length(); i++) {
+                        whitelist.add(rawWhitelist.getString(i));
+                    }
                 }
-                editor.putBoolean("lockdown_active", true);
-                Log.i(TAG, "Consequence mode ACTIVATED natively for schedule: " + scheduleId);
-
-                String webMode = prefs.getString("web_protection_mode", "accessibility");
-                if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
-                    LocalDnsVpnService.startVpn(getActivity());
-                }
+                startConsequenceState(getActivity(), scheduleId, whitelist);
             } else {
-                editor.remove("consequence_schedule_id");
-                LocalDnsVpnService.stopVpn(getActivity());
-                Log.i(TAG, "Consequence mode CLEARED natively");
+                clearLockdownState(getActivity());
             }
-            editor.apply();
 
             call.resolve();
         } catch (Exception e) {
@@ -329,6 +433,21 @@ public class LockPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setBlockWebGames(PluginCall call) {
+        try {
+            boolean block = Boolean.TRUE.equals(call.getBoolean("block", true));
+            prefs.edit().putBoolean("block_web_games", block).apply();
+            Log.i(TAG, "Block web games set to: " + block);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setBlockWebGames failed", e);
+            call.reject("setBlockWebGames failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void setYoutubePolicy(PluginCall call) {
         try {
             String policy = call.getString("policy", "academic");
@@ -388,13 +507,7 @@ public class LockPlugin extends Plugin {
             // Native timestamp auto-expire only when NOT in consequence mode
             if (isActive && !isConsequence && lockEndTime > 0 && effectiveNow >= lockEndTime) {
                 isActive = false;
-                prefs.edit()
-                        .putBoolean("lockdown_active", false)
-                        .remove("lock_end_time")
-                        .remove("active_schedule_id")
-                        .apply();
-                AlarmReceiver.cancelLockEndAlarm(getActivity());
-                FloatingOverlayService.stopService(getActivity());
+                clearLockdownState(getActivity());
             }
 
             JSObject ret = new JSObject();
@@ -657,8 +770,8 @@ public class LockPlugin extends Plugin {
                     if (pkg == null || pkg.equals(myPkg) || addedPackages.contains(pkg)) {
                         continue;
                     }
-                    if (BlacklistConstants.isBlacklisted(pkg)) {
-                        continue; // Strictly omit blacklisted distracting apps from selection
+                    if (BlacklistConstants.isBlacklisted(pkg) || AppClassifier.isForbiddenDistraction(getActivity(), pkg)) {
+                        continue; // Strictly omit blacklisted distracting apps, games, and social media from candidate selection
                     }
                     if (keyboardPackages.contains(pkg) || isKeyboardAppKeywords(pkg)) {
                         continue; // Keyboards are silently exempted in lockdown, hidden from whitelist UI
@@ -867,7 +980,12 @@ public class LockPlugin extends Plugin {
                 lower.contains("lenslauncher") ||
                 lower.contains("aperturelenslauncher") ||
                 lower.contains("opensourcemusicplayer") ||
-                lower.contains("androidopensourcemusicplayer")) {
+                lower.contains("androidopensourcemusicplayer") ||
+                lower.contains("packageinstaller") ||
+                lower.contains(".installer") ||
+                lower.equals("com.android.vending") ||
+                lower.equals("com.google.android.feedback") ||
+                lower.equals("com.google.android.gms")) {
                 return true;
             }
         }
@@ -879,7 +997,10 @@ public class LockPlugin extends Plugin {
                 lowerLabel.contains("aperturelenslauncher") ||
                 lowerLabel.contains("aperaturelenslauncher") ||
                 lowerLabel.contains("androidopensourcemusicplayer") ||
-                lowerLabel.contains("opensourcemusicplayer")) {
+                lowerLabel.contains("opensourcemusicplayer") ||
+                lowerLabel.contains("packageinstaller") ||
+                lowerLabel.contains("googleplaystore") ||
+                lowerLabel.contains("playstore")) {
                 return true;
             }
         }

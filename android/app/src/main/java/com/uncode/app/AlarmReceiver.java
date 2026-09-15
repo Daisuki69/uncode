@@ -201,6 +201,8 @@ public class AlarmReceiver extends BroadcastReceiver {
                 .remove("lock_end_time")
                 .apply();
 
+        FloatingOverlayService.stopService(context);
+
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) {
             nm.cancel(NOTIF_ID_STATUS);

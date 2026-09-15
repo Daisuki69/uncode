@@ -184,8 +184,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
         if (hasTimedOutRef.current) return;
         hasTimedOutRef.current = true;
         if (timer) clearInterval(timer);
-        endLockdown(); // Instantly release kiosk mode / lock task mode
-        // Retain draft in lockscreen_last_draft so student can re-lock and submit without losing work
+        // Delegate to onTimeout to log failed homework and transition to Consequence Mode
         onTimeout();
       }
     };
@@ -561,7 +560,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
                 <div 
                   key={app.id} 
                   className="flex flex-col items-center group relative w-full text-center" 
-                  title={isHardcoded ? (app.isAutoAllowed && !app.isHardcoded ? `${app.name} (Auto-Allowed Study App)` : `${app.name} (Always Allowed by System)`) : app.name}
+                  title={isHardcoded ? `${app.name} (Always Allowed by System)` : app.name}
                 >
                   <div className="relative">
                     {isHardcoded && (
@@ -584,7 +583,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
                   <span className="text-[11px] sm:text-xs font-medium text-gray-300 w-full text-center truncate px-1 mt-1.5">{app.name}</span>
                   {isHardcoded && (
                     <span className="text-[9px] font-bold uppercase tracking-tight text-emerald-400 mt-0.5">
-                      {app.isAutoAllowed && !app.isHardcoded ? 'Auto' : 'Always'}
+                      Always
                     </span>
                   )}
                 </div>

@@ -30,7 +30,7 @@ interface LockPluginInterface {
   exportBackup(options: { tempFileName: string; defaultName: string }): Promise<void>;
   syncSchedules(options: { schedules: any[]; allowedAppIds: string[] }): Promise<void>;
   syncTimeOffset(options: { timeOffset: number }): Promise<void>;
-  setConsequenceActive(options: { active: boolean; scheduleId?: string }): Promise<void>;
+  setConsequenceActive(options: { active: boolean; scheduleId?: string; whitelist?: string[] }): Promise<void>;
   setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
   setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off' }): Promise<{ success: boolean }>;
   setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
@@ -66,7 +66,7 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
     syncTimeOffset: async (opts: { timeOffset: number }) => {
       console.log('[Dev] Simulating syncTimeOffset:', opts);
     },
-    setConsequenceActive: async (opts: { active: boolean; scheduleId?: string }) => {
+    setConsequenceActive: async (opts: { active: boolean; scheduleId?: string; whitelist?: string[] }) => {
       console.log('[Dev] Simulating setConsequenceActive:', opts);
     },
     setOperatingMode: async ({ mode }: { mode: 'safemode' | 'hardcore' }) => {
@@ -250,9 +250,9 @@ export const syncTimeOffset = async (timeOffset: number): Promise<void> => {
   }
 };
 
-export const setConsequenceActive = async (active: boolean, scheduleId?: string): Promise<void> => {
+export const setConsequenceActive = async (active: boolean, scheduleId?: string, whitelist?: string[]): Promise<void> => {
   try {
-    await LockPlugin.setConsequenceActive({ active, scheduleId });
+    await LockPlugin.setConsequenceActive({ active, scheduleId, whitelist });
   } catch (e) {
     console.error('setConsequenceActive failed', e);
   }
@@ -322,6 +322,16 @@ export const setAllowYoutube = async (allow: boolean): Promise<boolean> => {
     return res?.success ?? true;
   } catch (e) {
     console.error('setAllowYoutube failed', e);
+    return false;
+  }
+};
+
+export const setBlockWebGames = async (block: boolean): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.setBlockWebGames({ block });
+    return res?.success ?? true;
+  } catch (e) {
+    console.error('setBlockWebGames failed', e);
     return false;
   }
 };

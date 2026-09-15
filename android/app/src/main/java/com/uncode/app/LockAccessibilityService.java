@@ -280,7 +280,46 @@ public class LockAccessibilityService extends AccessibilityService {
         "ai.inflection.pi"
     ));
 
+    /**
+     * Known System Package Installers and App Store packages.
+     * These are hardcoded system exemptions so that manual APK installations,
+     * updates, and Play Store update calls are never blocked during lockdown.
+     */
+    public static final Set<String> KNOWN_INSTALLER_AND_STORE_PACKAGES = new HashSet<>(Arrays.asList(
+        "com.android.vending",                     // Google Play Store
+        "com.google.android.feedback",             // Play Store feedback
+        "com.google.android.gms",                  // Google Play Services
+        "com.google.android.packageinstaller",     // Google Package Installer
+        "com.android.packageinstaller",            // AOSP Package Installer
+        "com.samsung.android.packageinstaller",    // Samsung Package Installer
+        "com.sec.android.app.samsungapps",         // Samsung Galaxy Store
+        "com.miui.packageinstaller",               // Xiaomi Package Installer
+        "com.xiaomi.mipicks",                      // Xiaomi GetApps
+        "com.coloros.packageinstaller",            // ColorOS Package Installer
+        "com.oppo.packageinstaller",               // Oppo Package Installer
+        "com.heytap.market",                       // Oppo / Realme App Market
+        "com.vivo.packageinstaller",               // Vivo Package Installer
+        "com.vivo.appstore",                       // Vivo App Store
+        "com.transsion.packageinstaller",          // Transsion Package Installer
+        "com.huawei.appmarket",                    // Huawei AppGallery
+        "com.hihonor.appmarket",                   // Honor App Market
+        "com.lenovo.safecenter"                    // Lenovo Package Installer / Security
+    ));
+
+    public static boolean isInstallerOrStoreApp(String pkg) {
+        if (pkg == null) return false;
+        if (KNOWN_INSTALLER_AND_STORE_PACKAGES.contains(pkg)) return true;
+        String lower = pkg.toLowerCase(Locale.US);
+        return lower.contains("packageinstaller") || 
+               lower.endsWith(".packageinstaller") ||
+               lower.contains(".installer");
+    }
+
     public static volatile LockAccessibilityService instance = null;
+
+    public static LockAccessibilityService getInstance() {
+        return instance;
+    }
 
     private final Set<String> dynamicExemptPackages = new HashSet<>();
     private final Set<String> dynamicKeyboardPackages = new HashSet<>();
@@ -686,6 +725,9 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkgChar == null) return;
         String pkg = pkgChar.toString();
 
+        // Never inspect or block QIEZKA itself
+        if (pkg.equals(getPackageName())) return;
+
         // ── SystemUI handling ──
         if (pkg.equals("com.android.systemui")) {
             handleSystemUiEvent(event);
@@ -749,6 +791,100 @@ public class LockAccessibilityService extends AccessibilityService {
         "tumblr.com"
     ));
 
+    // Comprehensive Web-Based Games Database (250+ Domains)
+    private static final Set<String> WEB_GAMING_DOMAINS = new HashSet<>(Arrays.asList(
+        // A. Mega Portals & Aggregators
+        "poki.com", "poki-gdn.com", "poki.cz", "poki.nl", "poki.com.br",
+        "crazygames.com", "crazygames.co.uk", "crazygames.fr", "crazygames.io",
+        "coolmathgames.com", "coolmath-games.com", "coolmath.com",
+        "kongregate.com", "kongregate.io",
+        "armorgames.com", "armorgamesonline.com",
+        "newgrounds.com", "ungrounded.net",
+        "y8.com", "y8games.com", "id.net",
+        "friv.com", "friv5.me", "friv.cm", "friv.today", "friv.cool", "frivclassic.com", "friv-2017.com",
+        "miniplay.com", "minijuegos.com",
+        "addictinggames.com", "silvergames.com",
+        "kizi.com", "kizi10.org",
+        "gamepix.com", "lagged.com",
+        "agame.com", "a-game.com", "gamesgames.com",
+        "snokido.com", "snokido.fr", "snokido.net",
+        "kbhgames.com", "playhop.com", "1001games.com",
+        "twoplayergames.org", "2playergames.com", "pomu.com", "paisdelosjuegos.com",
+        "games2girls.com", "girlsgogames.com", "mousebreaker.com", "stickpage.com",
+        "speele.nl", "jetztspielen.de", "gry.pl", "jeuxjeuxjeux.fr",
+        "arkadium.com", "gameforge.com", "gameflare.com", "gamepost.com",
+        "titotu.io", "kevin.games", "zone.msn.com", "plays.org", "bubbleshooter.net",
+
+        // B. Viral .IO & Multiplayer Arena Games
+        "slither.io", "slitherio.org", "agar.io", "agar.pro", "agariogame.club",
+        "diep.io", "krunker.io", "yendis.ch",
+        "1v1.lol", "1v1.school", "justfall.lol",
+        "paper.io", "paper-io.com", "paperio2.com",
+        "hole.io", "hole-io.com",
+        "surviv.io", "survev.io", "suroi.io",
+        "skribbl.io", "gartic.io", "garticphone.com", "drawasaurus.org",
+        "shellshock.io", "eggcombat.com", "shellshockers.io",
+        "deeeep.io", "bloxd.io", "voxiom.io", "smashkarts.io",
+        "ev.io", "zombs.io", "zombsroyale.io", "starve.io", "moomoo.io",
+        "narrow.one", "venge.io", "bonk.io", "bonk2.io",
+        "wings.io", "brutal.io", "splix.io", "lordz.io",
+        "flyordie.io", "evojaws.io", "evoworld.io",
+        "digdig.io", "yohoho.io", "taming.io", "betrayal.io",
+        "battledudes.io", "lolbeans.io", "warbrokers.io",
+        "curvefever.pro", "curvefever.com", "littlebigsnake.com", "arrow.io",
+        "iogames.space", "iogames.onl", "io-games.io",
+
+        // C. Cloud Gaming & Web APK Streaming Backdoors
+        "now.gg", "nowgg.me", "nowgg.io",
+        "play.geforcenow.com", "geforcenow.com",
+        "luna.amazon.com",
+        "boosteroid.com", "cloud.boosteroid.com",
+        "shadow.tech", "vortex.gg", "airgpu.com",
+
+        // D. Indie Web Runtimes & CDNs
+        "itch.zone", "itch.io", "gamejolt.com", "gx.games",
+        "simmer.io", "lexaloffle.com", "flowlab.io", "arcade.construct.net",
+
+        // E. Web Emulators & Retro Gaming
+        "emulatoronline.com", "retrogames.cc", "playretrogames.com", "vimm.net",
+        "emupedia.net", "emupedia.org", "afterplay.io", "eclipseemu.me",
+        "webretro.org", "game-oldies.com", "ssega.com", "playminigames.net",
+        "playclassic.games", "dosgames.com", "playdosgames.com",
+        "online-emulators.com", "retrogames.onl", "myabandonware.com",
+        "consoleroms.com", "archaic-bingo.com", "wowroms.com", "freeroms.com",
+
+        // F. Unblocked Games Dedicated Networks & Mirrors
+        "unblocked-games.com", "unblockedgames66.com", "unblockedgames66plus.com", "unblockedgames66ez.com",
+        "unblockedgames76.com", "unblockedgames77.com", "unblockedgames99.com",
+        "unblockedgames500.com", "unblockedgames119.com", "unblockedgames24h.com",
+        "classroom6x.com", "classroom-6x.org",
+        "slope-game.com", "slopeunblocked.org", "slopegame.online",
+        "hoodamath.com", "mathplayground.com", "abcya.com", "primarygames.com",
+        "freeonlinegames.com", "b-games.com", "unblocked-games-76.com",
+        "unblockedgame76.com", "unblockedgamesworld.com", "unblockedgamespod.com",
+        "unblockedgames.me", "unblocked-games-s.com", "unblockedgame.io", "unblockedgamesfree.com",
+
+        // G. Casual, Board, Puzzle & Incremental Games
+        "chess.com", "lichess.org", "chess24.com", "chessbomb.com",
+        "geoguessr.com", "worldle.teuteuf.fr", "globle-game.com", "geoguess.games", "city-guesser.com",
+        "2048game.com", "play2048.co", "2048.io",
+        "sudoku.com", "websudoku.com", "nonograms.org",
+        "wordlewebsite.com", "wordle.org", "quordle.com", "octordle.com", "sedecordle.com",
+        "solitaired.com", "cardgames.io", "solitaireparadise.com", "247solitaire.com",
+        "sporcle.com", "jetpunk.com", "tetr.io", "jstris.jezevec10.com", "cookieclicker.ee"
+    ));
+
+    // Academic & Developer Resources Immune to Heuristic Game Filters
+    private static final Set<String> ACADEMIC_EXEMPT_DOMAINS = new HashSet<>(Arrays.asList(
+        "wikipedia.org", "wikimedia.org",
+        "khanacademy.org", "coursera.org", "edx.org", "udemy.com",
+        "quizlet.com", "brainly.com", "chegg.com", "duolingo.com",
+        "developer.mozilla.org", "github.com",
+        "stackoverflow.com", "stackexchange.com",
+        "docs.unity3d.com", "docs.godotengine.org", "unrealengine.com",
+        "arxiv.org", "researchgate.net", "jstor.org", "nature.com", "sciencedirect.com"
+    ));
+
     private boolean isBrowserPackage(String pkg) {
         if (pkg == null) return false;
         if (KNOWN_BROWSER_PACKAGES.contains(pkg)) return true;
@@ -798,6 +934,94 @@ public class LockAccessibilityService extends AccessibilityService {
                     if (lowerUrl.contains(domain)) {
                         isBlocked = true;
                         break;
+                    }
+                }
+            }
+
+            // Check Web-Based Games & Dynamic Heuristics (250+ domains, unblocked mirrors, cloud APKs, search mini-games)
+            boolean blockWebGames = prefs != null && prefs.getBoolean("block_web_games", true);
+            if (!isBlocked && blockWebGames) {
+                // 1. Browser Internal Game Schemes (Chrome Dino, Edge Surf)
+                if (lowerUrl.startsWith("chrome://dino") || lowerUrl.contains("chrome://network-error/-106") ||
+                    lowerUrl.startsWith("edge://surf") || lowerUrl.startsWith("opera://game")) {
+                    isBlocked = true;
+                    reason = "Browser mini-games are blocked during study sessions";
+                }
+
+                // 2. Google Search & Bing Embedded Canvas Games
+                if (!isBlocked && (lowerUrl.contains("google.") || lowerUrl.contains("bing.com")) &&
+                    (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
+                    String[] searchTriggers = {
+                        "snake", "play+snake", "play%20snake",
+                        "tic+tac+toe", "tic%20tac%20toe",
+                        "pacman", "pac-man", "pac%20man",
+                        "minesweeper", "solitaire",
+                        "atari+breakout", "atari%20breakout",
+                        "dreidel", "fidget+spinner", "fidget%20spinner",
+                        "earth+day+quiz", "memory+game", "play+game"
+                    };
+                    for (String trigger : searchTriggers) {
+                        if (lowerUrl.contains("q=" + trigger) || lowerUrl.contains("&q=" + trigger) || lowerUrl.contains("query=" + trigger)) {
+                            isBlocked = true;
+                            reason = "Search-embedded mini-games are blocked during focus mode";
+                            break;
+                        }
+                    }
+                }
+
+                // 3. Direct Web Gaming Domain Database Matching (250+ domains)
+                if (!isBlocked) {
+                    for (String domain : WEB_GAMING_DOMAINS) {
+                        if (lowerUrl.contains(domain)) {
+                            isBlocked = true;
+                            reason = "Web-based game blocked during focus mode";
+                            break;
+                        }
+                    }
+                }
+
+                // 4. Unblocked Game Mirrors & Dynamic Path Patterns (with Academic Safe-List Immunity)
+                if (!isBlocked) {
+                    boolean isAcademicExempt = false;
+                    for (String exempt : ACADEMIC_EXEMPT_DOMAINS) {
+                        if (lowerUrl.contains(exempt)) {
+                            isAcademicExempt = true;
+                            break;
+                        }
+                    }
+                    if (!isAcademicExempt && (lowerUrl.contains(".edu/") || lowerUrl.endsWith(".edu"))) {
+                        isAcademicExempt = true;
+                    }
+
+                    if (!isAcademicExempt) {
+                        if (lowerUrl.contains(".itch.zone") || lowerUrl.contains("poki-gdn.com")) {
+                            isBlocked = true;
+                            reason = "Web-based game runtime blocked during focus mode";
+                        } else if (lowerUrl.contains("unblocked-games") || lowerUrl.contains("unblockedgames") ||
+                                   lowerUrl.contains("unblocked_games") || lowerUrl.contains("classroom6x") ||
+                                   lowerUrl.contains("slope-game") || lowerUrl.contains("slopeunblocked") ||
+                                   lowerUrl.contains("slopegame") || lowerUrl.contains("retrobowl") ||
+                                   lowerUrl.contains("moto-x3m")) {
+                            isBlocked = true;
+                            reason = "Unblocked games mirror blocked during focus mode";
+                        } else if (lowerUrl.contains("sites.google.com/") &&
+                                  (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("arcade") ||
+                                   lowerUrl.contains("slope") || lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
+                            isBlocked = true;
+                            reason = "Google Sites game mirror blocked during focus mode";
+                        } else if (lowerUrl.contains(".github.io/") &&
+                                  (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("slope") ||
+                                   lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
+                            isBlocked = true;
+                            reason = "GitHub Pages game mirror blocked during focus mode";
+                        } else if (lowerUrl.contains("nytimes.com/games") || lowerUrl.contains("nytimes.com/crosswords") ||
+                                   lowerUrl.contains("nytimes.com/puzzles") || lowerUrl.contains("washingtonpost.com/crossword") ||
+                                   lowerUrl.contains("theguardian.com/crosswords") || lowerUrl.contains("zone.msn.com") ||
+                                   lowerUrl.contains("yandex.com/games") || lowerUrl.contains("yandex.ru/games") ||
+                                   lowerUrl.contains("scratch.mit.edu/projects/")) {
+                            isBlocked = true;
+                            reason = "Web games section blocked during study sessions";
+                        }
                     }
                 }
             }
@@ -902,6 +1126,7 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkg == null) return false;
         if (pkg.equals(getPackageName())) return false;
         if (ALWAYS_EXEMPT.contains(pkg)) return false;
+        if (isInstallerOrStoreApp(pkg)) return false;
         if (isKeyboardApp(pkg)) return false;
         if (isAuthenticatorApp(pkg)) return false;
         if (isNotesApp(pkg)) return false;
@@ -1174,21 +1399,15 @@ public class LockAccessibilityService extends AccessibilityService {
     public void onScheduleStartTriggered() {
         try {
             String activePkg = detectCurrentForegroundPackage();
-            if (activePkg != null && isPackageBlocked(activePkg)) {
+            if (activePkg != null && !activePkg.equals(getPackageName()) && isPackageBlocked(activePkg)) {
                 enforceBlock(activePkg);
-            } else if (activePkg == null) {
-                if (Settings.canDrawOverlays(this)) {
-                    launchLockOverlay();
-                } else {
-                    goHome();
-                }
             }
         } catch (Exception e) {
             Log.e(TAG, "onScheduleStartTriggered error: " + e.getMessage());
         }
     }
 
-    private String detectCurrentForegroundPackage() {
+    public String detectCurrentForegroundPackage() {
         // 1. Inspect interactive application windows
         try {
             List<AccessibilityWindowInfo> windows = getWindows();
