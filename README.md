@@ -1582,9 +1582,34 @@ This section details every major engineering revision, architectural refinement,
 ---
 ### 16. Upcomming Milestone 16: School-Grade Network Intelligence architecture
 - **Why It Was Added**:
-  - Dawg i cant literally update blocked wbesites myself i can jsut use what school uses
-- **What Was Implemented**:
+  - Dawg 😭🙏i cant literally update blocked websites myself i can jsut use what school uses...
 ---
+
+### 17. Upcomming Milestone 17: School-Grade Network Intelligence architecture
+- **We will focus on**:
+  - Things to account for:
+    -Parallel Space / app cloning
+    -cloned YouTube
+    -cloned browsers
+    -cloned games
+    -work-profile/container copies
+    -Android Second Space / multiple-user environments
+    -Secure Folder / private containers
+    -Hidden-app launchers
+    -Fake calculator/vault apps
+    -App hiders
+    -Dual-app managers
+    -Virtual Android environments
+    -WebView-based app wrappers
+    -Apps that download/launch another APK internally
+    -Browser shortcuts/PWAs masquerading as apps
+    -“Calculator” apps that are actually vaults
+    -File managers capable of launching arbitrary APKs
+    -Alternative launchers that hide restricted apps
+    -Accessibility abuse / overlays used to disguise an escape route
+---
+
+
 ## 🔮 Future Roadmap & Potential Enhancements
 
 This section outlines features and architectural improvements planned for future releases of QIEZKA, explaining **why** each enhancement is needed and **how** it will be engineered.
