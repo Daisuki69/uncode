@@ -32,6 +32,9 @@ interface LockPluginInterface {
   syncTimeOffset(options: { timeOffset: number }): Promise<void>;
   setConsequenceActive(options: { active: boolean; scheduleId?: string }): Promise<void>;
   setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
+  setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off' }): Promise<{ success: boolean }>;
+  setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
+  requestVpnPermission(): Promise<{ granted: boolean }>;
   getLockStatus(): Promise<{
     isLockActive: boolean;
     lockEndTime: number;
@@ -69,6 +72,18 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
     setOperatingMode: async ({ mode }: { mode: 'safemode' | 'hardcore' }) => {
       console.log('[Dev] Simulating setOperatingMode:', mode);
       return { success: true };
+    },
+    setWebProtectionMode: async (opts: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off' }) => {
+      console.log('[Dev] Simulating setWebProtectionMode:', opts);
+      return { success: true };
+    },
+    setAllowYoutube: async (opts: { allow: boolean }) => {
+      console.log('[Dev] Simulating setAllowYoutube:', opts);
+      return { success: true };
+    },
+    requestVpnPermission: async () => {
+      console.log('[Dev] Simulating requestVpnPermission: granted');
+      return { granted: true };
     },
     getLockStatus: async () => ({
       isLockActive: false,
@@ -287,6 +302,36 @@ export const setOperatingMode = async (mode: 'safemode' | 'hardcore'): Promise<b
     return res?.success ?? true;
   } catch (e) {
     console.error('setOperatingMode failed', e);
+    return false;
+  }
+};
+
+export const setWebProtectionMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off'): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.setWebProtectionMode({ mode });
+    return res?.success ?? true;
+  } catch (e) {
+    console.error('setWebProtectionMode failed', e);
+    return false;
+  }
+};
+
+export const setAllowYoutube = async (allow: boolean): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.setAllowYoutube({ allow });
+    return res?.success ?? true;
+  } catch (e) {
+    console.error('setAllowYoutube failed', e);
+    return false;
+  }
+};
+
+export const requestVpnPermission = async (): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.requestVpnPermission();
+    return res?.granted ?? true;
+  } catch (e) {
+    console.error('requestVpnPermission failed', e);
     return false;
   }
 };

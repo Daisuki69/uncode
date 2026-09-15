@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle } from 'lucide-react';
+import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video } from 'lucide-react';
 import { AppSettings, LogEntry, SavedResource, AllowedApp } from '../types';
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
@@ -30,6 +30,10 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
   const [operatingMode, setOperatingModeState] = useState<'safemode' | 'hardcore'>(settings.operatingMode || 'safemode');
   const [showHardcoreModal, setShowHardcoreModal] = useState(false);
   const [modeError, setModeError] = useState<string | null>(null);
+
+  const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off'>(settings.webProtectionMode || 'accessibility');
+  const [allowYoutube, setAllowYoutubeState] = useState<boolean>(settings.allowYoutube || false);
+  const [webError, setWebError] = useState<string | null>(null);
   
   const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
   const [customPrompts, setCustomPrompts] = useState<Record<string, string>>(settings.prompts || {});
@@ -75,6 +79,38 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
     setModeError(null);
   };
 
+  const handleSelectWebMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off') => {
+    setWebError(null);
+    if (isLockedOrConsequence) {
+      setWebError('Web protection settings are locked during active lockdown or consequence mode.');
+      return;
+    }
+
+    if (mode === 'dns_vpn' || mode === 'dual_hybrid') {
+      try {
+        const { requestVpnPermission } = await import('../systemBridge');
+        const granted = await requestVpnPermission();
+        if (!granted) {
+          setWebError('VPN permission was not granted. Reverting to Accessibility URL Guard.');
+          setWebProtectionModeState('accessibility');
+          return;
+        }
+      } catch (e) {
+        console.warn('VPN permission request error:', e);
+      }
+    }
+    setWebProtectionModeState(mode);
+  };
+
+  const handleToggleAllowYoutube = (allow: boolean) => {
+    setWebError(null);
+    if (isLockedOrConsequence) {
+      setWebError('YouTube settings are locked during active lockdown or consequence mode.');
+      return;
+    }
+    setAllowYoutubeState(allow);
+  };
+
   const handleSaveGeneral = () => {
     onSave({ 
       apiKey: apiKey.trim() || undefined,
@@ -82,7 +118,9 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
       simpleOcrKey: simpleOcrKey.trim() || undefined,
       formattedOcrKey: formattedOcrKey.trim() || undefined,
       uiScale: uiScale,
-      operatingMode: operatingMode
+      operatingMode: operatingMode,
+      webProtectionMode: webProtectionMode,
+      allowYoutube: allowYoutube
     });
   };
 
@@ -444,6 +482,191 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                     <p className="text-xs text-gray-500 leading-relaxed">
                       Uncompromising discipline. Schedule sessions at any hour of the day. Consequence restrictions persist continuously through daytime until rescheduled and passed.
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Web & Browser Protection Section */}
+              <div className="mb-8 border-t border-gray-200 pt-6">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-gray-500" />
+                    Web & Browser Protection
+                  </label>
+                  <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                    webProtectionMode === 'dual_hybrid'
+                      ? 'bg-purple-600 text-white'
+                      : webProtectionMode === 'dns_vpn'
+                        ? 'bg-indigo-600 text-white'
+                        : webProtectionMode === 'accessibility'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-gray-200 text-gray-700'
+                  }`}>
+                    {webProtectionMode === 'dual_hybrid'
+                      ? 'Dual-Layer Hybrid'
+                      : webProtectionMode === 'dns_vpn'
+                        ? 'DNS Sinkhole (VPN)'
+                        : webProtectionMode === 'accessibility'
+                          ? 'Accessibility Guard'
+                          : 'Off'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">
+                  Closes the browser backdoor so students cannot bypass app restrictions via mobile Chrome or other browsers.
+                </p>
+
+                {webError && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-bold flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{webError}</span>
+                  </div>
+                )}
+
+                {/* Web Protection Mode Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                  {/* Accessibility Guard */}
+                  <div
+                    onClick={() => handleSelectWebMode('accessibility')}
+                    className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      webProtectionMode === 'accessibility'
+                        ? 'border-emerald-500 bg-emerald-50/50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${webProtectionMode === 'accessibility' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          <Shield className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="font-bold text-xs text-gray-900">Accessibility URL Guard</span>
+                      </div>
+                      {webProtectionMode === 'accessibility' && (
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      )}
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 block mb-1">Recommended • Zero VPN Slot Used</span>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      Inspects browser address bars in real-time. Preserves external VPNs (School VPN, WireGuard, Tailscale) with zero battery overhead.
+                    </p>
+                  </div>
+
+                  {/* DNS Sinkhole (VPN) */}
+                  <div
+                    onClick={() => handleSelectWebMode('dns_vpn')}
+                    className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      webProtectionMode === 'dns_vpn'
+                        ? 'border-indigo-500 bg-indigo-50/50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${webProtectionMode === 'dns_vpn' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          <Wifi className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="font-bold text-xs text-gray-900">DNS Sinkhole (Local VPN)</span>
+                      </div>
+                      {webProtectionMode === 'dns_vpn' && (
+                        <CheckCircle className="w-4 h-4 text-indigo-600" />
+                      )}
+                    </div>
+                    <span className="text-[10px] font-bold text-indigo-700 block mb-1">Packet-Level • All Browsers & WebViews</span>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      On-device loopback VPN sinkholes distracting domains (0.0.0.0) at the socket layer. Occupies Android’s single VPN slot.
+                    </p>
+                  </div>
+
+                  {/* Dual-Layer Hybrid */}
+                  <div
+                    onClick={() => handleSelectWebMode('dual_hybrid')}
+                    className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      webProtectionMode === 'dual_hybrid'
+                        ? 'border-purple-500 bg-purple-50/50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${webProtectionMode === 'dual_hybrid' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          <Layers className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="font-bold text-xs text-gray-900">Dual-Layer Hybrid</span>
+                      </div>
+                      {webProtectionMode === 'dual_hybrid' && (
+                        <CheckCircle className="w-4 h-4 text-purple-600" />
+                      )}
+                    </div>
+                    <span className="text-[10px] font-bold text-purple-700 block mb-1">Maximum Armor</span>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      Runs both Accessibility Guard and DNS Sinkhole concurrently for zero-tolerance distraction defense.
+                    </p>
+                  </div>
+
+                  {/* Off */}
+                  <div
+                    onClick={() => handleSelectWebMode('off')}
+                    className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      webProtectionMode === 'off'
+                        ? 'border-gray-500 bg-gray-100 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${webProtectionMode === 'off' ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                          <Globe className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="font-bold text-xs text-gray-900">Off (Unrestricted)</span>
+                      </div>
+                      {webProtectionMode === 'off' && (
+                        <CheckCircle className="w-4 h-4 text-gray-700" />
+                      )}
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-500 block mb-1">No Web Filtering</span>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      Allowed browsers can navigate to any website without address or DNS restrictions.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Allow YouTube (Academic Only) Option */}
+                <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="p-2 rounded-xl bg-red-100 text-red-600 mt-0.5">
+                        <Video className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-gray-900">Allow YouTube (Academic Only)</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                            allowYoutube ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'
+                          }`}>
+                            {allowYoutube ? 'Web Allowed • No Shorts' : 'Blocked by Default'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                          By default, YouTube is completely blocked. When enabled, educational videos on YouTube web are accessible in your browser, but YouTube Shorts are strictly blocked. The native YouTube app remains permanently blocked.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={allowYoutube}
+                      onClick={() => handleToggleAllowYoutube(!allowYoutube)}
+                      disabled={isLockedOrConsequence}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        allowYoutube ? 'bg-red-600' : 'bg-gray-300'
+                      } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          allowYoutube ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
                 </div>
               </div>

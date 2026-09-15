@@ -6,7 +6,7 @@ import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -287,6 +287,8 @@ export default function App() {
 
       setSettings(loadedSettings);
       setOperatingMode(loadedSettings.operatingMode || 'safemode');
+      setWebProtectionMode(loadedSettings.webProtectionMode || 'accessibility');
+      setAllowYoutube(loadedSettings.allowYoutube ?? false);
       setResources(loadedResources);
       setLogs(loadedLogs);
       setCompletedHomeworks(loadedCompletedHomeworks);
@@ -1008,6 +1010,12 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
                 onSave={(updates) => {
                   if (updates.operatingMode) {
                     setOperatingMode(updates.operatingMode);
+                  }
+                  if (updates.webProtectionMode) {
+                    setWebProtectionMode(updates.webProtectionMode);
+                  }
+                  if (updates.allowYoutube !== undefined) {
+                    setAllowYoutube(updates.allowYoutube);
                   }
                   setSettings(prev => ({ ...prev, ...updates }));
                   navigate('dashboard', 'backward');

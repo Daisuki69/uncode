@@ -31,6 +31,8 @@ import org.json.JSONException;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.net.VpnService;
+import android.app.Activity;
 import androidx.activity.result.ActivityResult;
 import com.getcapacitor.annotation.ActivityCallback;
 import java.io.File;
@@ -175,6 +177,12 @@ public class LockPlugin extends Plugin {
             // Start Floating Assistive Timer Ball Overlay
             FloatingOverlayService.startService(getActivity(), lockEndTime, scheduleId);
 
+            // Start Local DNS Sinkhole if web protection mode is dns_vpn or dual_hybrid
+            String webMode = prefs.getString("web_protection_mode", "accessibility");
+            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
+                LocalDnsVpnService.startVpn(getActivity());
+            }
+
             // If Device Owner: protect QIEZKA from force-stop and uninstall
             if (dpm.isDeviceOwnerApp(getActivity().getPackageName())) {
                 // Block uninstall while lockdown is active
@@ -216,6 +224,7 @@ public class LockPlugin extends Plugin {
 
             AlarmReceiver.cancelLockEndAlarm(getActivity());
             FloatingOverlayService.stopService(getActivity());
+            LocalDnsVpnService.stopVpn(getActivity());
 
             // If Device Owner: re-allow uninstall when lockdown ends
             if (dpm.isDeviceOwnerApp(getActivity().getPackageName())) {
@@ -245,8 +254,14 @@ public class LockPlugin extends Plugin {
                 }
                 editor.putBoolean("lockdown_active", true);
                 Log.i(TAG, "Consequence mode ACTIVATED natively for schedule: " + scheduleId);
+
+                String webMode = prefs.getString("web_protection_mode", "accessibility");
+                if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
+                    LocalDnsVpnService.startVpn(getActivity());
+                }
             } else {
                 editor.remove("consequence_schedule_id");
+                LocalDnsVpnService.stopVpn(getActivity());
                 Log.i(TAG, "Consequence mode CLEARED natively");
             }
             editor.apply();
@@ -271,6 +286,92 @@ public class LockPlugin extends Plugin {
             Log.e(TAG, "setOperatingMode failed", e);
             call.reject("setOperatingMode failed: " + e.getMessage());
         }
+    }
+
+    @PluginMethod
+    public void setWebProtectionMode(PluginCall call) {
+        try {
+            String mode = call.getString("mode", "accessibility");
+            prefs.edit().putString("web_protection_mode", mode).apply();
+            Log.i(TAG, "Web protection mode set to: " + mode);
+
+            boolean isLockActive = prefs.getBoolean("lockdown_active", false) || prefs.getBoolean("consequence_active", false);
+            if (isLockActive) {
+                if ("dns_vpn".equalsIgnoreCase(mode) || "dual_hybrid".equalsIgnoreCase(mode)) {
+                    LocalDnsVpnService.startVpn(getActivity());
+                } else {
+                    LocalDnsVpnService.stopVpn(getActivity());
+                }
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setWebProtectionMode failed", e);
+            call.reject("setWebProtectionMode failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setAllowYoutube(PluginCall call) {
+        try {
+            boolean allow = Boolean.TRUE.equals(call.getBoolean("allow", false));
+            prefs.edit().putBoolean("allow_youtube", allow).apply();
+            Log.i(TAG, "Allow YouTube set to: " + allow);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setAllowYoutube failed", e);
+            call.reject("setAllowYoutube failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setYoutubePolicy(PluginCall call) {
+        try {
+            String policy = call.getString("policy", "academic");
+            boolean allow = "academic".equalsIgnoreCase(policy) || "unrestricted".equalsIgnoreCase(policy);
+            prefs.edit()
+                .putString("youtube_policy", policy)
+                .putBoolean("allow_youtube", allow)
+                .apply();
+            Log.i(TAG, "YouTube policy set to: " + policy + " (allow_youtube=" + allow + ")");
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setYoutubePolicy failed", e);
+            call.reject("setYoutubePolicy failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void requestVpnPermission(PluginCall call) {
+        try {
+            Intent vpnIntent = VpnService.prepare(getActivity());
+            if (vpnIntent == null) {
+                JSObject ret = new JSObject();
+                ret.put("granted", true);
+                call.resolve(ret);
+            } else {
+                startActivityForResult(call, vpnIntent, "vpnPermissionCallback");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "requestVpnPermission failed", e);
+            JSObject ret = new JSObject();
+            ret.put("granted", false);
+            call.resolve(ret);
+        }
+    }
+
+    @ActivityCallback
+    private void vpnPermissionCallback(PluginCall call, ActivityResult result) {
+        JSObject ret = new JSObject();
+        boolean granted = (result != null && result.getResultCode() == Activity.RESULT_OK);
+        ret.put("granted", granted);
+        call.resolve(ret);
     }
 
     @PluginMethod

@@ -32,6 +32,7 @@
 **[🧠 Local App Classifier](#-local-app-classifier-engine-on-device-5-layer-heuristics)** • 
 **[🚨 Consequence Lockdown](#-consequence-lockdown--operating-hours-700-pm--300-am)** • 
 **[⚡ Operating Modes: Safemode vs Hardcore](#-operating-modes-safemode-vs-hardcore-247)** • 
+**[🌐 Web & Browser Protection](#-web--browser-protection-accessibility-guard--local-dns-sinkhole)** • 
 **[📰 Case Studies](#-case-studies--article-declutter-system)** • 
 **[🔮 Floating Ball Overlay](#-floating-assistive-timer-ball)** • 
 **[📋 App Directory](#-complete-application-reference-blocked--allowed)** • 
@@ -272,6 +273,57 @@ To eliminate cheat vectors and prevent impulsive lockouts:
 3. **Daytime Schedule Downgrade Guard**: A user **cannot switch from Hardcore back to Safemode if an active schedule exists during daytime hours (03:01 AM – 06:59 PM)**. 
    - *Anti-Cheat Rationale*: Prevents a user from scheduling a daytime lock session in Hardcore mode, realizing they want to play games during the day, and downgrading to Safemode to escape the restriction.
    - *Requirement*: The user must complete or delete all daytime schedules first before Safemode can be restored.
+
+---
+
+## 🌐 Web & Browser Protection (Accessibility Guard & Local DNS Sinkhole)
+
+While QIEZKA strictly blocks distracting apps (TikTok, Instagram, Reddit, Twitter, Netflix, etc.), students facing high academic friction often attempt to bypass restrictions using **mobile Chrome or alternative web browsers**. 
+
+To close this backdoor without breaking legitimate web research (e.g. Wikipedia, Google Docs, AI assistants, or university portals), QIEZKA provides a multi-layer web defense system configured in **Settings > General > Web & Browser Protection**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      WEB PROTECTION ARCHITECTURE                        │
+├────────────────────────────────────┬────────────────────────────────────┤
+│ 🛡️ ACCESSIBILITY URL GUARD         │ ⚡ LOCAL DNS SINKHOLE (VPN)        │
+├────────────────────────────────────┼────────────────────────────────────┤
+│ • Real-time Omnibox inspection     │ • On-device UDP port 53 loopback   │
+│ • Immediate visual eviction (Back) │ • Sinkholes domains to 0.0.0.0     │
+│ • Leaves VPN slot FREE             │ • Blocks all browsers & WebViews   │
+│ • Zero battery / latency overhead  │ • Zero proxy delay for HTTPS       │
+└────────────────────────────────────┴────────────────────────────────────┘
+```
+
+### 1. Protection Modes
+
+| Mode | Technology | Best For | VPN Slot Used? |
+|---|---|---|:---:|
+| **🛡️ Accessibility URL Guard** *(Default)* | Inspects the address bar in Chrome, Samsung Internet, Firefox, Edge, and Brave using `LockAccessibilityService`. If a blacklisted domain is navigated to, QIEZKA triggers `GLOBAL_ACTION_BACK` and flashes an informative block toast. | Students who need external VPNs (university campus VPN, WireGuard, Tailscale, Cloudflare WARP) for research. | **No** (Slot free) |
+| **⚡ DNS Sinkhole (Local VPN)** | Runs an on-device `LocalDnsVpnService` that routes virtual DNS queries (`10.111.222.1/32`). Blacklisted domains resolve to `0.0.0.0`, while legitimate research queries are relayed to upstream DNS (`1.1.1.1` / `8.8.8.8`) via protected sockets. | Maximum packet-level blocking across all obscure browsers, private tabs, and in-app WebViews. | **Yes** (1 VPN slot) |
+| **🔒 Dual-Layer Hybrid** | Runs both Accessibility URL Guard and DNS Sinkhole concurrently for zero-tolerance discipline. | High-stakes exam periods, bar exams, and extreme focus sprints. | **Yes** (1 VPN slot) |
+| **⚪ Off (Unrestricted)** | Web filtering is disabled; allowed browsers can navigate to any URL. | Users with high self-discipline who only want app blocking. | **No** |
+
+### 2. YouTube Policy (Default Blocked & Academic Web Only)
+
+To prevent procrastination loops while allowing legitimate lecture research:
+
+1. **Native YouTube App Permanently Blocked**: 
+   - The native YouTube application (`com.google.android.youtube`, YouTube Kids, YouTube Studio, ReVanced, NewPipe, etc.) is **strictly hardcoded in the distraction blacklist and can NEVER be launched or whitelisted**.
+   - The only supported route to YouTube is through an allowed web browser.
+
+2. **Blocked by Default**:
+   - By default, YouTube web domains (`youtube.com`, `youtu.be`, `googlevideo.com`) are **completely blocked** both in the Accessibility URL Guard and the Local DNS Sinkhole.
+
+3. **"Allow YouTube (Academic Only)" Option**:
+   - In **Settings > General > Web & Browser Protection**, users can toggle **"Allow YouTube (Academic Only)"** (disabled by default).
+   - **When Enabled**:
+     - Long-form educational videos, documentaries, and academic searches on `youtube.com` are permitted in allowed browsers.
+     - **YouTube Shorts (`youtube.com/shorts/*` or `#shorts`) are strictly blocked** in real-time, instantly issuing a `GLOBAL_ACTION_BACK` and displaying an alert toast.
+     - The native YouTube app remains 100% blocked.
+
+### 3. Anti-Cheat Lockout Guard
+Just like Operating Mode settings, **Web & Browser Protection and YouTube settings cannot be changed or disabled during an active lockdown session or during Consequence Mode**. The student must complete and pass their homework submission first.
 
 ---
 

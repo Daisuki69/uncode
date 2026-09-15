@@ -146,7 +146,13 @@ public final class AppClassifier {
             return false;
         }
 
-        // Tier 1c: Explicit User Whitelist from AppSettings
+        // Tier 1c: Hardcoded Distraction Blacklist & Hostile Signatures MUST take precedence!
+        // YouTube native app, TikTok, games, and social media can NEVER be allowed.
+        if (BlacklistConstants.isBlacklisted(pkg)) {
+            return true;
+        }
+
+        // Tier 1d: Explicit User Whitelist from AppSettings
         if (userWhitelist != null && userWhitelist.contains(pkg)) {
             return false;
         }

@@ -55,6 +55,8 @@ export interface AppSettings {
   consequenceActive?: boolean;
   consequenceScheduleId?: string;
   operatingMode?: 'safemode' | 'hardcore';
+  webProtectionMode?: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off';
+  allowYoutube?: boolean;
 }
 
 export interface EvaluationResult {

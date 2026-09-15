@@ -18,6 +18,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.InputMethodInfo;
 
 import android.app.Notification;
+import android.widget.Toast;
 import android.os.Handler;
 import android.os.Looper;
 import java.lang.reflect.Method;
@@ -25,6 +26,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -697,7 +699,203 @@ public class LockAccessibilityService extends AccessibilityService {
 
         if (isPackageBlocked(pkg)) {
             enforceBlock(pkg);
+        } else if (isBrowserPackage(pkg)) {
+            handleBrowserUrlInspection(event, pkg);
         }
+    }
+
+    private long lastBrowserToastTime = 0L;
+
+    private static final Set<String> KNOWN_BROWSER_PACKAGES = new HashSet<>(Arrays.asList(
+        "com.android.chrome",
+        "com.chrome.beta",
+        "com.chrome.dev",
+        "com.chrome.canary",
+        "com.sec.android.app.sbrowser",
+        "com.sec.android.app.sbrowser.beta",
+        "org.mozilla.firefox",
+        "org.mozilla.firefox_beta",
+        "org.mozilla.fenix",
+        "com.brave.browser",
+        "com.microsoft.emmx",
+        "com.opera.browser",
+        "com.opera.mini.native",
+        "com.duckduckgo.mobile.android",
+        "com.vivaldi.browser",
+        "mark.via.gp"
+    ));
+
+    private static final Set<String> BLACKLISTED_WEB_DOMAINS = new HashSet<>(Arrays.asList(
+        "tiktok.com",
+        "instagram.com",
+        "facebook.com", "fb.com",
+        "twitter.com", "x.com",
+        "reddit.com",
+        "threads.net",
+        "snapchat.com",
+        "discord.com",
+        "twitch.tv",
+        "netflix.com",
+        "disneyplus.com",
+        "hulu.com",
+        "primevideo.com",
+        "webtoons.com",
+        "mangadex.org",
+        "mangakakalot.com",
+        "bilibili.tv", "bilibili.com",
+        "roblox.com",
+        "9gag.com",
+        "pinterest.com",
+        "tumblr.com"
+    ));
+
+    private boolean isBrowserPackage(String pkg) {
+        if (pkg == null) return false;
+        if (KNOWN_BROWSER_PACKAGES.contains(pkg)) return true;
+        String lower = pkg.toLowerCase(Locale.US);
+        return lower.contains("browser") || lower.contains("chrome");
+    }
+
+    private void handleBrowserUrlInspection(AccessibilityEvent event, String pkg) {
+        String webMode = prefs != null ? prefs.getString("web_protection_mode", "accessibility") : "accessibility";
+        if ("off".equalsIgnoreCase(webMode) || "dns_vpn".equalsIgnoreCase(webMode)) {
+            return;
+        }
+
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return;
+
+        try {
+            String url = extractUrlFromBrowser(root, pkg);
+            if (url == null || url.trim().isEmpty()) return;
+
+            String lowerUrl = url.toLowerCase(Locale.US).trim();
+            boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
+
+            boolean isBlocked = false;
+            String reason = "Distracting website blocked during focus mode";
+
+            // Check YouTube:
+            // Native YouTube app is completely blocked (only accessible through browser).
+            // By default, YouTube web is also completely blocked.
+            // When allow_youtube is true, educational/long-form videos on YouTube web are allowed,
+            // but YouTube Shorts (/shorts/*) are strictly blocked.
+            if (lowerUrl.contains("youtube.com") || lowerUrl.contains("youtu.be")) {
+                if (!allowYoutube) {
+                    isBlocked = true;
+                    reason = "YouTube is blocked during focus mode";
+                } else {
+                    if (lowerUrl.contains("/shorts") || lowerUrl.contains("#shorts")) {
+                        isBlocked = true;
+                        reason = "YouTube Shorts are blocked during study sessions";
+                    }
+                }
+            }
+
+            // Check general distraction web blacklist
+            if (!isBlocked) {
+                for (String domain : BLACKLISTED_WEB_DOMAINS) {
+                    if (lowerUrl.contains(domain)) {
+                        isBlocked = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isBlocked) {
+                Log.w(TAG, "Blocked browser URL: " + url + " (" + reason + ")");
+                performGlobalAction(GLOBAL_ACTION_BACK);
+
+                long now = System.currentTimeMillis();
+                if (now - lastBrowserToastTime > 2500L) {
+                    lastBrowserToastTime = now;
+                    final String finalReason = reason;
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        Toast.makeText(getApplicationContext(), "⚠️ " + finalReason, Toast.LENGTH_SHORT).show();
+                    });
+                }
+            }
+        } finally {
+            root.recycle();
+        }
+    }
+
+    private String extractUrlFromBrowser(AccessibilityNodeInfo root, String pkg) {
+        if (root == null) return null;
+
+        // 1. Chrome / Chromium family
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId("com.android.chrome:id/url_bar");
+        if (nodes != null && !nodes.isEmpty()) {
+            AccessibilityNodeInfo node = nodes.get(0);
+            CharSequence text = node.getText();
+            if (text != null && text.length() > 0) return text.toString();
+        }
+
+        // 2. Samsung Internet
+        nodes = root.findAccessibilityNodeInfosByViewId("com.sec.android.app.sbrowser:id/location_bar_edit_text");
+        if (nodes != null && !nodes.isEmpty()) {
+            AccessibilityNodeInfo node = nodes.get(0);
+            CharSequence text = node.getText();
+            if (text != null && text.length() > 0) return text.toString();
+        }
+
+        // 3. Firefox
+        nodes = root.findAccessibilityNodeInfosByViewId("org.mozilla.firefox:id/url_bar_title");
+        if (nodes != null && !nodes.isEmpty()) {
+            AccessibilityNodeInfo node = nodes.get(0);
+            CharSequence text = node.getText();
+            if (text != null && text.length() > 0) return text.toString();
+        }
+
+        // 4. Edge
+        nodes = root.findAccessibilityNodeInfosByViewId("com.microsoft.emmx:id/url_bar");
+        if (nodes != null && !nodes.isEmpty()) {
+            AccessibilityNodeInfo node = nodes.get(0);
+            CharSequence text = node.getText();
+            if (text != null && text.length() > 0) return text.toString();
+        }
+
+        // 5. Brave
+        nodes = root.findAccessibilityNodeInfosByViewId("com.brave.browser:id/url_bar");
+        if (nodes != null && !nodes.isEmpty()) {
+            AccessibilityNodeInfo node = nodes.get(0);
+            CharSequence text = node.getText();
+            if (text != null && text.length() > 0) return text.toString();
+        }
+
+        // 6. Generic Heuristic Fallback
+        return findUrlInHierarchy(root, 0);
+    }
+
+    private String findUrlInHierarchy(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 8) return null;
+
+        String resId = node.getViewIdResourceName();
+        if (resId != null) {
+            String lowerResId = resId.toLowerCase(Locale.US);
+            if (lowerResId.contains("url_bar") || lowerResId.contains("location_bar") || lowerResId.contains("address_bar") || lowerResId.contains("omnibox")) {
+                CharSequence text = node.getText();
+                if (text != null && text.length() > 0) return text.toString();
+            }
+        }
+
+        CharSequence text = node.getText();
+        if (text != null) {
+            String t = text.toString().toLowerCase(Locale.US).trim();
+            if (t.startsWith("http://") || t.startsWith("https://") || t.contains(".com/") || t.contains(".net/") || t.contains(".org/")) {
+                return t;
+            }
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                String found = findUrlInHierarchy(child, depth + 1);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     public boolean isPackageBlocked(String pkg) {
@@ -764,6 +962,18 @@ public class LockAccessibilityService extends AccessibilityService {
             if (remainingSec > 0) {
                 checkAndFireLockdownTimerWarning(remainingSec);
             }
+        }
+
+        // 1c. Synchronize LocalDnsVpnService with active lockdown and operating hours
+        String webMode = prefs.getString("web_protection_mode", "accessibility");
+        boolean inOperatingHours = isInOperatingHours(effectiveNow);
+        boolean shouldVpnRun = (isLockdownActive || (isConsequenceActive && inOperatingHours))
+                && ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode));
+
+        if (shouldVpnRun && !LocalDnsVpnService.isRunning) {
+            LocalDnsVpnService.startVpn(this);
+        } else if (!shouldVpnRun && LocalDnsVpnService.isRunning) {
+            LocalDnsVpnService.stopVpn(this);
         }
 
         // 2. Check schedules from schedules_json
@@ -854,7 +1064,6 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         // 3. If consequence mode or lockdown is currently active in operating hours, continuously enforce blocking!
-        boolean inOperatingHours = isInOperatingHours(effectiveNow);
         if (isConsequenceActive) {
             if (inOperatingHours) {
                 String currentForegroundPkg = detectCurrentForegroundPackage();

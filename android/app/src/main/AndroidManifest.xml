@@ -140,6 +140,17 @@
                 android:value="Floating study countdown overlay and lockdown monitoring" />
         </service>
 
+        <!-- ===== Local DNS Sinkhole VPN Service ===== -->
+        <!-- Intercepts DNS queries on port 53 to sinkhole blacklisted domains to 0.0.0.0 -->
+        <service
+            android:name=".LocalDnsVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>
