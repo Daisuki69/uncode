@@ -1624,33 +1624,80 @@ This section details every major engineering revision, architectural refinement,
     - Synchronizes `block_web_games` preference to native bridge on boot and upon saving settings.
 
 ---
-### 16. Upcomming Milestone 16: School-Grade Network Intelligence architecture
+### 16. Milestone 16: School-Grade Network Intelligence & Strict SafeSearch DNS Engine
 - **Why It Was Added**:
-  - Dawg 😭🙏i cant literally update blocked websites myself i can jsut use what school uses...
+  - Manually updating blocklists for millions of newly created web games, proxies, and explicit sites is impossible for a single user or phone. Enterprise campus networks (Cisco Umbrella, CleanBrowsing, Fortinet, GoGuardian) do not store massive lists on devices—they route traffic through upstream filtered recursive DNS resolvers backed by real-time automated AI crawlers.
+  - Students also frequently exploit image/video search queries on Google and Bing to discover unblocked game mirrors and explicit content.
+- **Architectural Enhancements**:
+  - In [LocalDnsVpnService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java):
+    - **Upstream School-Grade DNS Resolvers**:
+      - `cleanbrowsing` (*CleanBrowsing School / Family Filter* - Primary `185.228.168.168`, Secondary `185.228.169.168`): Enforces school-level protection across the entire phone, blocking 100M+ adult, pornographic, malicious, and proxy domains in <10ms with zero battery drain, while enforcing SafeSearch natively.
+      - `cloudflare_family` (*Cloudflare for Families 1.1.1.3* - `1.1.1.3` / `1.0.0.3`): Global Anycast speed blocking malware and adult content.
+      - `adguard_family` (*AdGuard Family Protection* - `94.140.14.15` / `94.140.15.16`): Blocks aggressive ads, trackers, and adult sites.
+      - `standard`: System DHCP DNS + `1.1.1.1` + `8.8.8.8`.
+      - Built-in failover redundancy so DNS queries never fail even during upstream provider outages.
+    - **On-Device Strict SafeSearch VIP Synthesis**:
+      - Queries for Google Search and YouTube synthesize RFC-compliant `A` records to Google's official educational VIP **`216.239.38.120`** (`forcesafesearch.google.com`), permanently locking SafeSearch ON with Google's network administrator badge.
+      - Queries for Bing synthesize `A` records to **`204.79.197.220`** (`strict.bing.com`).
+      - Queries for DuckDuckGo synthesize `A` records to **`52.142.124.215`** (`safe.duckduckgo.com`).
+      - Synthesizes `NODATA` responses (NOERROR, ANCOUNT 0) for IPv6 `AAAA` records, forcing immediate resolution of the IPv4 SafeSearch VIP.
+      - Explicitly exempts critical academic services (`classroom.google.com`, `drive.google.com`, `docs.google.com`, `calendar.google.com`, `meet.google.com`) so school tools are never redirected.
+    - **Preferences Key Correction**:
+      - Standardized `PREFS_NAME = "uncode_lock"` across `LocalDnsVpnService`, fixing a key discrepancy where `LocalDnsVpnService` previously read from `"UncodeLockPrefs"`.
+    - **Dynamic Foreground Notification**:
+      - Notification text dynamically updates with the active profile and SafeSearch status (e.g. *"CleanBrowsing School Filter • SafeSearch Active"*).
+  - In [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java) & [systemBridge.ts](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/systemBridge.ts):
+    - Added `setDnsFilterProfile(profile)` and `setEnforceSafeSearch(enforce)` methods.
+  - In [SettingsOverlay.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx):
+    - Added **"School-Grade Upstream DNS Engine"** visual card selector (CleanBrowsing School Filter, Cloudflare for Families, AdGuard Family, Standard Public DNS).
+    - Added **"Strict SafeSearch Enforcement"** toggle switch (default: ON, locked during active lockdown/consequence mode).
+  - In [build.gradle](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/build.gradle) & [app/build.gradle](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/build.gradle):
+    - Registered a compatibility `testClasses` task to fix Android Studio / IntelliJ IDEA build invocations.
 ---
 
-### 17. Upcomming Milestone 17: School-Grade Network Intelligence architecture
-- **We will focus on**:
-  - Things to account for:
-    -Parallel Space / app cloning
-    -cloned YouTube
-    -cloned browsers
-    -cloned games
-    -work-profile/container copies
-    -Android Second Space / multiple-user environments
-    -Secure Folder / private containers
-    -Hidden-app launchers
-    -Fake calculator/vault apps
-    -App hiders
-    -Dual-app managers
-    -Virtual Android environments
-    -WebView-based app wrappers
-    -Apps that download/launch another APK internally
-    -Browser shortcuts/PWAs masquerading as apps
-    -“Calculator” apps that are actually vaults
-    -File managers capable of launching arbitrary APKs
-    -Alternative launchers that hide restricted apps
-    -Accessibility abuse / overlays used to disguise an escape route
+### 17. Milestone 17: Multi-User Anti-Evasion, App Cloner Elimination & Wide Recognition Engine
+- **Why It Must Be Implemented**:
+  - Traditional Android app blockers operate on a naive single-user, single-instance model: they inspect package IDs on the primary user account (`UserHandle 0`).
+  - When students experience high cognitive friction during difficult study sessions, their brain actively searches for technical escape routes. In modern Android, the OS provides virtualization and multi-tenancy frameworks that circumvent basic package checks:
+    1. **App Cloners & Virtual Spaces (`Parallel Space`, `Dual Apps`, `Multi Space`, `Island`, `Shelter`)**: Apps running in secondary containers or cloned packages (e.g. `com.lbe.parallel.intl`, `com.lbe.parallel.intl.arm64`, `com.dualspace.multispace.android`) bypass exact package equality checks.
+    2. **Multi-User Environments & Second Space**: Xiaomi "Second Space", Android 15 "Private Space", and Android guest accounts run isolated user profiles (`u10_a123`). Switching users leaves QIEZKA dormant on User 0 while the secondary space is unrestricted.
+    3. **Samsung Secure Folder & Knox Containers**: Encrypted enterprise sandboxes with separate package registries.
+    4. **Fake "Calculator" Vaults**: Apps disguised as simple arithmetic calculators that reveal media vaults, social media wrappers, or games upon typing a secret PIN (e.g. `1234=`).
+    5. **Virtual Android Environments (VMOS, VPhoneGaGa, F1VM)**: Complete guest Android virtual machines running inside an app container that conceal all distraction activity from host accessibility services.
+    6. **PWA & WebAPK Shortcuts**: Web apps running under `org.chromium.chrome.browser.webapps.SameTaskWebApkActivity` masquerading as standalone apps.
+- **Architectural Implementation**:
+  - **Comprehensive Parallel Space & Cloner Runtime Blacklist**:
+    - Hardcoded all major variations of Parallel Space (`com.lbe.parallel.intl`, `com.lbe.parallel.intl.arm64`, `com.lbe.parallel.intl.arm32`, `com.lbe.parallel.parallel`, `com.lbe.parallel.pro`, `com.lbe.doubleinstance`, `com.parallel.space.lite`, `com.trendmicro.tpacket.parallellite`), Dual Space, Multi Space, Super Clone, 2Accounts, Clone App, App Cloner, Island, Shelter, VMOS Pro, VPhoneGaGa, F1VM, GSpace, and X8 Sandbox into `BlacklistConstants.java`.
+    - Added heuristic signature filters in `isBlacklisted()` for `.parallel.`, `.dualspace.`, `.multispace.`, `.superclone.`, `.appcloner.`, `.2accounts.`, and `.cloner.`.
+  - **Vastly Widened App Recognition Engine (`AppClassifier.java`)**:
+    - Broadened recognition across all distraction genres: comprehensive gaming keywords (action, RPG, MMO, battle royale, idle clicker, gacha, visual novel, hypercasual, simulator, card game, board game, puzzle, tower defense, crafting), gambling, short-dramas (ReelShort, DramaBox, ShortMax, GoodShort), webtoons/manga, web novels (Wattpad, Wuxia), dating apps, and live-streaming platforms.
+    - Android Category Guard: Evaluates `CATEGORY_GAME`, `CATEGORY_SOCIAL`, `CATEGORY_VIDEO`, and `FLAG_IS_GAME` to block distractors regardless of package naming.
+  - **Fake Calculator & Secret Vault Detection**: Inspects apps declared as "Calculator" or "Calc" requesting `READ/MANAGE_EXTERNAL_STORAGE`, `CAMERA`, or `INTERNET`, or containing vault activity signatures (`*vault*`, `*gallerylock*`, `*secret*`, `*hidestore*`).
+  - **Explicit Allowance of Package Installers**:
+    - Per user configuration, Android System Package Installers (`com.google.android.packageinstaller`, `com.android.packageinstaller`, and system installer components) are **explicitly allowed** across both lockdown and consequence modes, ensuring seamless app installation, sideloading, and updates.
+
+---
+
+### 18. Milestone 18: Zero-Loophole Strict Accountability & Omnibox Deep Eviction
+- **Why It Was Mandated**:
+  - QIEZKA is designed as an uncompromising accountability tool, yet previous iterations inadvertently introduced loopholes under the guise of user configuration:
+    1. **"Block Web-Based Games" Toggle**: Allowing students to turn off web game blocking during study sessions created an instant distraction loophole.
+    2. **"Off (Unrestricted)" Web Protection Option**: Permitted students to completely disable browser URL filtering and browse TikTok, Instagram, Reddit, and games on mobile Chrome.
+    3. **Selectable Upstream DNS Engines**: Providing "Standard Public DNS" or non-filtering resolvers allowed students to escape school-grade adult and proxy filtering.
+    4. **The `y8.com` Consequence Mode Backdoor**: In modern Chrome on Android, URL bar text is frequently empty or moved to `contentDescription`, `location_bar`, or `search_box_text`. Fallback heuristic checking required `.com/`, failing on raw domains like `y8.com`. When scrolling down or in full-screen games, the address bar is hidden, returning `null` and allowing gaming sessions to persist. Additionally, outside operating hours in Safemode, consequence checks exited prematurely.
+- **What Was Implemented**:
+  - **Permanent, Non-Toggleable Web-Based Game Armor**:
+    - The "Block Web-Based Games" switch is removed from Settings and Onboarding. Web game blocking (250+ domains, search mini-games, unblocked mirrors, cloud APKs) is hardcoded **permanently active** across all modes.
+  - **No "Off" Web Filtering Mode**:
+    - Deleted `"off"` from `webProtectionMode`. The baseline default is **Accessibility URL Guard** (zero VPN slot), with **DNS Sinkhole** and **Dual-Layer Hybrid** available for packet-level enforcement.
+  - **Single Non-Negotiable Upstream DNS Engine (CleanBrowsing School Filter)**:
+    - Removed public/alternative DNS selectors. If DNS Sinkhole or Dual-Layer is selected, the upstream resolver is strictly and exclusively **CleanBrowsing School Filter** (`185.228.168.168` / `185.228.169.168`) with Cloudflare Family (`1.1.1.3`) failover and SafeSearch VIP synthesis.
+  - **Deep Omnibox & DOM Window Eviction (`LockAccessibilityService.java`)**:
+    - Multi-identifier URL extraction: Inspects `url_bar`, `location_bar`, `search_box_text`, `toolbar`, and `omnibox`.
+    - Inspects both `node.getText()` and `node.getContentDescription()`.
+    - Robust domain matching: Catches raw domain tokens (e.g. `y8.com`, `poki.com`) without requiring protocol schemes or trailing slashes.
+    - Window Title & DOM Scanning: When the address bar is hidden during full-screen gameplay, scans window titles and top-level web content for gaming signatures, immediately firing `GLOBAL_ACTION_BACK`.
+    - Guaranteed Consequence Mode Web Enforcement: Web protection remains actively enforced whenever consequence mode is active.
 ---
 
 

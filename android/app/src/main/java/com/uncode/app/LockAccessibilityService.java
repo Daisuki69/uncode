@@ -281,38 +281,21 @@ public class LockAccessibilityService extends AccessibilityService {
     ));
 
     /**
-     * Known System Package Installers and App Store packages.
-     * These are hardcoded system exemptions so that manual APK installations,
-     * updates, and Play Store update calls are never blocked during lockdown.
+     * Legitimate App Store and Package Installer services.
+     * Package installers are explicitly allowed during lockdown and consequence modes per user configuration.
      */
     public static final Set<String> KNOWN_INSTALLER_AND_STORE_PACKAGES = new HashSet<>(Arrays.asList(
         "com.android.vending",                     // Google Play Store
         "com.google.android.feedback",             // Play Store feedback
         "com.google.android.gms",                  // Google Play Services
-        "com.google.android.packageinstaller",     // Google Package Installer
-        "com.android.packageinstaller",            // AOSP Package Installer
-        "com.samsung.android.packageinstaller",    // Samsung Package Installer
-        "com.sec.android.app.samsungapps",         // Samsung Galaxy Store
-        "com.miui.packageinstaller",               // Xiaomi Package Installer
-        "com.xiaomi.mipicks",                      // Xiaomi GetApps
-        "com.coloros.packageinstaller",            // ColorOS Package Installer
-        "com.oppo.packageinstaller",               // Oppo Package Installer
-        "com.heytap.market",                       // Oppo / Realme App Market
-        "com.vivo.packageinstaller",               // Vivo Package Installer
-        "com.vivo.appstore",                       // Vivo App Store
-        "com.transsion.packageinstaller",          // Transsion Package Installer
-        "com.huawei.appmarket",                    // Huawei AppGallery
-        "com.hihonor.appmarket",                   // Honor App Market
-        "com.lenovo.safecenter"                    // Lenovo Package Installer / Security
+        "com.google.android.packageinstaller",     // Google Package Installer (Allowed)
+        "com.android.packageinstaller",            // AOSP Package Installer (Allowed)
+        "com.sec.android.app.samsungapps"          // Samsung Galaxy Store
     ));
 
     public static boolean isInstallerOrStoreApp(String pkg) {
         if (pkg == null) return false;
-        if (KNOWN_INSTALLER_AND_STORE_PACKAGES.contains(pkg)) return true;
-        String lower = pkg.toLowerCase(Locale.US);
-        return lower.contains("packageinstaller") || 
-               lower.endsWith(".packageinstaller") ||
-               lower.contains(".installer");
+        return KNOWN_INSTALLER_AND_STORE_PACKAGES.contains(pkg) || pkg.toLowerCase(Locale.US).contains("packageinstaller");
     }
 
     public static volatile LockAccessibilityService instance = null;
@@ -550,7 +533,11 @@ public class LockAccessibilityService extends AccessibilityService {
     private boolean isStudentApp(String pkg) {
         if (pkg == null) return false;
         if (KNOWN_STUDENT_APPS.contains(pkg)) return true;
-        String lower = pkg.toLowerCase();
+        String lower = pkg.toLowerCase(Locale.US);
+        // Do not exempt disguised vaults, lockers, or cloners that contain 'calculator' in name
+        if (lower.contains("vault") || lower.contains("hide") || lower.contains("secret") || lower.contains("privac") || lower.contains("clone")) {
+            return false;
+        }
         return lower.contains("classroom") || 
                lower.contains("canvas") || 
                lower.contains("blackboard") || 
@@ -711,8 +698,11 @@ public class LockAccessibilityService extends AccessibilityService {
         // ── Consequence Mode Operating Hours Enforcement ──
         if (isConsequenceActive) {
             if (!inOperatingHours) {
-                // Outside operating hours (3:00 AM to 7:00 PM): QIEZKA does not operate.
-                // Allow normal phone access for daytime / sleep.
+                // Outside operating hours (3:00 AM to 7:00 PM): QIEZKA allows general daytime access,
+                // BUT web-based games (y8, poki, etc.) and distracting websites remain strictly blocked in consequence mode!
+                if (pkgChar != null && isBrowserPackage(pkgChar.toString())) {
+                    handleBrowserUrlInspection(event, pkgChar.toString());
+                }
                 return;
             }
             isLockdownActive = true;
@@ -893,141 +883,150 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     private void handleBrowserUrlInspection(AccessibilityEvent event, String pkg) {
-        String webMode = prefs != null ? prefs.getString("web_protection_mode", "accessibility") : "accessibility";
-        if ("off".equalsIgnoreCase(webMode) || "dns_vpn".equalsIgnoreCase(webMode)) {
-            return;
-        }
-
+        // Milestone 18: Zero Loophole — Accessibility URL & DOM inspection is always active
+        // as the baseline protective layer across all operating modes and consequence mode.
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
 
         try {
             String url = extractUrlFromBrowser(root, pkg);
-            if (url == null || url.trim().isEmpty()) return;
-
-            String lowerUrl = url.toLowerCase(Locale.US).trim();
             boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
+            boolean blockWebGames = true; // Milestone 18: Permanently locked ON, no toggle
 
             boolean isBlocked = false;
             String reason = "Distracting website blocked during focus mode";
 
-            // Check YouTube:
-            // Native YouTube app is completely blocked (only accessible through browser).
-            // By default, YouTube web is also completely blocked.
-            // When allow_youtube is true, educational/long-form videos on YouTube web are allowed,
-            // but YouTube Shorts (/shorts/*) are strictly blocked.
-            if (lowerUrl.contains("youtube.com") || lowerUrl.contains("youtu.be")) {
-                if (!allowYoutube) {
-                    isBlocked = true;
-                    reason = "YouTube is blocked during focus mode";
-                } else {
-                    if (lowerUrl.contains("/shorts") || lowerUrl.contains("#shorts")) {
+            if (url != null && !url.trim().isEmpty()) {
+                String lowerUrl = url.toLowerCase(Locale.US).trim();
+
+                // Check YouTube:
+                // Native YouTube app is completely blocked (only accessible through browser).
+                // By default, YouTube web is also completely blocked.
+                // When allow_youtube is true, educational/long-form videos on YouTube web are allowed,
+                // but YouTube Shorts (/shorts/*) are strictly blocked.
+                if (lowerUrl.contains("youtube.com") || lowerUrl.contains("youtu.be")) {
+                    if (!allowYoutube) {
                         isBlocked = true;
-                        reason = "YouTube Shorts are blocked during study sessions";
-                    }
-                }
-            }
-
-            // Check general distraction web blacklist
-            if (!isBlocked) {
-                for (String domain : BLACKLISTED_WEB_DOMAINS) {
-                    if (lowerUrl.contains(domain)) {
-                        isBlocked = true;
-                        break;
-                    }
-                }
-            }
-
-            // Check Web-Based Games & Dynamic Heuristics (250+ domains, unblocked mirrors, cloud APKs, search mini-games)
-            boolean blockWebGames = prefs != null && prefs.getBoolean("block_web_games", true);
-            if (!isBlocked && blockWebGames) {
-                // 1. Browser Internal Game Schemes (Chrome Dino, Edge Surf)
-                if (lowerUrl.startsWith("chrome://dino") || lowerUrl.contains("chrome://network-error/-106") ||
-                    lowerUrl.startsWith("edge://surf") || lowerUrl.startsWith("opera://game")) {
-                    isBlocked = true;
-                    reason = "Browser mini-games are blocked during study sessions";
-                }
-
-                // 2. Google Search & Bing Embedded Canvas Games
-                if (!isBlocked && (lowerUrl.contains("google.") || lowerUrl.contains("bing.com")) &&
-                    (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
-                    String[] searchTriggers = {
-                        "snake", "play+snake", "play%20snake",
-                        "tic+tac+toe", "tic%20tac%20toe",
-                        "pacman", "pac-man", "pac%20man",
-                        "minesweeper", "solitaire",
-                        "atari+breakout", "atari%20breakout",
-                        "dreidel", "fidget+spinner", "fidget%20spinner",
-                        "earth+day+quiz", "memory+game", "play+game"
-                    };
-                    for (String trigger : searchTriggers) {
-                        if (lowerUrl.contains("q=" + trigger) || lowerUrl.contains("&q=" + trigger) || lowerUrl.contains("query=" + trigger)) {
+                        reason = "YouTube is blocked during focus mode";
+                    } else {
+                        if (lowerUrl.contains("/shorts") || lowerUrl.contains("#shorts")) {
                             isBlocked = true;
-                            reason = "Search-embedded mini-games are blocked during focus mode";
-                            break;
+                            reason = "YouTube Shorts are blocked during study sessions";
                         }
                     }
                 }
 
-                // 3. Direct Web Gaming Domain Database Matching (250+ domains)
+                // Check general distraction web blacklist
                 if (!isBlocked) {
-                    for (String domain : WEB_GAMING_DOMAINS) {
+                    for (String domain : BLACKLISTED_WEB_DOMAINS) {
                         if (lowerUrl.contains(domain)) {
                             isBlocked = true;
-                            reason = "Web-based game blocked during focus mode";
+                            reason = "Distracting website blocked: " + domain;
                             break;
                         }
                     }
                 }
 
-                // 4. Unblocked Game Mirrors & Dynamic Path Patterns (with Academic Safe-List Immunity)
-                if (!isBlocked) {
-                    boolean isAcademicExempt = false;
-                    for (String exempt : ACADEMIC_EXEMPT_DOMAINS) {
-                        if (lowerUrl.contains(exempt)) {
-                            isAcademicExempt = true;
-                            break;
-                        }
-                    }
-                    if (!isAcademicExempt && (lowerUrl.contains(".edu/") || lowerUrl.endsWith(".edu"))) {
-                        isAcademicExempt = true;
+                // Check Web-Based Games & Dynamic Heuristics (250+ domains, unblocked mirrors, cloud APKs, search mini-games)
+                if (!isBlocked && blockWebGames) {
+                    // 1. Browser Internal Game Schemes (Chrome Dino, Edge Surf)
+                    if (lowerUrl.startsWith("chrome://dino") || lowerUrl.contains("chrome://network-error/-106") ||
+                        lowerUrl.startsWith("edge://surf") || lowerUrl.startsWith("opera://game")) {
+                        isBlocked = true;
+                        reason = "Browser mini-games are blocked during study sessions";
                     }
 
-                    if (!isAcademicExempt) {
-                        if (lowerUrl.contains(".itch.zone") || lowerUrl.contains("poki-gdn.com")) {
-                            isBlocked = true;
-                            reason = "Web-based game runtime blocked during focus mode";
-                        } else if (lowerUrl.contains("unblocked-games") || lowerUrl.contains("unblockedgames") ||
-                                   lowerUrl.contains("unblocked_games") || lowerUrl.contains("classroom6x") ||
-                                   lowerUrl.contains("slope-game") || lowerUrl.contains("slopeunblocked") ||
-                                   lowerUrl.contains("slopegame") || lowerUrl.contains("retrobowl") ||
-                                   lowerUrl.contains("moto-x3m")) {
-                            isBlocked = true;
-                            reason = "Unblocked games mirror blocked during focus mode";
-                        } else if (lowerUrl.contains("sites.google.com/") &&
-                                  (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("arcade") ||
-                                   lowerUrl.contains("slope") || lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
-                            isBlocked = true;
-                            reason = "Google Sites game mirror blocked during focus mode";
-                        } else if (lowerUrl.contains(".github.io/") &&
-                                  (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("slope") ||
-                                   lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
-                            isBlocked = true;
-                            reason = "GitHub Pages game mirror blocked during focus mode";
-                        } else if (lowerUrl.contains("nytimes.com/games") || lowerUrl.contains("nytimes.com/crosswords") ||
-                                   lowerUrl.contains("nytimes.com/puzzles") || lowerUrl.contains("washingtonpost.com/crossword") ||
-                                   lowerUrl.contains("theguardian.com/crosswords") || lowerUrl.contains("zone.msn.com") ||
-                                   lowerUrl.contains("yandex.com/games") || lowerUrl.contains("yandex.ru/games") ||
-                                   lowerUrl.contains("scratch.mit.edu/projects/")) {
-                            isBlocked = true;
-                            reason = "Web games section blocked during study sessions";
+                    // 2. Google Search & Bing Embedded Canvas Games
+                    if (!isBlocked && (lowerUrl.contains("google.") || lowerUrl.contains("bing.com")) &&
+                        (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
+                        String[] searchTriggers = {
+                            "snake", "play+snake", "play%20snake",
+                            "tic+tac+toe", "tic%20tac%20toe",
+                            "pacman", "pac-man", "pac%20man",
+                            "minesweeper", "solitaire",
+                            "atari+breakout", "atari%20breakout",
+                            "dreidel", "fidget+spinner", "fidget%20spinner",
+                            "earth+day+quiz", "memory+game", "play+game"
+                        };
+                        for (String trigger : searchTriggers) {
+                            if (lowerUrl.contains("q=" + trigger) || lowerUrl.contains("&q=" + trigger) || lowerUrl.contains("query=" + trigger)) {
+                                isBlocked = true;
+                                reason = "Search-embedded mini-games are blocked during focus mode";
+                                break;
+                            }
                         }
+                    }
+
+                    // 3. Direct Web Gaming Domain Database Matching (250+ domains)
+                    if (!isBlocked) {
+                        for (String domain : WEB_GAMING_DOMAINS) {
+                            if (lowerUrl.contains(domain)) {
+                                isBlocked = true;
+                                reason = "Web-based game blocked during focus mode (" + domain + ")";
+                                break;
+                            }
+                        }
+                    }
+
+                    // 4. Unblocked Game Mirrors & Dynamic Path Patterns (with Academic Safe-List Immunity)
+                    if (!isBlocked) {
+                        boolean isAcademicExempt = false;
+                        for (String exempt : ACADEMIC_EXEMPT_DOMAINS) {
+                            if (lowerUrl.contains(exempt)) {
+                                isAcademicExempt = true;
+                                break;
+                            }
+                        }
+                        if (!isAcademicExempt && (lowerUrl.contains(".edu/") || lowerUrl.endsWith(".edu"))) {
+                            isAcademicExempt = true;
+                        }
+
+                        if (!isAcademicExempt) {
+                            if (lowerUrl.contains(".itch.zone") || lowerUrl.contains("poki-gdn.com")) {
+                                isBlocked = true;
+                                reason = "Web-based game runtime blocked during focus mode";
+                            } else if (lowerUrl.contains("unblocked-games") || lowerUrl.contains("unblockedgames") ||
+                                       lowerUrl.contains("unblocked_games") || lowerUrl.contains("classroom6x") ||
+                                       lowerUrl.contains("slope-game") || lowerUrl.contains("slopeunblocked") ||
+                                       lowerUrl.contains("slopegame") || lowerUrl.contains("retrobowl") ||
+                                       lowerUrl.contains("moto-x3m")) {
+                                isBlocked = true;
+                                reason = "Unblocked games mirror blocked during focus mode";
+                            } else if (lowerUrl.contains("sites.google.com/") &&
+                                      (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("arcade") ||
+                                       lowerUrl.contains("slope") || lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
+                                isBlocked = true;
+                                reason = "Google Sites game mirror blocked during focus mode";
+                            } else if (lowerUrl.contains(".github.io/") &&
+                                      (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("slope") ||
+                                       lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
+                                isBlocked = true;
+                                reason = "GitHub Pages game mirror blocked during focus mode";
+                            } else if (lowerUrl.contains("nytimes.com/games") || lowerUrl.contains("nytimes.com/crosswords") ||
+                                       lowerUrl.contains("nytimes.com/puzzles") || lowerUrl.contains("washingtonpost.com/crossword") ||
+                                       lowerUrl.contains("theguardian.com/crosswords") || lowerUrl.contains("zone.msn.com") ||
+                                       lowerUrl.contains("yandex.com/games") || lowerUrl.contains("yandex.ru/games") ||
+                                       lowerUrl.contains("scratch.mit.edu/projects/")) {
+                                isBlocked = true;
+                                reason = "Web games section blocked during study sessions";
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Address bar text not extracted (e.g. Chrome full-screen canvas, scrolled down, or hidden omnibox on y8.com).
+                // Fallback: Scan active window DOM hierarchy for web-based gaming titles, headers, or canvas indicators!
+                if (blockWebGames) {
+                    String gamingMatch = scanWindowForBlacklistedGaming(root, 0);
+                    if (gamingMatch != null) {
+                        isBlocked = true;
+                        reason = "Web game detected in browser tab: " + gamingMatch;
                     }
                 }
             }
 
             if (isBlocked) {
-                Log.w(TAG, "Blocked browser URL: " + url + " (" + reason + ")");
+                Log.w(TAG, "Blocked browser URL/Game: " + url + " (" + reason + ")");
                 performGlobalAction(GLOBAL_ACTION_BACK);
 
                 long now = System.currentTimeMillis();
@@ -1044,39 +1043,118 @@ public class LockAccessibilityService extends AccessibilityService {
         }
     }
 
+    /**
+     * Fallback DOM inspection for browser windows when the URL bar is hidden or scrolled out of view.
+     * Detects web game titles, headers, and known gaming portal signatures directly from the accessibility tree.
+     */
+    private String scanWindowForBlacklistedGaming(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 10) return null;
+
+        CharSequence textSeq = node.getText();
+        CharSequence descSeq = node.getContentDescription();
+        String text = textSeq != null ? textSeq.toString().toLowerCase(Locale.US).trim() : null;
+        String desc = descSeq != null ? descSeq.toString().toLowerCase(Locale.US).trim() : null;
+
+        String[] checkValues = {text, desc};
+        for (String val : checkValues) {
+            if (val != null && val.length() >= 2) {
+                if (val.contains("y8.com") || val.contains("y8 games") || val.contains("play on y8") ||
+                    val.contains("poki.com") || val.contains("crazygames") || val.contains("crazy games") ||
+                    val.contains("coolmathgames") || val.contains("coolmath games") || val.contains("unblocked games") ||
+                    val.contains("kizi.com") || val.contains("friv.com") || val.contains("armorgames") ||
+                    val.contains("kongregate") || val.contains("now.gg") || val.contains("slope unblocked") ||
+                    val.contains("retro bowl unblocked") || val.contains("play retro bowl") || val.contains("1v1.lol") ||
+                    val.contains("agar.io") || val.contains("slither.io") || val.contains("survev.io") ||
+                    val.contains("diep.io") || val.contains("shell shockers")) {
+                    return val;
+                }
+            }
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                String match = scanWindowForBlacklistedGaming(child, depth + 1);
+                if (match != null) return match;
+            }
+        }
+        return null;
+    }
+
     private String extractUrlFromBrowser(AccessibilityNodeInfo root, String pkg) {
         if (root == null) return null;
 
-        // 1. Chrome / Chromium family
-        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId("com.android.chrome:id/url_bar");
-        if (nodes != null && !nodes.isEmpty()) {
-            AccessibilityNodeInfo node = nodes.get(0);
-            CharSequence text = node.getText();
-            if (text != null && text.length() > 0) return text.toString();
+        // 1. Chrome / Chromium family: Query multiple known location bar & omnibox view IDs
+        String[] chromeViewIds = {
+            "com.android.chrome:id/url_bar",
+            "com.android.chrome:id/search_box_text",
+            "com.android.chrome:id/location_bar",
+            "com.android.chrome:id/toolbar",
+            "com.android.chrome:id/omnibox_text_field",
+            "com.android.chrome:id/line_1",
+            "org.chromium.chrome:id/url_bar"
+        };
+        for (String id : chromeViewIds) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+            if (nodes != null && !nodes.isEmpty()) {
+                for (AccessibilityNodeInfo node : nodes) {
+                    if (node != null) {
+                        CharSequence text = node.getText();
+                        if (text != null && text.length() > 0) return text.toString();
+                        CharSequence desc = node.getContentDescription();
+                        if (desc != null && desc.length() > 0) return desc.toString();
+                    }
+                }
+            }
         }
 
         // 2. Samsung Internet
-        nodes = root.findAccessibilityNodeInfosByViewId("com.sec.android.app.sbrowser:id/location_bar_edit_text");
-        if (nodes != null && !nodes.isEmpty()) {
-            AccessibilityNodeInfo node = nodes.get(0);
-            CharSequence text = node.getText();
-            if (text != null && text.length() > 0) return text.toString();
+        String[] sbrowserViewIds = {
+            "com.sec.android.app.sbrowser:id/location_bar_edit_text",
+            "com.sec.android.app.sbrowser:id/url_bar",
+            "com.sec.android.app.sbrowser:id/location_bar"
+        };
+        for (String id : sbrowserViewIds) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+            if (nodes != null && !nodes.isEmpty()) {
+                for (AccessibilityNodeInfo node : nodes) {
+                    if (node != null) {
+                        CharSequence text = node.getText();
+                        if (text != null && text.length() > 0) return text.toString();
+                        CharSequence desc = node.getContentDescription();
+                        if (desc != null && desc.length() > 0) return desc.toString();
+                    }
+                }
+            }
         }
 
         // 3. Firefox
-        nodes = root.findAccessibilityNodeInfosByViewId("org.mozilla.firefox:id/url_bar_title");
-        if (nodes != null && !nodes.isEmpty()) {
-            AccessibilityNodeInfo node = nodes.get(0);
-            CharSequence text = node.getText();
-            if (text != null && text.length() > 0) return text.toString();
+        String[] firefoxViewIds = {
+            "org.mozilla.firefox:id/url_bar_title",
+            "org.mozilla.firefox:id/toolbar",
+            "org.mozilla.firefox:id/mozac_browser_toolbar_url_view"
+        };
+        for (String id : firefoxViewIds) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+            if (nodes != null && !nodes.isEmpty()) {
+                for (AccessibilityNodeInfo node : nodes) {
+                    if (node != null) {
+                        CharSequence text = node.getText();
+                        if (text != null && text.length() > 0) return text.toString();
+                    }
+                }
+            }
         }
 
         // 4. Edge
-        nodes = root.findAccessibilityNodeInfosByViewId("com.microsoft.emmx:id/url_bar");
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId("com.microsoft.emmx:id/url_bar");
         if (nodes != null && !nodes.isEmpty()) {
             AccessibilityNodeInfo node = nodes.get(0);
             CharSequence text = node.getText();
             if (text != null && text.length() > 0) return text.toString();
+            CharSequence desc = node.getContentDescription();
+            if (desc != null && desc.length() > 0) return desc.toString();
         }
 
         // 5. Brave
@@ -1085,9 +1163,11 @@ public class LockAccessibilityService extends AccessibilityService {
             AccessibilityNodeInfo node = nodes.get(0);
             CharSequence text = node.getText();
             if (text != null && text.length() > 0) return text.toString();
+            CharSequence desc = node.getContentDescription();
+            if (desc != null && desc.length() > 0) return desc.toString();
         }
 
-        // 6. Generic Heuristic Fallback
+        // 6. Generic Heuristic Fallback through hierarchy
         return findUrlInHierarchy(root, 0);
     }
 
@@ -1097,17 +1177,26 @@ public class LockAccessibilityService extends AccessibilityService {
         String resId = node.getViewIdResourceName();
         if (resId != null) {
             String lowerResId = resId.toLowerCase(Locale.US);
-            if (lowerResId.contains("url_bar") || lowerResId.contains("location_bar") || lowerResId.contains("address_bar") || lowerResId.contains("omnibox")) {
+            if (lowerResId.contains("url_bar") || lowerResId.contains("location_bar") || 
+                lowerResId.contains("address_bar") || lowerResId.contains("omnibox") ||
+                lowerResId.contains("toolbar")) {
                 CharSequence text = node.getText();
                 if (text != null && text.length() > 0) return text.toString();
+                CharSequence desc = node.getContentDescription();
+                if (desc != null && desc.length() > 0) return desc.toString();
             }
         }
 
-        CharSequence text = node.getText();
-        if (text != null) {
-            String t = text.toString().toLowerCase(Locale.US).trim();
-            if (t.startsWith("http://") || t.startsWith("https://") || t.contains(".com/") || t.contains(".net/") || t.contains(".org/")) {
-                return t;
+        CharSequence[] seqs = {node.getText(), node.getContentDescription()};
+        for (CharSequence cs : seqs) {
+            if (cs != null) {
+                String t = cs.toString().toLowerCase(Locale.US).trim();
+                if (t.startsWith("http://") || t.startsWith("https://") ||
+                    t.contains("y8.com") || t.contains("poki.com") || t.contains("crazygames.com") ||
+                    t.contains(".com") || t.contains(".net") || t.contains(".org") ||
+                    t.contains(".io") || t.contains(".gg") || t.contains(".fr") || t.contains(".ee")) {
+                    return t;
+                }
             }
         }
 
@@ -1126,17 +1215,19 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkg == null) return false;
         if (pkg.equals(getPackageName())) return false;
         if (ALWAYS_EXEMPT.contains(pkg)) return false;
+
+        // Package installers & App store updates are explicitly allowed
         if (isInstallerOrStoreApp(pkg)) return false;
+
+        // Hardcoded Distraction Blacklist Check (Strictly Takes Precedence over all categories)
+        if (BlacklistConstants.isBlacklisted(pkg)) return true;
+
         if (isKeyboardApp(pkg)) return false;
         if (isAuthenticatorApp(pkg)) return false;
         if (isNotesApp(pkg)) return false;
-        if (isStudentApp(pkg)) return false;
         if (isAiApp(pkg)) return false;
+        if (isStudentApp(pkg)) return false;
         if (isHiddenInfrastructureApp(pkg)) return false;
-
-        // Hardcoded Distraction Blacklist Check (Strictly Takes Precedence)
-        if (BlacklistConstants.isBlacklisted(pkg)) return true;
-
         if (KNOWN_LAUNCHERS.contains(pkg)) return false;
         if (pkg.contains("documentsui")) return false;
         if (MEDIA_AND_FILE_EXEMPT.contains(pkg) || dynamicExemptPackages.contains(pkg) || KNOWN_MUSIC_APPS.contains(pkg)) return false;
@@ -1155,6 +1246,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
         long timeOffset = prefs.getLong("time_offset", 0L);
         long effectiveNow = System.currentTimeMillis() + timeOffset;
+        boolean inOperatingHours = isInOperatingHours(effectiveNow);
 
         boolean isLockdownActive = prefs.getBoolean("lockdown_active", false);
         boolean isConsequenceActive = prefs.getBoolean("consequence_active", false);
@@ -1189,10 +1281,9 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
-        // 1c. Synchronize LocalDnsVpnService with active lockdown and operating hours
+        // 1c. Synchronize LocalDnsVpnService with active lockdown and consequence penalty
         String webMode = prefs.getString("web_protection_mode", "accessibility");
-        boolean inOperatingHours = isInOperatingHours(effectiveNow);
-        boolean shouldVpnRun = (isLockdownActive || (isConsequenceActive && inOperatingHours))
+        boolean shouldVpnRun = (isLockdownActive || isConsequenceActive)
                 && ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode));
 
         if (shouldVpnRun && !LocalDnsVpnService.isRunning) {

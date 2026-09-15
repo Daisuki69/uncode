@@ -384,8 +384,8 @@ public class LocalDnsVpnService extends VpnService {
         String lowerDomain = queryDomain.toLowerCase(Locale.US);
 
         boolean allowYoutube = prefs.getBoolean("allow_youtube", false);
-        boolean blockWebGames = prefs.getBoolean("block_web_games", true);
-        boolean enforceSafeSearch = prefs.getBoolean("enforce_safesearch", true);
+        boolean blockWebGames = true; // Milestone 18: Hardcoded ON, cannot be turned off
+        boolean enforceSafeSearch = true; // Milestone 18: Strict SafeSearch permanently active
 
         // 1. Check if domain is blocked (distractions, unblocked web games, youtube if disallowed)
         boolean isBlacklisted = isDomainBlocked(lowerDomain, allowYoutube, blockWebGames);
@@ -658,53 +658,12 @@ public class LocalDnsVpnService extends VpnService {
 
     private List<InetAddress> getUpstreamDnsServers(SharedPreferences prefs) {
         List<InetAddress> servers = new ArrayList<>();
-        String profile = prefs != null ? prefs.getString("dns_filter_profile", "cleanbrowsing") : "cleanbrowsing";
-
-        if ("cleanbrowsing".equalsIgnoreCase(profile)) {
-            // CleanBrowsing Family / School Filter (Blocks Adult, Malicious, Proxies, and enforces SafeSearch)
-            addDnsServer(servers, "185.228.168.168");
-            addDnsServer(servers, "185.228.169.168");
-            // Failover redundancy to Cloudflare Family & AdGuard Family
-            addDnsServer(servers, "1.1.1.3");
-            addDnsServer(servers, "94.140.14.15");
-        } else if ("cloudflare_family".equalsIgnoreCase(profile)) {
-            // Cloudflare 1.1.1.3 for Families (Malware & Adult Content Blocked)
-            addDnsServer(servers, "1.1.1.3");
-            addDnsServer(servers, "1.0.0.3");
-            addDnsServer(servers, "185.228.168.168");
-        } else if ("adguard_family".equalsIgnoreCase(profile)) {
-            // AdGuard Family Protection (Adult content & tracking blocked)
-            addDnsServer(servers, "94.140.14.15");
-            addDnsServer(servers, "94.140.15.16");
-            addDnsServer(servers, "185.228.168.168");
-        } else {
-            // Standard Public DNS (Active network DHCP DNS + Cloudflare 1.1.1.1 + Google 8.8.8.8)
-            try {
-                ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-                if (cm != null) {
-                    Network activeNetwork = cm.getActiveNetwork();
-                    if (activeNetwork != null) {
-                        LinkProperties lp = cm.getLinkProperties(activeNetwork);
-                        if (lp != null) {
-                            for (InetAddress dns : lp.getDnsServers()) {
-                                if (dns instanceof Inet4Address) {
-                                    String host = dns.getHostAddress();
-                                    if (!host.equals(VPN_INTERFACE_IP) && !host.equals(VPN_DNS_SERVER_IP)) {
-                                        servers.add(dns);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (Exception ignore) {}
-
-            addDnsServer(servers, "1.1.1.1");
-            addDnsServer(servers, "8.8.8.8");
-            addDnsServer(servers, "9.9.9.9");
-            addDnsServer(servers, "1.0.0.1");
-        }
-
+        // Milestone 18: Non-negotiable CleanBrowsing School Filter standard
+        addDnsServer(servers, "185.228.168.168");
+        addDnsServer(servers, "185.228.169.168");
+        // Failover redundancy to Cloudflare Family (1.1.1.3)
+        addDnsServer(servers, "1.1.1.3");
+        addDnsServer(servers, "1.0.0.3");
         return servers;
     }
 
@@ -823,16 +782,7 @@ public class LocalDnsVpnService extends VpnService {
             builder = new Notification.Builder(this);
         }
 
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        String profile = prefs != null ? prefs.getString("dns_filter_profile", "cleanbrowsing") : "cleanbrowsing";
-        boolean safeSearch = prefs != null && prefs.getBoolean("enforce_safesearch", true);
-
-        String profileName = "CleanBrowsing School Filter";
-        if ("cloudflare_family".equalsIgnoreCase(profile)) profileName = "Cloudflare for Families";
-        else if ("adguard_family".equalsIgnoreCase(profile)) profileName = "AdGuard Family";
-        else if ("standard".equalsIgnoreCase(profile)) profileName = "Standard DNS";
-
-        String subText = profileName + (safeSearch ? " • SafeSearch Active" : "");
+        String subText = "CleanBrowsing School Filter • SafeSearch Active";
 
         return builder
             .setContentTitle("QIEZKA Web Guard Active")

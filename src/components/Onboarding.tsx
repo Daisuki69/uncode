@@ -132,7 +132,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [simpleOcrKey, setSimpleOcrKey] = useState('');
   const [showOcrKey, setShowOcrKey] = useState(false);
   const [operatingMode, setOperatingModeState] = useState<'safemode' | 'hardcore'>('safemode');
-  const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dual_hybrid' | 'off'>('accessibility');
+  const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dual_hybrid'>('accessibility');
   const [allowYoutube, setAllowYoutubeState] = useState(false);
 
   // Modals & Feedback

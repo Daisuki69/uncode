@@ -31,10 +31,14 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
   const [showHardcoreModal, setShowHardcoreModal] = useState(false);
   const [modeError, setModeError] = useState<string | null>(null);
 
-  const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off'>(settings.webProtectionMode || 'accessibility');
+  const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dns_vpn' | 'dual_hybrid'>(
+    settings.webProtectionMode === 'dns_vpn' || settings.webProtectionMode === 'dual_hybrid'
+      ? settings.webProtectionMode
+      : 'accessibility'
+  );
   const [allowYoutube, setAllowYoutubeState] = useState<boolean>(settings.allowYoutube || false);
-  const [blockWebGames, setBlockWebGamesState] = useState<boolean>(settings.blockWebGames !== false);
-  const [dnsFilterProfile, setDnsFilterProfileState] = useState<'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard'>(settings.dnsFilterProfile || 'cleanbrowsing');
+  const blockWebGames = true; // Milestone 18: Permanently active & cannot be turned off
+  const dnsFilterProfile = 'cleanbrowsing'; // Milestone 18: Non-negotiable school filter
   const [enforceSafeSearch, setEnforceSafeSearchState] = useState<boolean>(settings.enforceSafeSearch !== false);
   const [webError, setWebError] = useState<string | null>(null);
   
@@ -82,7 +86,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
     setModeError(null);
   };
 
-  const handleSelectWebMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off') => {
+  const handleSelectWebMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid') => {
     setWebError(null);
     if (isLockedOrConsequence) {
       setWebError('Web protection settings are locked during active lockdown or consequence mode.');
@@ -112,24 +116,6 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
       return;
     }
     setAllowYoutubeState(allow);
-  };
-
-  const handleToggleBlockWebGames = (block: boolean) => {
-    setWebError(null);
-    if (isLockedOrConsequence) {
-      setWebError('Web protection settings are locked during active lockdown or consequence mode.');
-      return;
-    }
-    setBlockWebGamesState(block);
-  };
-
-  const handleSelectDnsProfile = (profile: 'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard') => {
-    setWebError(null);
-    if (isLockedOrConsequence) {
-      setWebError('DNS filter settings are locked during active lockdown or consequence mode.');
-      return;
-    }
-    setDnsFilterProfileState(profile);
   };
 
   const handleToggleEnforceSafeSearch = (enforce: boolean) => {
@@ -550,17 +536,13 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                       ? 'bg-purple-600 text-white'
                       : webProtectionMode === 'dns_vpn'
                         ? 'bg-indigo-600 text-white'
-                        : webProtectionMode === 'accessibility'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-gray-200 text-gray-700'
+                        : 'bg-emerald-100 text-emerald-800'
                   }`}>
                     {webProtectionMode === 'dual_hybrid'
                       ? 'Dual-Layer Hybrid'
                       : webProtectionMode === 'dns_vpn'
                         ? 'DNS Sinkhole (VPN)'
-                        : webProtectionMode === 'accessibility'
-                          ? 'Accessibility Guard'
-                          : 'Off'}
+                        : 'Accessibility Guard'}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mb-4">
@@ -574,8 +556,8 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                   </div>
                 )}
 
-                {/* Web Protection Mode Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                {/* Web Protection Mode Grid (Milestone 18: No Off Option) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
                   {/* Accessibility Guard */}
                   <div
                     onClick={() => handleSelectWebMode('accessibility')}
@@ -590,15 +572,15 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                         <div className={`p-1.5 rounded-lg ${webProtectionMode === 'accessibility' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
                           <Shield className="w-3.5 h-3.5" />
                         </div>
-                        <span className="font-bold text-xs text-gray-900">Accessibility URL Guard</span>
+                        <span className="font-bold text-xs text-gray-900">Accessibility Guard</span>
                       </div>
                       {webProtectionMode === 'accessibility' && (
                         <CheckCircle className="w-4 h-4 text-emerald-600" />
                       )}
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-700 block mb-1">Recommended • Zero VPN Slot Used</span>
+                    <span className="text-[10px] font-bold text-emerald-700 block mb-1">Recommended Baseline • Zero VPN Slot</span>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
-                      Inspects browser address bars in real-time. Preserves external VPNs (School VPN, WireGuard, Tailscale) with zero battery overhead.
+                      Inspects Omnibox address bar and DOM in real-time. Leaves VPN slot completely free for university VPNs.
                     </p>
                   </div>
 
@@ -616,15 +598,15 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                         <div className={`p-1.5 rounded-lg ${webProtectionMode === 'dns_vpn' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
                           <Wifi className="w-3.5 h-3.5" />
                         </div>
-                        <span className="font-bold text-xs text-gray-900">DNS Sinkhole (Local VPN)</span>
+                        <span className="font-bold text-xs text-gray-900">DNS Sinkhole (VPN)</span>
                       </div>
                       {webProtectionMode === 'dns_vpn' && (
                         <CheckCircle className="w-4 h-4 text-indigo-600" />
                       )}
                     </div>
-                    <span className="text-[10px] font-bold text-indigo-700 block mb-1">Packet-Level • All Browsers & WebViews</span>
+                    <span className="text-[10px] font-bold text-indigo-700 block mb-1">CleanBrowsing • Packet-Level</span>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
-                      On-device loopback VPN sinkholes distracting domains (0.0.0.0) at the socket layer. Occupies Android’s single VPN slot.
+                      On-device loopback VPN sinkholes distracting domains at the socket layer. Powered by CleanBrowsing School Filter.
                     </p>
                   </div>
 
@@ -650,33 +632,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                     </div>
                     <span className="text-[10px] font-bold text-purple-700 block mb-1">Maximum Armor</span>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
-                      Runs both Accessibility Guard and DNS Sinkhole concurrently for zero-tolerance distraction defense.
-                    </p>
-                  </div>
-
-                  {/* Off */}
-                  <div
-                    onClick={() => handleSelectWebMode('off')}
-                    className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer relative ${
-                      webProtectionMode === 'off'
-                        ? 'border-gray-500 bg-gray-100 shadow-sm'
-                        : 'border-gray-200 bg-white hover:border-gray-300'
-                    } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className={`p-1.5 rounded-lg ${webProtectionMode === 'off' ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                          <Globe className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="font-bold text-xs text-gray-900">Off (Unrestricted)</span>
-                      </div>
-                      {webProtectionMode === 'off' && (
-                        <CheckCircle className="w-4 h-4 text-gray-700" />
-                      )}
-                    </div>
-                    <span className="text-[10px] font-bold text-gray-500 block mb-1">No Web Filtering</span>
-                    <p className="text-[11px] text-gray-500 leading-relaxed">
-                      Allowed browsers can navigate to any website without address or DNS restrictions.
+                      Runs both Accessibility Guard and CleanBrowsing DNS Sinkhole concurrently for zero-tolerance discipline.
                     </p>
                   </div>
                 </div>
@@ -722,154 +678,57 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                   </div>
                 </div>
 
-                {/* Block Web-Based Games Option */}
-                <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 mt-3">
+                {/* Milestone 18: Permanent Web-Based Game Armor (Cannot be turned off) */}
+                <div className="bg-purple-50/80 p-3.5 rounded-2xl border border-purple-200 mt-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-start gap-2.5">
-                      <div className="p-2 rounded-xl bg-purple-100 text-purple-600 mt-0.5">
+                      <div className="p-2 rounded-xl bg-purple-600 text-white mt-0.5 shadow-sm">
                         <Gamepad2 className="w-4 h-4" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-gray-900">Block Web-Based Games</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                            blockWebGames ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600'
-                          }`}>
-                            {blockWebGames ? '250+ Sites • Portals, .IO & Cloud APKs Protected' : 'Unrestricted Web Games'}
+                          <span className="font-bold text-xs text-purple-950">Web-Based Game Armor</span>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-purple-200/90 text-purple-900 border border-purple-300">
+                            Permanently Active • No Bypass
                           </span>
                         </div>
-                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-                          Blocks browser gaming portals (Poki, CrazyGames), viral .IO games (Slither, Agar), cloud game portals (now.gg), web emulators, browser mini-games (Chrome Dino), and unblocked game mirrors.
+                        <p className="text-[11px] text-purple-900/80 mt-1 leading-relaxed">
+                          Browser gaming portals (Poki, CrazyGames, Y8), viral .IO arenas, cloud APK backdoors (now.gg), and unblocked mirrors are permanently blocked across all modes. For strict accountability, this defense cannot be turned off.
                         </p>
                       </div>
                     </div>
-
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={blockWebGames}
-                      onClick={() => handleToggleBlockWebGames(!blockWebGames)}
-                      disabled={isLockedOrConsequence}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        blockWebGames ? 'bg-purple-600' : 'bg-gray-300'
-                      } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                          blockWebGames ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
+                    <div className="shrink-0 p-1.5 rounded-full bg-purple-200/60 text-purple-800">
+                      <Shield className="w-4 h-4 text-purple-700" />
+                    </div>
                   </div>
                 </div>
 
-                {/* School-Grade Upstream DNS Filter Profile */}
+                {/* Milestone 18: Non-Negotiable Upstream School DNS Engine */}
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <div className="flex justify-between items-center mb-2">
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
                       <Wifi className="w-3.5 h-3.5 text-indigo-600" />
-                      School-Grade Upstream DNS Engine
+                      Upstream DNS Engine (CleanBrowsing School Filter)
                     </label>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                      Packet-Level Routing
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                      Strict Standard • 185.228.168.168
                     </span>
                   </div>
                   <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-                    Select the upstream recursive DNS resolver used by the DNS Sinkhole and Dual Hybrid engines. School and Family filters classify hundreds of millions of domains in &lt;10ms with zero battery overhead.
+                    Whenever DNS Sinkhole or Dual-Layer is active, recursive DNS is strictly routed through CleanBrowsing School Filter with Cloudflare Family failover. Unfiltered public DNS is disallowed to prevent evasion.
                   </p>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
-                    {/* CleanBrowsing School / Family Filter */}
-                    <div
-                      onClick={() => handleSelectDnsProfile('cleanbrowsing')}
-                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
-                        dnsFilterProfile === 'cleanbrowsing'
-                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
-                          🏫 CleanBrowsing School Filter
-                        </span>
-                        {dnsFilterProfile === 'cleanbrowsing' && (
-                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
-                        )}
-                      </div>
-                      <span className="text-[10px] font-bold text-indigo-700 block mb-0.5">Recommended • 185.228.168.168</span>
-                      <p className="text-[10px] text-gray-500 leading-tight">
-                        School-grade protection: blocks adult content, proxy backdoors, malicious domains, and enforces SafeSearch across all search engines.
-                      </p>
+                  <div className="p-3.5 rounded-xl border-2 border-indigo-600 bg-indigo-50/70 shadow-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
+                        🏫 CleanBrowsing School Filter (Active)
+                      </span>
+                      <CheckCircle className="w-4 h-4 text-indigo-600" />
                     </div>
-
-                    {/* Cloudflare for Families (1.1.1.3) */}
-                    <div
-                      onClick={() => handleSelectDnsProfile('cloudflare_family')}
-                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
-                        dnsFilterProfile === 'cloudflare_family'
-                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
-                          🛡️ Cloudflare for Families
-                        </span>
-                        {dnsFilterProfile === 'cloudflare_family' && (
-                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
-                        )}
-                      </div>
-                      <span className="text-[10px] font-bold text-indigo-700 block mb-0.5">High Speed • 1.1.1.3</span>
-                      <p className="text-[10px] text-gray-500 leading-tight">
-                        Global Anycast speed. Automatically blocks known malware, phishing networks, and explicit content.
-                      </p>
-                    </div>
-
-                    {/* AdGuard Family Protection */}
-                    <div
-                      onClick={() => handleSelectDnsProfile('adguard_family')}
-                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
-                        dnsFilterProfile === 'adguard_family'
-                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
-                          🛑 AdGuard Family
-                        </span>
-                        {dnsFilterProfile === 'adguard_family' && (
-                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
-                        )}
-                      </div>
-                      <span className="text-[10px] font-bold text-indigo-700 block mb-0.5">Aggressive Ads & Adult • 94.140.14.15</span>
-                      <p className="text-[10px] text-gray-500 leading-tight">
-                        Sinkholes trackers, aggressive ads, and adult domains while forcing strict SafeSearch.
-                      </p>
-                    </div>
-
-                    {/* Standard Public DNS */}
-                    <div
-                      onClick={() => handleSelectDnsProfile('standard')}
-                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
-                        dnsFilterProfile === 'standard'
-                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
-                          ⚡ Standard Public DNS
-                        </span>
-                        {dnsFilterProfile === 'standard' && (
-                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
-                        )}
-                      </div>
-                      <span className="text-[10px] font-bold text-gray-600 block mb-0.5">System DHCP + Cloudflare 1.1.1.1</span>
-                      <p className="text-[10px] text-gray-500 leading-tight">
-                        Only blocks QIEZKA’s on-device 250+ gaming and distraction database; unblocked queries resolve standard public DNS.
-                      </p>
-                    </div>
+                    <span className="text-[10px] font-bold text-indigo-700 block mb-1">Primary: 185.228.168.168 • Failover: 1.1.1.3</span>
+                    <p className="text-[11px] text-gray-600 leading-relaxed">
+                      School-grade protection sinkholes adult content, proxy evasion backdoors, and malicious networks across the entire phone, while enforcing strict SafeSearch.
+                    </p>
                   </div>
                 </div>
 

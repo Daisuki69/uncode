@@ -32,7 +32,7 @@ interface LockPluginInterface {
   syncTimeOffset(options: { timeOffset: number }): Promise<void>;
   setConsequenceActive(options: { active: boolean; scheduleId?: string; whitelist?: string[] }): Promise<void>;
   setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
-  setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off' }): Promise<{ success: boolean }>;
+  setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }): Promise<{ success: boolean }>;
   setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
   requestVpnPermission(): Promise<{ granted: boolean }>;
   getLockStatus(): Promise<{
@@ -73,7 +73,7 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
       console.log('[Dev] Simulating setOperatingMode:', mode);
       return { success: true };
     },
-    setWebProtectionMode: async (opts: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off' }) => {
+    setWebProtectionMode: async (opts: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }) => {
       console.log('[Dev] Simulating setWebProtectionMode:', opts);
       return { success: true };
     },
@@ -306,7 +306,7 @@ export const setOperatingMode = async (mode: 'safemode' | 'hardcore'): Promise<b
   }
 };
 
-export const setWebProtectionMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off'): Promise<boolean> => {
+export const setWebProtectionMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid'): Promise<boolean> => {
   try {
     const res = await LockPlugin.setWebProtectionMode({ mode });
     return res?.success ?? true;

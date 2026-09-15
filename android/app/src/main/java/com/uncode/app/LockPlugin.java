@@ -396,6 +396,9 @@ public class LockPlugin extends Plugin {
     public void setWebProtectionMode(PluginCall call) {
         try {
             String mode = call.getString("mode", "accessibility");
+            if ("off".equalsIgnoreCase(mode)) {
+                mode = "accessibility"; // Milestone 18: No unrestricted mode; baseline protection mandatory
+            }
             prefs.edit().putString("web_protection_mode", mode).apply();
             Log.i(TAG, "Web protection mode set to: " + mode);
 
@@ -435,9 +438,9 @@ public class LockPlugin extends Plugin {
     @PluginMethod
     public void setBlockWebGames(PluginCall call) {
         try {
-            boolean block = Boolean.TRUE.equals(call.getBoolean("block", true));
-            prefs.edit().putBoolean("block_web_games", block).apply();
-            Log.i(TAG, "Block web games set to: " + block);
+            // Milestone 18: Web games blocking is permanently active and cannot be turned off
+            prefs.edit().putBoolean("block_web_games", true).apply();
+            Log.i(TAG, "Block web games locked to: true");
             JSObject ret = new JSObject();
             ret.put("success", true);
             call.resolve(ret);
@@ -450,9 +453,9 @@ public class LockPlugin extends Plugin {
     @PluginMethod
     public void setDnsFilterProfile(PluginCall call) {
         try {
-            String profile = call.getString("profile", "cleanbrowsing");
-            prefs.edit().putString("dns_filter_profile", profile).apply();
-            Log.i(TAG, "DNS filter profile set to: " + profile);
+            // Milestone 18: Upstream DNS is non-negotiably CleanBrowsing School Filter
+            prefs.edit().putString("dns_filter_profile", "cleanbrowsing").apply();
+            Log.i(TAG, "DNS filter profile locked to CleanBrowsing School Filter");
             LocalDnsVpnService.updateNotification(getActivity());
             JSObject ret = new JSObject();
             ret.put("success", true);

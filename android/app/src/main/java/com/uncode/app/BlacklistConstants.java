@@ -118,11 +118,42 @@ public final class BlacklistConstants {
         "org.mobilism.android",                // Mobilism
         "com.androeed",                        // Androeed
         "com.tutuapp.android",                 // TutuApp
-        "com.lbe.parallel.intl",               // Parallel Space
+        // ── Parallel Space, Virtual Containers & App Cloners (Milestone 17) ──
+        "com.lbe.parallel.intl",               // Parallel Space (Global)
+        "com.lbe.parallel.intl.arm64",         // Parallel Space 64-bit
+        "com.lbe.parallel.intl.arm32",         // Parallel Space 32-bit
+        "com.lbe.parallel.parallel",           // Parallel Space Classic
+        "com.lbe.parallel.pro",                // Parallel Space Pro
+        "com.lbe.parallel.pro.arm64",          // Parallel Space Pro 64-bit
+        "com.lbe.doubleinstance",              // Parallel Space Engine
+        "com.parallel.space.lite",             // Parallel Space Lite
+        "com.parallel.space.pro",              // Parallel Space Pro Standalone
+        "com.trendmicro.tpacket.parallellite", // Parallel Lite
         "com.excelliance.dualaid",             // Dual Space
+        "com.excelliance.dualaid.arm64",       // Dual Space 64-bit
+        "com.excelliance.dualaid.arm32",       // Dual Space 32-bit
+        "com.excelliance.multiaccounts",       // Multi Accounts
         "clone.app.dualspace",                 // Dual Space Clone
+        "com.dualspace.multispace.android",    // Multi Space
+        "com.dualspace.multispace.arm64",      // Multi Space 64-bit
+        "com.dualspace.multispace.arm32",      // Multi Space 32-bit
         "com.polestar.super.clone",            // Super Clone
+        "com.polestar.clone.parallel.dual.multiple.accounts", // Clone App - Parallel Space
+        "com.twoaccounts.parallelapp",         // 2Accounts
+        "multi.parallel.dualspace.cloner",     // Multi Parallel
+        "com.clone.android.dual.space",        // Clone Space
+        "com.jumobile.multiapp",               // Multiple Accounts
         "com.applisto.appcloner",              // App Cloner
+        "com.applisto.appcloner.premium",      // App Cloner Premium
+        "com.oasisfeng.island",                // Island (Work Profile Cloner)
+        "net.typeblog.shelter",                // Shelter (Work Profile Sandbox)
+        "com.vmos.pro",                        // VMOS Pro Virtual Android
+        "com.vmos.app",                        // VMOS Lite
+        "com.vphonegaga.titan",                // VPhoneGaGa Virtual Machine
+        "com.f1player",                        // F1VM Virtual Android
+        "com.gspace.android",                  // GSpace Virtual Container
+        "io.va.exposed",                       // VirtualApp Runtime
+        "com.x8zs.sandbox",                    // X8 Sandbox
 
         // ── Modded Social Media & Clients ──
         "com.instaprime.android",              // InstaPrime
@@ -353,11 +384,24 @@ public final class BlacklistConstants {
     public static boolean isBlacklisted(String packageName) {
         if (packageName == null) return false;
         String lower = packageName.trim().toLowerCase();
+
+        // Explicitly allow system package installers per user instruction
+        if (lower.contains("packageinstaller")) {
+            return false;
+        }
+
         if (HARDCODED_BLACKLISTED_PACKAGES.contains(lower)) {
             return true;
         }
         // Heuristic substring signature checks to automatically block unlisted clones, forks, and modded APKs
-        return lower.contains("kisskh") ||
+        return lower.contains("parallel") ||
+               lower.contains("dualspace") ||
+               lower.contains("multispace") ||
+               lower.contains("superclone") ||
+               lower.contains("appcloner") ||
+               lower.contains("2accounts") ||
+               lower.contains("multiaccounts") ||
+               lower.contains("kisskh") ||
                lower.contains("bilibili") ||
                lower.contains("danmaku.bili") ||
                lower.contains("chelpus") ||

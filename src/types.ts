@@ -55,7 +55,7 @@ export interface AppSettings {
   consequenceActive?: boolean;
   consequenceScheduleId?: string;
   operatingMode?: 'safemode' | 'hardcore';
-  webProtectionMode?: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off';
+  webProtectionMode?: 'accessibility' | 'dns_vpn' | 'dual_hybrid';
   allowYoutube?: boolean;
   blockWebGames?: boolean;
   dnsFilterProfile?: 'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard';

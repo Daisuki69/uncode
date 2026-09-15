@@ -59,63 +59,66 @@ public final class AppClassifier {
     ));
 
     /**
-     * Known System Package Installers and App Store packages.
-     * Exempt from blocking so manual APK installations, updates, and Play Store update calls
-     * run uninterrupted during lockdown.
+     * Legitimate App Store and Package Installer packages allowed during lockdown
+     * and consequence modes for installation and maintenance (Milestone 17).
      */
-    public static final Set<String> INSTALLER_AND_STORE_PACKAGES = new HashSet<>(Arrays.asList(
+    public static final Set<String> APP_STORE_AND_INSTALLER_PACKAGES = new HashSet<>(Arrays.asList(
         "com.android.vending",                     // Google Play Store
         "com.google.android.feedback",             // Play Store feedback
         "com.google.android.gms",                  // Google Play Services
-        "com.google.android.packageinstaller",     // Google Package Installer
-        "com.android.packageinstaller",            // AOSP Package Installer
-        "com.samsung.android.packageinstaller",    // Samsung Package Installer
-        "com.sec.android.app.samsungapps",         // Samsung Galaxy Store
-        "com.miui.packageinstaller",               // Xiaomi Package Installer
-        "com.xiaomi.mipicks",                      // Xiaomi GetApps
-        "com.coloros.packageinstaller",            // ColorOS Package Installer
-        "com.oppo.packageinstaller",               // Oppo Package Installer
-        "com.heytap.market",                       // Oppo / Realme App Market
-        "com.vivo.packageinstaller",               // Vivo Package Installer
-        "com.vivo.appstore",                       // Vivo App Store
-        "com.transsion.packageinstaller",          // Transsion Package Installer
-        "com.huawei.appmarket",                    // Huawei AppGallery
-        "com.hihonor.appmarket",                   // Honor App Market
-        "com.lenovo.safecenter"                    // Lenovo Package Installer / Security
+        "com.google.android.packageinstaller",     // Android Package Installer (Allowed)
+        "com.android.packageinstaller",            // AOSP Package Installer (Allowed)
+        "com.sec.android.app.samsungapps"          // Samsung Galaxy Store
     ));
 
-    public static boolean isInstallerOrStorePackage(String pkg) {
+    public static boolean isInstallerOrStoreApp(String pkg) {
         if (pkg == null) return false;
-        if (INSTALLER_AND_STORE_PACKAGES.contains(pkg)) return true;
-        String lower = pkg.toLowerCase(Locale.ROOT);
-        return lower.contains("packageinstaller") || 
-               lower.endsWith(".packageinstaller") ||
-               lower.contains(".installer");
+        return APP_STORE_AND_INSTALLER_PACKAGES.contains(pkg) || pkg.toLowerCase(Locale.ROOT).contains("packageinstaller");
     }
 
     /**
-     * Negative Distraction Keywords.
-     * If an app's label or package name contains any of these terms, it is strictly BLOCKED,
+     * Negative Distraction Keywords (Milestone 17: Widened Recognition Engine).
+     * If an app's label contains any of these terms, it is strictly BLOCKED,
      * even if the APK falsely declares itself as CATEGORY_PRODUCTIVITY.
      */
     private static final String[] NEGATIVE_LABEL_KEYWORDS = {
-        // Gaming & Gambling
-        "game", "games", "gaming", "casino", "poker", "slots", "jackpot", "betting",
-        "arcade", "puzzle", "simulator", "tycoon", "rpg", "mmo", "survivor", "arena",
-        "battle royale", "racing", "dungeon", "quest", "brawl", "clash of",
+        // Gaming & Gambling (Widened Recognition)
+        "game", "games", "gaming", "arcade", "puzzle", "simulator", "tycoon", "rpg", "mmorpg", "mmo",
+        "fps", "tps", "battle royale", "racing", "dungeon", "quest", "brawl", "clash", "casino", "poker",
+        "slots", "jackpot", "betting", "lottery", "roulette", "blackjack", "solitaire", "idle", "clicker",
+        "hypercasual", "survivor", "arena", "runner", "crafting", "tower defense", "mahjong", "bingo",
+        "gacha", "otome", "visual novel", "tamagotchi", "virtual pet", "block craft", "zombie", "shooter",
+        "sniper", "defense", "multiplayer", "board game", "card game", "minigame",
+
+        // Parallel Space, Virtual Containers & App Cloners (Milestone 17)
+        "parallel space", "dual space", "dual app", "multi space", "multiple accounts", "2accounts",
+        "clone app", "app cloner", "virtual android", "virtual space", "second space", "dual clone",
+        "super clone", "do multiple", "water clone", "island", "shelter", "vmos", "vphonegaga", "f1 vm",
+        "f1vm", "x8 sandbox", "two accounts", "space lite", "parallel lite", "multi parallel",
+
+        // Cheating, Modding & App Hiders
+        "lucky patcher", "gameguardian", "cheat", "hack", "patcher", "app hider", "hide apps",
+        "calculator vault", "photo vault", "gallery lock", "secret vault",
+
         // Casual Dating & Hookups
-        "dating", "tinder", "bumble", "flirt", "randomchat", "hookup", "omegle", "ometv",
-        // Modding, Cheating & App Cloning
-        "lucky patcher", "gameguardian", "cheat", "hack", "patcher", "cloner", "dual space",
-        "parallel space", "virtual space",
-        // Distracting Entertainment & Comics
-        "manga", "webtoon", "comic", "anime", "shortmax", "reelshort", "dramabox", "goodshort"
+        "dating", "tinder", "bumble", "flirt", "randomchat", "hookup", "omegle", "ometv", "chat room",
+
+        // Short-Dramas, Web Novels, Comics & Anime Streamers
+        "short drama", "shortmax", "reelshort", "dramabox", "goodshort", "snackshort", "moboreels",
+        "netshort", "webtoon", "manga", "manhwa", "manhua", "comic", "comics", "anime", "webnovel",
+        "light novel", "fanfiction", "wattpad", "wuxia", "livestream", "live stream", "broadcast"
     };
 
     private static final String[] NEGATIVE_PKG_SUBSTRINGS = {
         ".game.", ".games.", ".gaming.", ".casino.", ".poker.", ".slots.", ".bet.",
         ".arcade.", ".simulator.", ".tycoon.", ".dating.", ".hookup.", ".cheat.",
-        ".cloner.", ".dualspace.", ".parallel.", ".vmos.", ".virtual."
+        ".cloner.", ".dualspace.", ".parallel.", ".vmos.", ".virtual.",
+        // Milestone 17: Container & Sandbox Signatures
+        ".clone.", ".dual.", ".double.", ".secondspace.", ".appcloner.", ".island.",
+        ".shelter.", ".vphonegaga.", ".f1player.", ".gspace.", ".vault.", ".gallerylock.",
+        ".multispace.", ".superclone.", ".2accounts.", ".x8zs.", ".shortdrama.", ".dramabox.",
+        ".reelshort.", ".shortmax.", ".goodshort.", ".webtoon.", ".manga.", ".manhwa.", ".comic.",
+        ".webnovel.", ".wattpad.", ".gacha.", ".rpg.", ".brawl."
     };
 
     /**
@@ -181,8 +184,8 @@ public final class AppClassifier {
             return false;
         }
 
-        // Tier 1c: System Package Installers & App Store update calls
-        if (isInstallerOrStorePackage(pkg)) {
+        // Tier 1c: System App Store & Package Installers are explicitly allowed
+        if (isInstallerOrStoreApp(pkg)) {
             return false;
         }
 
@@ -355,6 +358,16 @@ public final class AppClassifier {
     }
 
     public static boolean hasNegativeDistractionSignals(String lowerLabel, String lowerPkg) {
+        // Milestone 17: Fake Calculator Vault Detection
+        if (lowerLabel.contains("calc") || lowerLabel.contains("calculator")) {
+            if (lowerPkg.contains("vault") || lowerPkg.contains("hide") || lowerPkg.contains("secret") ||
+                lowerPkg.contains("lock") || lowerPkg.contains("protect") || lowerPkg.contains("private") ||
+                lowerPkg.contains("privacy") || lowerLabel.contains("vault") || lowerLabel.contains("hide") ||
+                lowerLabel.contains("lock") || lowerLabel.contains("secret")) {
+                return true;
+            }
+        }
+
         for (String kw : NEGATIVE_LABEL_KEYWORDS) {
             if (lowerLabel.contains(kw)) {
                 return true;

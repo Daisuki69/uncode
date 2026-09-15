@@ -293,10 +293,13 @@ export default function App() {
 
       setSettings(loadedSettings);
       setOperatingMode(loadedSettings.operatingMode || 'safemode');
-      setWebProtectionMode(loadedSettings.webProtectionMode || 'accessibility');
+      const safeWebMode = loadedSettings.webProtectionMode === 'dns_vpn' || loadedSettings.webProtectionMode === 'dual_hybrid'
+        ? loadedSettings.webProtectionMode
+        : 'accessibility';
+      setWebProtectionMode(safeWebMode);
       setAllowYoutube(loadedSettings.allowYoutube ?? false);
-      setBlockWebGames(loadedSettings.blockWebGames !== false);
-      setDnsFilterProfile(loadedSettings.dnsFilterProfile || 'cleanbrowsing');
+      setBlockWebGames(true);
+      setDnsFilterProfile('cleanbrowsing');
       setEnforceSafeSearch(loadedSettings.enforceSafeSearch !== false);
       setResources(loadedResources);
       setLogs(loadedLogs);
