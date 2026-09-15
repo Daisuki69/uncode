@@ -6,7 +6,7 @@ import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -296,6 +296,8 @@ export default function App() {
       setWebProtectionMode(loadedSettings.webProtectionMode || 'accessibility');
       setAllowYoutube(loadedSettings.allowYoutube ?? false);
       setBlockWebGames(loadedSettings.blockWebGames !== false);
+      setDnsFilterProfile(loadedSettings.dnsFilterProfile || 'cleanbrowsing');
+      setEnforceSafeSearch(loadedSettings.enforceSafeSearch !== false);
       setResources(loadedResources);
       setLogs(loadedLogs);
       setCompletedHomeworks(loadedCompletedHomeworks);
@@ -1153,6 +1155,12 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
                     }
                     if (updates.blockWebGames !== undefined) {
                       setBlockWebGames(updates.blockWebGames);
+                    }
+                    if (updates.dnsFilterProfile !== undefined) {
+                      setDnsFilterProfile(updates.dnsFilterProfile);
+                    }
+                    if (updates.enforceSafeSearch !== undefined) {
+                      setEnforceSafeSearch(updates.enforceSafeSearch);
                     }
                     setSettings(prev => ({ ...prev, ...updates }));
                     navigate('dashboard', 'backward');

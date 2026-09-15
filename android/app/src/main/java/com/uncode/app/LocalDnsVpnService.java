@@ -48,9 +48,18 @@ public class LocalDnsVpnService extends VpnService {
     private static final String TAG = "LocalDnsVpnService";
     private static final String CHANNEL_ID = "qiezka_dns_vpn";
     private static final int NOTIF_ID = 8801;
+    private static final String PREFS_NAME = "uncode_lock";
 
     private static final String VPN_INTERFACE_IP = "10.111.222.1";
     private static final String VPN_DNS_SERVER_IP = "10.111.222.2";
+
+    // Educational & Enterprise SafeSearch VIPs (forces strict filtering at DNS socket level)
+    // forcesafesearch.google.com -> 216.239.38.120 (Google Search & YouTube Restricted Mode)
+    private static final byte[] GOOGLE_SAFE_VIP = new byte[] { (byte) 216, (byte) 239, 38, 120 };
+    // strict.bing.com -> 204.79.197.220
+    private static final byte[] BING_SAFE_VIP = new byte[] { (byte) 204, 79, (byte) 197, (byte) 220 };
+    // safe.duckduckgo.com -> 52.142.124.215
+    private static final byte[] DUCKDUCKGO_SAFE_VIP = new byte[] { 52, (byte) 142, 124, (byte) 215 };
 
     public static volatile boolean isRunning = false;
 
@@ -187,10 +196,32 @@ public class LocalDnsVpnService extends VpnService {
         }
     }
 
+    public static void updateNotification(Context context) {
+        if (!isRunning || context == null) return;
+        try {
+            Intent intent = new Intent(context, LocalDnsVpnService.class);
+            intent.setAction("ACTION_UPDATE_NOTIF");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
+            }
+        } catch (Exception ignore) {}
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         createNotificationChannel();
         Notification notif = buildNotification();
+
+        if (intent != null && "ACTION_UPDATE_NOTIF".equals(intent.getAction())) {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.notify(NOTIF_ID, notif);
+            }
+            return START_STICKY;
+        }
+
         if (Build.VERSION.SDK_INT >= 34) {
             try {
                 startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
@@ -297,7 +328,7 @@ public class LocalDnsVpnService extends VpnService {
             FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor());
             byte[] buffer = new byte[32767];
 
-            SharedPreferences prefs = getSharedPreferences("UncodeLockPrefs", Context.MODE_PRIVATE);
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
             while (shouldRun && !Thread.currentThread().isInterrupted()) {
                 try {
@@ -350,10 +381,14 @@ public class LocalDnsVpnService extends VpnService {
     private void handleDnsPacket(byte[] packet, int ipHeaderLength, int srcPort, int dstPort, int dnsOffset, int dnsLength, SharedPreferences prefs, FileOutputStream out) {
         String queryDomain = parseDnsQuestionDomain(packet, dnsOffset, packet.length);
         if (queryDomain == null) queryDomain = "";
+        String lowerDomain = queryDomain.toLowerCase(Locale.US);
 
         boolean allowYoutube = prefs.getBoolean("allow_youtube", false);
         boolean blockWebGames = prefs.getBoolean("block_web_games", true);
-        boolean isBlacklisted = isDomainBlocked(queryDomain, allowYoutube, blockWebGames);
+        boolean enforceSafeSearch = prefs.getBoolean("enforce_safesearch", true);
+
+        // 1. Check if domain is blocked (distractions, unblocked web games, youtube if disallowed)
+        boolean isBlacklisted = isDomainBlocked(lowerDomain, allowYoutube, blockWebGames);
 
         if (isBlacklisted) {
             // Synthesize local sinkhole NXDOMAIN response
@@ -369,19 +404,56 @@ public class LocalDnsVpnService extends VpnService {
                 }
                 Log.d(TAG, "Sinkholed DNS query (NXDOMAIN): " + queryDomain);
             }
-        } else {
-            // Forward query to upstream DNS using a protected socket
-            byte[] dnsPayload = Arrays.copyOfRange(packet, dnsOffset, dnsOffset + dnsLength);
-            byte[] upstreamResponse = forwardToUpstreamDns(dnsPayload);
-            if (upstreamResponse != null) {
-                byte[] responseIpPacket = buildUdpIpPacket(
-                    packet, ipHeaderLength, dstPort, srcPort, upstreamResponse
-                );
-                synchronized (out) {
-                    try {
-                        out.write(responseIpPacket);
-                    } catch (Exception ignore) {}
+            return;
+        }
+
+        // 2. School-Grade SafeSearch DNS VIP Routing (Google, Bing, DuckDuckGo, YouTube)
+        if (enforceSafeSearch) {
+            byte[] safeIp = getSafeSearchVip(lowerDomain);
+            if (safeIp != null) {
+                int qType = parseDnsQuestionType(packet, dnsOffset, packet.length);
+                if (qType == 1) { // Type A (IPv4)
+                    byte[] responseDns = buildARecordResponse(packet, dnsOffset, dnsLength, safeIp);
+                    if (responseDns != null) {
+                        byte[] responseIpPacket = buildUdpIpPacket(
+                            packet, ipHeaderLength, dstPort, srcPort, responseDns
+                        );
+                        synchronized (out) {
+                            try {
+                                out.write(responseIpPacket);
+                            } catch (Exception ignore) {}
+                        }
+                        Log.d(TAG, "Enforced SafeSearch VIP for: " + queryDomain);
+                        return;
+                    }
+                } else if (qType == 28) { // Type AAAA (IPv6) -> return NODATA so client immediately resolves IPv4 SafeSearch VIP
+                    byte[] responseDns = buildNoDataResponse(packet, dnsOffset, dnsLength);
+                    if (responseDns != null) {
+                        byte[] responseIpPacket = buildUdpIpPacket(
+                            packet, ipHeaderLength, dstPort, srcPort, responseDns
+                        );
+                        synchronized (out) {
+                            try {
+                                out.write(responseIpPacket);
+                            } catch (Exception ignore) {}
+                        }
+                        return;
+                    }
                 }
+            }
+        }
+
+        // 3. Forward query to selected upstream DNS resolver (CleanBrowsing School / Cloudflare / AdGuard / System)
+        byte[] dnsPayload = Arrays.copyOfRange(packet, dnsOffset, dnsOffset + dnsLength);
+        byte[] upstreamResponse = forwardToUpstreamDns(dnsPayload, prefs);
+        if (upstreamResponse != null) {
+            byte[] responseIpPacket = buildUdpIpPacket(
+                packet, ipHeaderLength, dstPort, srcPort, upstreamResponse
+            );
+            synchronized (out) {
+                try {
+                    out.write(responseIpPacket);
+                } catch (Exception ignore) {}
             }
         }
     }
@@ -470,46 +542,185 @@ public class LocalDnsVpnService extends VpnService {
         }
     }
 
-    private List<InetAddress> getUpstreamDnsServers() {
-        List<InetAddress> servers = new ArrayList<>();
+    private int parseDnsQuestionType(byte[] packet, int dnsOffset, int totalLength) {
+        int pos = dnsOffset + 12;
+        while (pos < totalLength) {
+            int labelLen = packet[pos] & 0xFF;
+            if (labelLen == 0) {
+                pos++;
+                break;
+            }
+            pos += 1 + labelLen;
+        }
+        if (pos + 2 <= totalLength) {
+            return ((packet[pos] & 0xFF) << 8) | (packet[pos + 1] & 0xFF);
+        }
+        return 1; // Default to Type A
+    }
+
+    private byte[] buildARecordResponse(byte[] packet, int dnsOffset, int dnsLength, byte[] ipBytes) {
         try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm != null) {
-                Network activeNetwork = cm.getActiveNetwork();
-                if (activeNetwork != null) {
-                    LinkProperties lp = cm.getLinkProperties(activeNetwork);
-                    if (lp != null) {
-                        for (InetAddress dns : lp.getDnsServers()) {
-                            if (dns instanceof Inet4Address) {
-                                String host = dns.getHostAddress();
-                                if (!host.equals(VPN_INTERFACE_IP) && !host.equals(VPN_DNS_SERVER_IP)) {
-                                    servers.add(dns);
+            int respLen = dnsLength + 16;
+            ByteBuffer buf = ByteBuffer.allocate(respLen);
+
+            // 1. Transaction ID (2 bytes)
+            buf.put(packet[dnsOffset]);
+            buf.put(packet[dnsOffset + 1]);
+
+            // 2. Flags: Response, Opcode 0, Authoritative, Recursion Available, RCODE = 0 (NOERROR)
+            buf.put((byte) 0x81);
+            buf.put((byte) 0x80);
+
+            // 3. QDCOUNT = 1, ANCOUNT = 1, NSCOUNT = 0, ARCOUNT = 0
+            buf.putShort((short) 1);
+            buf.putShort((short) 1);
+            buf.putShort((short) 0);
+            buf.putShort((short) 0);
+
+            // 4. Copy original Question Section
+            int qLen = dnsLength - 12;
+            buf.put(packet, dnsOffset + 12, qLen);
+
+            // 5. Answer Section (Compression pointer to Question at offset 12 -> 0xC00C)
+            buf.put((byte) 0xC0);
+            buf.put((byte) 0x0C);
+            buf.putShort((short) 1); // Type A
+            buf.putShort((short) 1); // Class IN
+            buf.putInt(300);         // TTL: 300s
+            buf.putShort((short) 4); // Data length: 4 bytes
+            buf.put(ipBytes);
+
+            return Arrays.copyOf(buf.array(), buf.position());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private byte[] buildNoDataResponse(byte[] packet, int dnsOffset, int dnsLength) {
+        try {
+            ByteBuffer buf = ByteBuffer.allocate(dnsLength);
+            // 1. Transaction ID (2 bytes)
+            buf.put(packet[dnsOffset]);
+            buf.put(packet[dnsOffset + 1]);
+
+            // 2. Flags: Response, Opcode 0, Authoritative, Recursion Available, RCODE = 0 (NOERROR)
+            buf.put((byte) 0x81);
+            buf.put((byte) 0x80);
+
+            // 3. QDCOUNT = 1, ANCOUNT = 0, NSCOUNT = 0, ARCOUNT = 0
+            buf.putShort((short) 1);
+            buf.putShort((short) 0);
+            buf.putShort((short) 0);
+            buf.putShort((short) 0);
+
+            // 4. Copy original Question Section
+            int qLen = dnsLength - 12;
+            buf.put(packet, dnsOffset + 12, qLen);
+
+            return Arrays.copyOf(buf.array(), buf.position());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private byte[] getSafeSearchVip(String domain) {
+        if (domain == null || domain.isEmpty()) return null;
+
+        if (isGoogleSearchDomain(domain)) {
+            return GOOGLE_SAFE_VIP;
+        }
+        if (domain.equals("bing.com") || domain.equals("www.bing.com") || (domain.endsWith(".bing.com") && (domain.startsWith("www.") || domain.startsWith("cn.")))) {
+            return BING_SAFE_VIP;
+        }
+        if (domain.equals("duckduckgo.com") || domain.equals("www.duckduckgo.com")) {
+            return DUCKDUCKGO_SAFE_VIP;
+        }
+        if (domain.equals("youtube.com") || domain.equals("www.youtube.com") || domain.equals("m.youtube.com") || domain.equals("youtubei.googleapis.com")) {
+            return GOOGLE_SAFE_VIP;
+        }
+        return null;
+    }
+
+    private boolean isGoogleSearchDomain(String domain) {
+        if (domain.equals("google.com") || domain.equals("www.google.com")) return true;
+        if (domain.contains("google.")) {
+            // Keep critical academic tools and Google services unrestricted
+            if (domain.startsWith("drive.") || domain.startsWith("docs.") || domain.startsWith("mail.") ||
+                domain.startsWith("accounts.") || domain.startsWith("play.") || domain.startsWith("fonts.") ||
+                domain.startsWith("meet.") || domain.startsWith("classroom.") || domain.startsWith("calendar.") ||
+                domain.startsWith("admin.") || domain.startsWith("cloud.")) {
+                return false;
+            }
+            return domain.startsWith("www.google.") || domain.startsWith("google.");
+        }
+        return false;
+    }
+
+    private List<InetAddress> getUpstreamDnsServers(SharedPreferences prefs) {
+        List<InetAddress> servers = new ArrayList<>();
+        String profile = prefs != null ? prefs.getString("dns_filter_profile", "cleanbrowsing") : "cleanbrowsing";
+
+        if ("cleanbrowsing".equalsIgnoreCase(profile)) {
+            // CleanBrowsing Family / School Filter (Blocks Adult, Malicious, Proxies, and enforces SafeSearch)
+            addDnsServer(servers, "185.228.168.168");
+            addDnsServer(servers, "185.228.169.168");
+            // Failover redundancy to Cloudflare Family & AdGuard Family
+            addDnsServer(servers, "1.1.1.3");
+            addDnsServer(servers, "94.140.14.15");
+        } else if ("cloudflare_family".equalsIgnoreCase(profile)) {
+            // Cloudflare 1.1.1.3 for Families (Malware & Adult Content Blocked)
+            addDnsServer(servers, "1.1.1.3");
+            addDnsServer(servers, "1.0.0.3");
+            addDnsServer(servers, "185.228.168.168");
+        } else if ("adguard_family".equalsIgnoreCase(profile)) {
+            // AdGuard Family Protection (Adult content & tracking blocked)
+            addDnsServer(servers, "94.140.14.15");
+            addDnsServer(servers, "94.140.15.16");
+            addDnsServer(servers, "185.228.168.168");
+        } else {
+            // Standard Public DNS (Active network DHCP DNS + Cloudflare 1.1.1.1 + Google 8.8.8.8)
+            try {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    Network activeNetwork = cm.getActiveNetwork();
+                    if (activeNetwork != null) {
+                        LinkProperties lp = cm.getLinkProperties(activeNetwork);
+                        if (lp != null) {
+                            for (InetAddress dns : lp.getDnsServers()) {
+                                if (dns instanceof Inet4Address) {
+                                    String host = dns.getHostAddress();
+                                    if (!host.equals(VPN_INTERFACE_IP) && !host.equals(VPN_DNS_SERVER_IP)) {
+                                        servers.add(dns);
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-        } catch (Exception ignore) {}
+            } catch (Exception ignore) {}
 
-        // Fallback to robust public DNS resolvers
-        try {
-            servers.add(InetAddress.getByName("1.1.1.1"));
-            servers.add(InetAddress.getByName("8.8.8.8"));
-            servers.add(InetAddress.getByName("9.9.9.9"));
-            servers.add(InetAddress.getByName("1.0.0.1"));
-        } catch (Exception ignore) {}
+            addDnsServer(servers, "1.1.1.1");
+            addDnsServer(servers, "8.8.8.8");
+            addDnsServer(servers, "9.9.9.9");
+            addDnsServer(servers, "1.0.0.1");
+        }
 
         return servers;
     }
 
-    private byte[] forwardToUpstreamDns(byte[] queryPayload) {
-        List<InetAddress> upstreamServers = getUpstreamDnsServers();
+    private void addDnsServer(List<InetAddress> list, String ip) {
+        try {
+            list.add(InetAddress.getByName(ip));
+        } catch (Exception ignore) {}
+    }
+
+    private byte[] forwardToUpstreamDns(byte[] queryPayload, SharedPreferences prefs) {
+        List<InetAddress> upstreamServers = getUpstreamDnsServers(prefs);
         DatagramSocket socket = null;
         try {
             socket = new DatagramSocket();
             protect(socket); // ESSENTIAL: Exclude this socket from the VPN TUN interface!
-            socket.setSoTimeout(1500);
+            socket.setSoTimeout(1200);
 
             for (InetAddress server : upstreamServers) {
                 try {
@@ -611,9 +822,21 @@ public class LocalDnsVpnService extends VpnService {
         } else {
             builder = new Notification.Builder(this);
         }
+
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String profile = prefs != null ? prefs.getString("dns_filter_profile", "cleanbrowsing") : "cleanbrowsing";
+        boolean safeSearch = prefs != null && prefs.getBoolean("enforce_safesearch", true);
+
+        String profileName = "CleanBrowsing School Filter";
+        if ("cloudflare_family".equalsIgnoreCase(profile)) profileName = "Cloudflare for Families";
+        else if ("adguard_family".equalsIgnoreCase(profile)) profileName = "AdGuard Family";
+        else if ("standard".equalsIgnoreCase(profile)) profileName = "Standard DNS";
+
+        String subText = profileName + (safeSearch ? " • SafeSearch Active" : "");
+
         return builder
             .setContentTitle("QIEZKA Web Guard Active")
-            .setContentText("DNS Sinkhole active — blocking distracting websites")
+            .setContentText(subText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .build();

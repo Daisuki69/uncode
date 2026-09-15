@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2 } from 'lucide-react';
+import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search } from 'lucide-react';
 import { AppSettings, LogEntry, SavedResource, AllowedApp } from '../types';
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
@@ -34,6 +34,8 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
   const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off'>(settings.webProtectionMode || 'accessibility');
   const [allowYoutube, setAllowYoutubeState] = useState<boolean>(settings.allowYoutube || false);
   const [blockWebGames, setBlockWebGamesState] = useState<boolean>(settings.blockWebGames !== false);
+  const [dnsFilterProfile, setDnsFilterProfileState] = useState<'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard'>(settings.dnsFilterProfile || 'cleanbrowsing');
+  const [enforceSafeSearch, setEnforceSafeSearchState] = useState<boolean>(settings.enforceSafeSearch !== false);
   const [webError, setWebError] = useState<string | null>(null);
   
   const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
@@ -121,6 +123,24 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
     setBlockWebGamesState(block);
   };
 
+  const handleSelectDnsProfile = (profile: 'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard') => {
+    setWebError(null);
+    if (isLockedOrConsequence) {
+      setWebError('DNS filter settings are locked during active lockdown or consequence mode.');
+      return;
+    }
+    setDnsFilterProfileState(profile);
+  };
+
+  const handleToggleEnforceSafeSearch = (enforce: boolean) => {
+    setWebError(null);
+    if (isLockedOrConsequence) {
+      setWebError('SafeSearch settings are locked during active lockdown or consequence mode.');
+      return;
+    }
+    setEnforceSafeSearchState(enforce);
+  };
+
   const handleSaveGeneral = () => {
     onSave({ 
       apiKey: apiKey.trim() || undefined,
@@ -131,7 +151,9 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
       operatingMode: operatingMode,
       webProtectionMode: webProtectionMode,
       allowYoutube: allowYoutube,
-      blockWebGames: blockWebGames
+      blockWebGames: blockWebGames,
+      dnsFilterProfile: dnsFilterProfile,
+      enforceSafeSearch: enforceSafeSearch
     });
   };
 
@@ -735,6 +757,157 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                       <span
                         className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
                           blockWebGames ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* School-Grade Upstream DNS Filter Profile */}
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Wifi className="w-3.5 h-3.5 text-indigo-600" />
+                      School-Grade Upstream DNS Engine
+                    </label>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      Packet-Level Routing
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                    Select the upstream recursive DNS resolver used by the DNS Sinkhole and Dual Hybrid engines. School and Family filters classify hundreds of millions of domains in &lt;10ms with zero battery overhead.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+                    {/* CleanBrowsing School / Family Filter */}
+                    <div
+                      onClick={() => handleSelectDnsProfile('cleanbrowsing')}
+                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
+                        dnsFilterProfile === 'cleanbrowsing'
+                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
+                          🏫 CleanBrowsing School Filter
+                        </span>
+                        {dnsFilterProfile === 'cleanbrowsing' && (
+                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
+                        )}
+                      </div>
+                      <span className="text-[10px] font-bold text-indigo-700 block mb-0.5">Recommended • 185.228.168.168</span>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        School-grade protection: blocks adult content, proxy backdoors, malicious domains, and enforces SafeSearch across all search engines.
+                      </p>
+                    </div>
+
+                    {/* Cloudflare for Families (1.1.1.3) */}
+                    <div
+                      onClick={() => handleSelectDnsProfile('cloudflare_family')}
+                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
+                        dnsFilterProfile === 'cloudflare_family'
+                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
+                          🛡️ Cloudflare for Families
+                        </span>
+                        {dnsFilterProfile === 'cloudflare_family' && (
+                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
+                        )}
+                      </div>
+                      <span className="text-[10px] font-bold text-indigo-700 block mb-0.5">High Speed • 1.1.1.3</span>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        Global Anycast speed. Automatically blocks known malware, phishing networks, and explicit content.
+                      </p>
+                    </div>
+
+                    {/* AdGuard Family Protection */}
+                    <div
+                      onClick={() => handleSelectDnsProfile('adguard_family')}
+                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
+                        dnsFilterProfile === 'adguard_family'
+                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
+                          🛑 AdGuard Family
+                        </span>
+                        {dnsFilterProfile === 'adguard_family' && (
+                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
+                        )}
+                      </div>
+                      <span className="text-[10px] font-bold text-indigo-700 block mb-0.5">Aggressive Ads & Adult • 94.140.14.15</span>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        Sinkholes trackers, aggressive ads, and adult domains while forcing strict SafeSearch.
+                      </p>
+                    </div>
+
+                    {/* Standard Public DNS */}
+                    <div
+                      onClick={() => handleSelectDnsProfile('standard')}
+                      className={`p-3 rounded-xl border-2 transition-all cursor-pointer relative ${
+                        dnsFilterProfile === 'standard'
+                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      } ${isLockedOrConsequence ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
+                          ⚡ Standard Public DNS
+                        </span>
+                        {dnsFilterProfile === 'standard' && (
+                          <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />
+                        )}
+                      </div>
+                      <span className="text-[10px] font-bold text-gray-600 block mb-0.5">System DHCP + Cloudflare 1.1.1.1</span>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        Only blocks QIEZKA’s on-device 250+ gaming and distraction database; unblocked queries resolve standard public DNS.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Strict SafeSearch Enforcement */}
+                <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 mt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="p-2 rounded-xl bg-blue-100 text-blue-600 mt-0.5">
+                        <Search className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-gray-900">Strict SafeSearch Enforcement</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                            enforceSafeSearch ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'
+                          }`}>
+                            {enforceSafeSearch ? 'SafeSearch Locked ON (VIP 216.239.38.120)' : 'Standard Search'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                          Locks SafeSearch ON at the network socket layer for Google, Bing, DuckDuckGo, and YouTube (VIP 216.239.38.120). Prevents students from discovering explicit images, videos, or proxy shortcuts through search engines.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={enforceSafeSearch}
+                      onClick={() => handleToggleEnforceSafeSearch(!enforceSafeSearch)}
+                      disabled={isLockedOrConsequence}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        enforceSafeSearch ? 'bg-blue-600' : 'bg-gray-300'
+                      } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          enforceSafeSearch ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

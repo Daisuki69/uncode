@@ -365,8 +365,52 @@ Legitimate educational and documentation resources are explicitly exempted from 
 #### D. Settings Toggle
 In **Settings > General > Web & Browser Protection**, students can toggle **"Block Web-Based Games"** (enabled by default). Locked during active lockdown and consequence mode.
 
-### 4. Anti-Cheat Lockout Guard
-Just like Operating Mode settings, **Web & Browser Protection, YouTube settings, and Web-Based Game Armor cannot be changed or disabled during an active lockdown session or during Consequence Mode**. The student must complete and pass their homework submission first.
+### 4. School-Grade Upstream DNS Engine (CleanBrowsing & Enterprise Filtering)
+
+Ever wondered how massive university and high school campus networks (running Cisco Umbrella, Fortinet, GoGuardian, and Lightspeed) filter hundreds of millions of domains with zero latency? They do **not** maintain massive manual URL lists on individual devices. Instead, they enforce **Upstream Filtered Recursive DNS Resolvers**.
+
+QIEZKA brings this exact enterprise architecture directly to your Android device via `LocalDnsVpnService`:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│               SCHOOL-GRADE NETWORK INTELLIGENCE ARCHITECTURE                           │
+├──────────────────────────┬─────────────────────────────┬───────────────────────────────┤
+│ Tier 1: Local Sinkhole   │ Tier 2: SafeSearch VIP      │ Tier 3: Upstream School DNS   │
+├──────────────────────────┼─────────────────────────────┼───────────────────────────────┤
+│ 250+ gaming & distraction│ DNS synthesizes A record    │ CleanBrowsing / Cloudflare    │
+│ domains sinkholed to     │ 216.239.38.120 for Google;  │ filters 100M+ sites in <10ms; │
+│ 0.0.0.0 (0ms latency).   │ locks SafeSearch ON.        │ drops adult & proxy networks. │
+└──────────────────────────┴─────────────────────────────┴───────────────────────────────┘
+```
+
+Students can select their desired upstream DNS resolver profile in **Settings > General > Web & Browser Protection**:
+
+| DNS Resolver Profile | Primary & Secondary IPs | Capabilities & Enforcement |
+|---|---|---|
+| **🏫 CleanBrowsing School / Family** *(Recommended Default)* | Primary: `185.228.168.168`<br/>Secondary: `185.228.169.168`<br/>Failover: `1.1.1.3`, `94.140.14.15` | **School-Grade Filtering**: Blocks adult content, pornography, malicious domains, and proxy/VPN evasion backdoors. Automatically forces SafeSearch across Google, Bing, DuckDuckGo, and YouTube with zero phone storage overhead. |
+| **🛡️ Cloudflare for Families** | Primary: `1.1.1.3`<br/>Secondary: `1.0.0.3` | **High-Speed Anycast**: Global Anycast DNS (<10ms). Blocks malware, phishing vectors, and explicit adult content. |
+| **🛑 AdGuard Family Protection** | Primary: `94.140.14.15`<br/>Secondary: `94.140.15.16` | **Aggressive Ad & Adult Filter**: Sinkholes advertising networks, analytics/trackers, and adult domains. |
+| **⚡ Standard Public DNS** | Active System DHCP DNS<br/>Fallback: `1.1.1.1`, `8.8.8.8`, `9.9.9.9` | Only applies QIEZKA's local 250+ gaming and distraction database; unblocked queries resolve standard public DNS. |
+
+### 5. Strict SafeSearch VIP Enforcement (Google, Bing, DuckDuckGo, YouTube)
+
+A common student bypass on allowed browsers is searching for explicit content or unblocked game mirrors via Google or Bing Images. 
+
+QIEZKA's `LocalDnsVpnService` enforces **Strict SafeSearch at the network socket layer**:
+1. **Google Search & YouTube Restricted Mode**:
+   - Queries to `google.com`, `www.google.com`, and regional domains (`google.co.uk`, `google.ca`, `google.co.id`) are intercepted and returned with an `A` record pointing to Google's official educational VIP: **`216.239.38.120`** (`forcesafesearch.google.com`).
+   - For `AAAA` (IPv6) queries, QIEZKA synthesizes an RFC-compliant `NODATA` (NOERROR with ANCOUNT=0) response, forcing browsers to immediately resolve the IPv4 SafeSearch VIP.
+   - Google servers recognize this IP and **permanently lock SafeSearch ON**, displaying the badge *"SafeSearch is locked on by your network administrator"*.
+   - **Academic Tool Immunity**: Critical educational tools (`drive.google.com`, `docs.google.com`, `classroom.google.com`, `calendar.google.com`, `meet.google.com`) are explicitly preserved and never redirected.
+2. **Microsoft Bing**:
+   - Queries to `bing.com` and `www.bing.com` are mapped directly to Microsoft's strict safe search VIP: **`204.79.197.220`** (`strict.bing.com`).
+3. **DuckDuckGo**:
+   - Queries to `duckduckgo.com` and `www.duckduckgo.com` are mapped to `52.142.124.215` (`safe.duckduckgo.com`).
+4. **Settings Switch**:
+   - Toggleable under **Settings > General > Web & Browser Protection** (enabled by default). Locked during active study sessions and consequence mode.
+
+### 6. Anti-Cheat Lockout Guard
+Just like Operating Mode settings, **Web & Browser Protection, DNS Filter Profiles, SafeSearch Enforcement, YouTube settings, and Web-Based Game Armor cannot be changed or disabled during an active lockdown session or during Consequence Mode**. The student must complete and pass their homework submission first.
 
 ---
 

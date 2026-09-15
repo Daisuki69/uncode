@@ -346,3 +346,23 @@ export const requestVpnPermission = async (): Promise<boolean> => {
   }
 };
 
+export const setDnsFilterProfile = async (profile: 'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard'): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.setDnsFilterProfile({ profile });
+    return res?.success ?? true;
+  } catch (e) {
+    console.error('setDnsFilterProfile failed', e);
+    return false;
+  }
+};
+
+export const setEnforceSafeSearch = async (enforce: boolean): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.setEnforceSafeSearch({ enforce });
+    return res?.success ?? true;
+  } catch (e) {
+    console.error('setEnforceSafeSearch failed', e);
+    return false;
+  }
+};
+

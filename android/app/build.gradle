@@ -52,3 +52,8 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
+
+// Compatibility task for IDEs (Android Studio / IntelliJ IDEA) invoking :app:testClasses during project build
+tasks.register('testClasses') {
+    description = "Compatibility dummy task for IDE (Android Studio / IntelliJ) project build"
+}

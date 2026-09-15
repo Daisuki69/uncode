@@ -448,6 +448,38 @@ public class LockPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setDnsFilterProfile(PluginCall call) {
+        try {
+            String profile = call.getString("profile", "cleanbrowsing");
+            prefs.edit().putString("dns_filter_profile", profile).apply();
+            Log.i(TAG, "DNS filter profile set to: " + profile);
+            LocalDnsVpnService.updateNotification(getActivity());
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setDnsFilterProfile failed", e);
+            call.reject("setDnsFilterProfile failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setEnforceSafeSearch(PluginCall call) {
+        try {
+            boolean enforce = Boolean.TRUE.equals(call.getBoolean("enforce", true));
+            prefs.edit().putBoolean("enforce_safesearch", enforce).apply();
+            Log.i(TAG, "Enforce SafeSearch set to: " + enforce);
+            LocalDnsVpnService.updateNotification(getActivity());
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setEnforceSafeSearch failed", e);
+            call.reject("setEnforceSafeSearch failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void setYoutubePolicy(PluginCall call) {
         try {
             String policy = call.getString("policy", "academic");

@@ -58,6 +58,8 @@ export interface AppSettings {
   webProtectionMode?: 'accessibility' | 'dns_vpn' | 'dual_hybrid' | 'off';
   allowYoutube?: boolean;
   blockWebGames?: boolean;
+  dnsFilterProfile?: 'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard';
+  enforceSafeSearch?: boolean;
 }
 
 export interface EvaluationResult {
