@@ -20,8 +20,7 @@
     <!-- Battery optimization exemption (prevent Android from killing QIEZKA) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Device Admin (set via ADB - does NOT require user interaction at install) -->
-    <uses-permission android:name="android.permission.MANAGE_DEVICE_POLICY_LOCK_TASK" />
+    <!-- Device Admin: activated via ADB set-active-admin — prevents casual uninstall -->
 
     <!-- Allows querying installed apps to create the whitelist (Android 11+) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
@@ -31,6 +30,7 @@
 
     <!-- Notifications: lock status, timers, and alerts (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Full screen intent & foreground service permissions for high-priority alerts -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -80,8 +80,8 @@
         </provider>
 
         <!-- ===== Device Admin Receiver ===== -->
-        <!-- Required for DevicePolicyManager APIs (setPackagesSuspended, setUninstallBlocked) -->
-        <!-- Set as Device Owner via ADB: dpm set-device-owner com.uncode.app/.AdminReceiver -->
+        <!-- Prevents casual uninstall: user must deactivate admin in Settings first -->
+        <!-- Activated via ADB: dpm set-active-admin com.uncode.app/.AdminReceiver -->
         <receiver
             android:name=".AdminReceiver"
             android:permission="android.permission.BIND_DEVICE_ADMIN"

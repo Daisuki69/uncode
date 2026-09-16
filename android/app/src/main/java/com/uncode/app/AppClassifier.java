@@ -259,6 +259,12 @@ public final class AppClassifier {
         String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
         String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
 
+        // Milestone 17: Fake Calculator & Secret Vault Inspection
+        if (isFakeCalculatorVault(pm, pkg, lowerLabel, lowerPkg)) {
+            Log.i(TAG, "Blocked as fake calculator vault: " + pkg + " (" + appLabel + ")");
+            return true;
+        }
+
         // ── Layer 4a: Negative Distraction Signals ──
         // Overrides any claimed category: if it looks like a game/gamble/mod, block immediately!
         if (hasNegativeDistractionSignals(lowerLabel, lowerPkg)) {
@@ -350,6 +356,9 @@ public final class AppClassifier {
             CharSequence labelChar = pm.getApplicationLabel(appInfo);
             String appLabel = labelChar != null ? labelChar.toString().toLowerCase(Locale.ROOT) : "";
             String lowerPkg = pkg.toLowerCase(Locale.ROOT);
+            if (isFakeCalculatorVault(pm, pkg, appLabel, lowerPkg)) {
+                return true;
+            }
             if (hasNegativeDistractionSignals(appLabel, lowerPkg)) {
                 return true;
             }
@@ -357,8 +366,49 @@ public final class AppClassifier {
         return false;
     }
 
+    /**
+     * Inspects whether an application declared as Calculator/Calc is actually a disguised vault.
+     * Genuine offline calculators never request Camera, Storage/Media, or Photo access.
+     */
+    public static boolean isFakeCalculatorVault(PackageManager pm, String pkg, String lowerLabel, String lowerPkg) {
+        if (lowerLabel.contains("calc") || lowerLabel.contains("calculator") ||
+            lowerPkg.contains("calc") || lowerPkg.contains("calculator")) {
+
+            // Substring vault indicators
+            if (lowerPkg.contains("vault") || lowerPkg.contains("hide") || lowerPkg.contains("secret") ||
+                lowerPkg.contains("lock") || lowerPkg.contains("protect") || lowerPkg.contains("private") ||
+                lowerPkg.contains("privacy") || lowerLabel.contains("vault") || lowerLabel.contains("hide") ||
+                lowerLabel.contains("lock") || lowerLabel.contains("secret")) {
+                return true;
+            }
+
+            // Real Android permission inspection (Milestone 17):
+            // Genuine calculators (Google, Samsung, Mi, Desmos) never need camera or media storage.
+            if (pm != null && pkg != null) {
+                try {
+                    android.content.pm.PackageInfo pi = pm.getPackageInfo(pkg, PackageManager.GET_PERMISSIONS);
+                    if (pi != null && pi.requestedPermissions != null) {
+                        for (String perm : pi.requestedPermissions) {
+                            if (perm == null) continue;
+                            if (perm.equals("android.permission.CAMERA") ||
+                                perm.equals("android.permission.READ_EXTERNAL_STORAGE") ||
+                                perm.equals("android.permission.MANAGE_EXTERNAL_STORAGE") ||
+                                perm.equals("android.permission.READ_MEDIA_IMAGES") ||
+                                perm.equals("android.permission.READ_MEDIA_VIDEO") ||
+                                perm.equals("android.permission.SYSTEM_ALERT_WINDOW")) {
+                                Log.w(TAG, "Fake calculator vault detected (requests " + perm + "): " + pkg);
+                                return true;
+                            }
+                        }
+                    }
+                } catch (Exception ignore) {}
+            }
+        }
+        return false;
+    }
+
     public static boolean hasNegativeDistractionSignals(String lowerLabel, String lowerPkg) {
-        // Milestone 17: Fake Calculator Vault Detection
+        // Milestone 17: Fake Calculator Vault Substring Detection Fallback
         if (lowerLabel.contains("calc") || lowerLabel.contains("calculator")) {
             if (lowerPkg.contains("vault") || lowerPkg.contains("hide") || lowerPkg.contains("secret") ||
                 lowerPkg.contains("lock") || lowerPkg.contains("protect") || lowerPkg.contains("private") ||

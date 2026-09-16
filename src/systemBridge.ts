@@ -11,7 +11,6 @@ interface LockPluginInterface {
   endLockdown(): Promise<void>;
   getInstalledApps(): Promise<{ apps: AllowedApp[] }>;
   checkPermissions(): Promise<{
-    isDeviceOwner: boolean;
     isAccessibilityEnabled: boolean;
     isAdminActive: boolean;
     isBatteryOptimizationIgnored: boolean;
@@ -106,7 +105,6 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
       ]
     }),
     checkPermissions: async () => ({
-      isDeviceOwner: true,
       isAccessibilityEnabled: true,
       isAdminActive: true,
       isBatteryOptimizationIgnored: true,
@@ -137,7 +135,6 @@ export const getInstalledApps = async (): Promise<AllowedApp[]> => {
 };
 
 export const checkPermissions = async (): Promise<{
-  isDeviceOwner: boolean;
   isAccessibilityEnabled: boolean;
   isAdminActive: boolean;
   isBatteryOptimizationIgnored: boolean;
@@ -150,7 +147,6 @@ export const checkPermissions = async (): Promise<{
   } catch (e) {
     console.error('Failed to check permissions', e);
     return {
-      isDeviceOwner: false,
       isAccessibilityEnabled: false,
       isAdminActive: false,
       isBatteryOptimizationIgnored: false,

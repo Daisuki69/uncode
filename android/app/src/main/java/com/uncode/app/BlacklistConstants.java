@@ -154,6 +154,12 @@ public final class BlacklistConstants {
         "com.gspace.android",                  // GSpace Virtual Container
         "io.va.exposed",                       // VirtualApp Runtime
         "com.x8zs.sandbox",                    // X8 Sandbox
+        "com.samsung.knox.securefolder",       // Samsung Secure Folder
+        "com.sec.knox.switcher",               // Knox Container Switcher
+        "com.sec.knox.app.container",          // Knox App Container
+        "com.samsung.android.knox.containercore", // Knox Core Container
+        "com.miui.secondspace",                // Xiaomi Second Space
+        "com.miui.securityadd.insspace",       // Xiaomi Second Space Manager
 
         // ── Modded Social Media & Clients ──
         "com.instaprime.android",              // InstaPrime
@@ -401,6 +407,15 @@ public final class BlacklistConstants {
                lower.contains("appcloner") ||
                lower.contains("2accounts") ||
                lower.contains("multiaccounts") ||
+               lower.contains("secondspace") ||
+               lower.contains("securefolder") ||
+               lower.contains("privatespace") ||
+               lower.contains("gspace") ||
+               lower.contains("island") ||
+               lower.contains("shelter") ||
+               lower.contains("calculatorvault") ||
+               lower.contains("photovault") ||
+               lower.contains("gallerylock") ||
                lower.contains("kisskh") ||
                lower.contains("bilibili") ||
                lower.contains("danmaku.bili") ||

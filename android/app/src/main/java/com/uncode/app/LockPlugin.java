@@ -186,12 +186,7 @@ public class LockPlugin extends Plugin {
                 LocalDnsVpnService.startVpn(getActivity());
             }
 
-            // If Device Owner: protect QIEZKA from force-stop and uninstall
-            if (dpm.isDeviceOwnerApp(getActivity().getPackageName())) {
-                // Block uninstall while lockdown is active
-                dpm.setUninstallBlocked(adminComponent, getActivity().getPackageName(), true);
-                Log.i(TAG, "Lockdown active as Device Owner — uninstall blocked");
-            }
+
 
             JSObject ret = new JSObject();
             ret.put("lockEndTime", lockEndTime);
@@ -242,17 +237,7 @@ public class LockPlugin extends Plugin {
                 nm.cancel(AlarmReceiver.NOTIF_ID_COMPLETED);
             }
 
-            // 5. Device Owner unblock uninstall
-            DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
-            ComponentName adminComponent = new ComponentName(context, AdminReceiver.class);
-            if (dpm != null && dpm.isDeviceOwnerApp(context.getPackageName())) {
-                try {
-                    dpm.setUninstallBlocked(adminComponent, context.getPackageName(), false);
-                    Log.i(TAG, "clearLockdownState: Device Owner uninstall re-enabled");
-                } catch (Exception e) {
-                    Log.w(TAG, "clearLockdownState setUninstallBlocked error: " + e.getMessage());
-                }
-            }
+
 
             Log.i(TAG, "clearLockdownState: complete and authoritative unlock executed successfully");
         } catch (Exception e) {
@@ -280,17 +265,7 @@ public class LockPlugin extends Plugin {
             // 1. Clear classification cache so whitelist takes immediate effect
             AppClassifier.clearCache();
 
-            // 2. Device Owner: block uninstalls during consequence mode
-            DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
-            ComponentName adminComponent = new ComponentName(context, AdminReceiver.class);
-            if (dpm != null && dpm.isDeviceOwnerApp(context.getPackageName())) {
-                try {
-                    dpm.setUninstallBlocked(adminComponent, context.getPackageName(), true);
-                    Log.i(TAG, "startConsequenceState: Device Owner uninstall blocked");
-                } catch (Exception e) {
-                    Log.w(TAG, "startConsequenceState setUninstallBlocked error: " + e.getMessage());
-                }
-            }
+
 
             // 3. Start Local DNS Sinkhole VPN if configured
             String webMode = prefs.getString("web_protection_mode", "accessibility");
@@ -453,9 +428,9 @@ public class LockPlugin extends Plugin {
     @PluginMethod
     public void setDnsFilterProfile(PluginCall call) {
         try {
-            // Milestone 18: Upstream DNS is non-negotiably CleanBrowsing School Filter
-            prefs.edit().putString("dns_filter_profile", "cleanbrowsing").apply();
-            Log.i(TAG, "DNS filter profile locked to CleanBrowsing School Filter");
+            // Upstream DNS is handled on-device with WebClassifier
+            prefs.edit().putString("dns_filter_profile", "webclassifier").apply();
+            Log.i(TAG, "DNS filter profile set to WebClassifier");
             LocalDnsVpnService.updateNotification(getActivity());
             JSObject ret = new JSObject();
             ret.put("success", true);
@@ -1061,7 +1036,7 @@ public class LockPlugin extends Plugin {
     @PluginMethod
     public void checkPermissions(PluginCall call) {
         JSObject result = new JSObject();
-        result.put("isDeviceOwner", dpm.isDeviceOwnerApp(getActivity().getPackageName()));
+
         result.put("isAdminActive", dpm.isAdminActive(adminComponent));
         
         boolean accessibilityEnabled = false;

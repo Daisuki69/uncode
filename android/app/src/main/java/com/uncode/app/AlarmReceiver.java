@@ -390,10 +390,10 @@ public class AlarmReceiver extends BroadcastReceiver {
             android.net.Uri soundUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION);
             android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
                     .build();
 
-            long[] vibrationPattern = new long[]{0, 300, 200, 300};
+            long[] vibrationPattern = new long[]{0, 350, 200, 350};
 
             NotificationChannel alertsChannel = new NotificationChannel(
                     CHANNEL_ID_ALERTS,
@@ -451,7 +451,7 @@ public class AlarmReceiver extends BroadcastReceiver {
             PendingIntent contentIntent = PendingIntent.getActivity(context, id, launchIntent, pFlags);
 
             android.net.Uri soundUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION);
-            long[] vibrationPattern = new long[]{0, 300, 200, 300};
+            long[] vibrationPattern = new long[]{0, 350, 200, 350};
 
             NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(R.drawable.ic_qiezka_notif)
@@ -466,7 +466,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .setSound(soundUri)
                     .setVibrate(vibrationPattern)
-                    .setDefaults(NotificationCompat.DEFAULT_ALL);
+                    .setLights(0xFF4F46E5, 500, 1000);
 
             if (Build.VERSION.SDK_INT >= 34) {
                 NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -478,6 +478,21 @@ public class AlarmReceiver extends BroadcastReceiver {
             }
 
             NotificationManagerCompat.from(context).notify(id, builder.build());
+
+            // Active Hardware Vibration Trigger for instant tactile feedback
+            try {
+                android.os.Vibrator vibrator = (android.os.Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+                if (vibrator != null && vibrator.hasVibrator()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(android.os.VibrationEffect.createWaveform(vibrationPattern, -1));
+                    } else {
+                        vibrator.vibrate(vibrationPattern, -1);
+                    }
+                }
+            } catch (Exception ex) {
+                Log.w(TAG, "Direct vibration trigger skipped: " + ex.getMessage());
+            }
+
             Log.i(TAG, "Notification displayed successfully: " + title + " (id=" + id + ")");
         } catch (Exception e) {
             Log.e(TAG, "Error displaying notification (" + title + "): " + e.getMessage(), e);

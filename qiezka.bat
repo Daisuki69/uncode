@@ -26,11 +26,8 @@ set "ENABLE_ACCESSIBILITY=true"
 ::    (100% realistic: works with all personal Google accounts logged in, no wipe needed)
 set "ACTIVATE_DEVICE_ADMIN=true"
 
-:: 7. Attempt Enterprise Device Owner mode (DEFAULT: false)
-::    (Unrealistic for everyday devices: requires root or removing all Google accounts)
-set "TRY_DEVICE_OWNER=false"
 
-:: 8. Automatically launch QIEZKA on your phone after setup completes
+:: 7. Automatically launch QIEZKA on your phone after setup completes
 set "LAUNCH_APP_ON_FINISH=true"
 
 :: ============================================================================
@@ -193,20 +190,7 @@ if /i "!ACTIVATE_DEVICE_ADMIN!"=="true" (
     echo       Device Administrator: SKIPPED [Configured: false].
 )
 
-set DO_OK=0
-if /i "!TRY_DEVICE_OWNER!"=="true" (
-    echo       Attempting Device Owner activation...
-    adb.exe shell dpm set-device-owner com.uncode.app/.AdminReceiver >nul 2>&1
-    if not errorlevel 1 (
-        set DO_OK=1
-        echo       Device Owner: ACTIVATED [Enterprise full lockdown]
-    ) else (
-        echo       Device Owner: Bypassed [Device has existing accounts].
-    )
-) else (
-    echo       Device Owner: DISABLED [Using Device Admin mode, no account removal needed].
-)
-echo.
+
 
 :: Launch QIEZKA
 if /i "!LAUNCH_APP_ON_FINISH!"=="true" (
@@ -228,11 +212,7 @@ if /i "!ACTIVATE_DEVICE_ADMIN!"=="true" (
 ) else (
     echo   - Uninstall Protection: Disabled by user config
 )
-if "!DO_OK!"=="1" (
-    echo   - Mode: FULL ENTERPRISE DEVICE OWNER
-) else (
-    echo   - Mode: HIGH-SECURITY DEVICE ADMIN [No accounts removed]
-)
+echo   - Mode: HIGH-SECURITY DEVICE ADMIN [Uninstall locked]
 echo.
 
 :end

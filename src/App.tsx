@@ -299,8 +299,6 @@ export default function App() {
       setWebProtectionMode(safeWebMode);
       setAllowYoutube(loadedSettings.allowYoutube ?? false);
       setBlockWebGames(true);
-      setDnsFilterProfile('cleanbrowsing');
-      setEnforceSafeSearch(loadedSettings.enforceSafeSearch !== false);
       setResources(loadedResources);
       setLogs(loadedLogs);
       setCompletedHomeworks(loadedCompletedHomeworks);

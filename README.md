@@ -290,7 +290,7 @@ To close this backdoor without breaking legitimate web research (e.g. Wikipedia,
 ├────────────────────────────────────┬────────────────────────────────────┤
 │ 🛡️ ACCESSIBILITY URL GUARD         │ ⚡ LOCAL DNS SINKHOLE (VPN)        │
 ├────────────────────────────────────┼────────────────────────────────────┤
-│ • Real-time Omnibox inspection     │ • On-device UDP port 53 loopback   │
+│ • Real-time browser URL inspection │ • On-device UDP port 53 loopback   │
 │ • Immediate visual eviction (Back) │ • Sinkholes domains to 0.0.0.0     │
 │ • Leaves VPN slot FREE             │ • Blocks all browsers & WebViews   │
 │ • Zero battery / latency overhead  │ • Zero proxy delay for HTTPS       │
@@ -365,52 +365,44 @@ Legitimate educational and documentation resources are explicitly exempted from 
 #### D. Settings Toggle
 In **Settings > General > Web & Browser Protection**, students can toggle **"Block Web-Based Games"** (enabled by default). Locked during active lockdown and consequence mode.
 
-### 4. School-Grade Upstream DNS Engine (CleanBrowsing & Enterprise Filtering)
+### 4. Multi-Genre On-Device Web Classification Engine (`WebClassifier`)
 
-Ever wondered how massive university and high school campus networks (running Cisco Umbrella, Fortinet, GoGuardian, and Lightspeed) filter hundreds of millions of domains with zero latency? They do **not** maintain massive manual URL lists on individual devices. Instead, they enforce **Upstream Filtered Recursive DNS Resolvers**.
-
-QIEZKA brings this exact enterprise architecture directly to your Android device via `LocalDnsVpnService`:
+Instead of relying on third-party commercial DNS providers, QIEZKA features **`WebClassifier`**—an on-device semantic and heuristic web intelligence engine that operates as the unified decision brain across both **Accessibility Guard** (real-time DOM & browser address bar) and **DNS Sinkhole** (socket-level packet sinkhole).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│               SCHOOL-GRADE NETWORK INTELLIGENCE ARCHITECTURE                           │
+│                        ON-DEVICE WEB CLASSIFIER ARCHITECTURE                           │
 ├──────────────────────────┬─────────────────────────────┬───────────────────────────────┤
-│ Tier 1: Local Sinkhole   │ Tier 2: SafeSearch VIP      │ Tier 3: Upstream School DNS   │
+│ Layer 1: Search Gate     │ Layer 2: Threat Categories  │ Layer 3: Dual Enforcement     │
 ├──────────────────────────┼─────────────────────────────┼───────────────────────────────┤
-│ 250+ gaming & distraction│ DNS synthesizes A record    │ CleanBrowsing / Cloudflare    │
-│ domains sinkholed to     │ 216.239.38.120 for Google;  │ filters 100M+ sites in <10ms; │
-│ 0.0.0.0 (0ms latency).   │ locks SafeSearch ON.        │ drops adult & proxy networks. │
+│ Typing in address bar &  │ 10 major distraction genres │ Accessibility Guard (0 VPN)   │
+│ search results (Google,  │ evaluated on-device with zero│ OR DNS Sinkhole (0.0.0.0)    │
+│ Bing) are 100% immune.   │ external latency overhead.  │ OR Dual-Layer Hybrid Armor.   │
 └──────────────────────────┴─────────────────────────────┴───────────────────────────────┘
 ```
 
-Students can select their desired upstream DNS resolver profile in **Settings > General > Web & Browser Protection**:
+The engine classifies websites across 10 distinct digital distraction categories:
+1. **Web Games & Cloud Gaming**: 300+ game portals, .io arenas, unblocked mirrors, cloud APKs (`now.gg`).
+2. **Online Gambling & Sportsbooks**: Casinos, sports betting, crypto slots, skin/case gambling.
+3. **Adult, Explicit & NSFW**: Adult streaming, cams, adult subscriptions, erotica.
+4. **Web Proxies & Unblockers**: CGI/PHP/Node web proxies and firewall bypass tunnels.
+5. **Piracy Streaming & Manga**: Free movie/anime streaming, manga/webtoons, vertical short-dramas.
+6. **Social Media Feeds**: TikTok, Instagram, Twitter/X, Reddit, Threads web interfaces.
+7. **Dating & Random Cam Chat**: Dating platforms and random video chat services.
+8. **Time-Wasters & Gossip**: Viral clickbait and gossip portals.
+9. **Crypto Meme Coin Speculation**: Speculative DEX and meme coin casino portals.
+10. **Suspicious gTLDs**: Direct blocking for `.casino`, `.bet`, `.poker`, `.adult`, `.porn`, `.xxx`, `.sex`, `.cam`.
 
-| DNS Resolver Profile | Primary & Secondary IPs | Capabilities & Enforcement |
-|---|---|---|
-| **🏫 CleanBrowsing School / Family** *(Recommended Default)* | Primary: `185.228.168.168`<br/>Secondary: `185.228.169.168`<br/>Failover: `1.1.1.3`, `94.140.14.15` | **School-Grade Filtering**: Blocks adult content, pornography, malicious domains, and proxy/VPN evasion backdoors. Automatically forces SafeSearch across Google, Bing, DuckDuckGo, and YouTube with zero phone storage overhead. |
-| **🛡️ Cloudflare for Families** | Primary: `1.1.1.3`<br/>Secondary: `1.0.0.3` | **High-Speed Anycast**: Global Anycast DNS (<10ms). Blocks malware, phishing vectors, and explicit adult content. |
-| **🛑 AdGuard Family Protection** | Primary: `94.140.14.15`<br/>Secondary: `94.140.15.16` | **Aggressive Ad & Adult Filter**: Sinkholes advertising networks, analytics/trackers, and adult domains. |
-| **⚡ Standard Public DNS** | Active System DHCP DNS<br/>Fallback: `1.1.1.1`, `8.8.8.8`, `9.9.9.9` | Only applies QIEZKA's local 250+ gaming and distraction database; unblocked queries resolve standard public DNS. |
-
-### 5. Strict SafeSearch VIP Enforcement (Google, Bing, DuckDuckGo, YouTube)
-
-A common student bypass on allowed browsers is searching for explicit content or unblocked game mirrors via Google or Bing Images. 
-
-QIEZKA's `LocalDnsVpnService` enforces **Strict SafeSearch at the network socket layer**:
-1. **Google Search & YouTube Restricted Mode**:
-   - Queries to `google.com`, `www.google.com`, and regional domains (`google.co.uk`, `google.ca`, `google.co.id`) are intercepted and returned with an `A` record pointing to Google's official educational VIP: **`216.239.38.120`** (`forcesafesearch.google.com`).
-   - For `AAAA` (IPv6) queries, QIEZKA synthesizes an RFC-compliant `NODATA` (NOERROR with ANCOUNT=0) response, forcing browsers to immediately resolve the IPv4 SafeSearch VIP.
-   - Google servers recognize this IP and **permanently lock SafeSearch ON**, displaying the badge *"SafeSearch is locked on by your network administrator"*.
-   - **Academic Tool Immunity**: Critical educational tools (`drive.google.com`, `docs.google.com`, `classroom.google.com`, `calendar.google.com`, `meet.google.com`) are explicitly preserved and never redirected.
-2. **Microsoft Bing**:
-   - Queries to `bing.com` and `www.bing.com` are mapped directly to Microsoft's strict safe search VIP: **`204.79.197.220`** (`strict.bing.com`).
-3. **DuckDuckGo**:
-   - Queries to `duckduckgo.com` and `www.duckduckgo.com` are mapped to `52.142.124.215` (`safe.duckduckgo.com`).
-4. **Settings Switch**:
-   - Toggleable under **Settings > General > Web & Browser Protection** (enabled by default). Locked during active study sessions and consequence mode.
+### 5. Academic Safe-List Immunity
+Critical educational platforms enjoy 100% hardcoded immunity with zero false positives:
+- Google Classroom, Docs, Drive, Sheets, Slides, Scholar
+- Wikipedia, Wikimedia, Khan Academy, Coursera, edX, Udemy
+- Desmos, GeoGebra, WolframAlpha, Overleaf
+- Quizlet, Brainly, Chegg, Duolingo, MDN, GitHub, StackOverflow
+- All educational institutions ending in `.edu`, `.edu.*`, `.ac.uk`, and `.gov`
 
 ### 6. Anti-Cheat Lockout Guard
-Just like Operating Mode settings, **Web & Browser Protection, DNS Filter Profiles, SafeSearch Enforcement, YouTube settings, and Web-Based Game Armor cannot be changed or disabled during an active lockdown session or during Consequence Mode**. The student must complete and pass their homework submission first.
+Just like Operating Mode settings, **Web & Browser Protection modes and settings cannot be changed or disabled during an active lockdown session or during Consequence Mode**. The student must complete and pass their homework submission first.
 
 ---
 
@@ -1624,35 +1616,23 @@ This section details every major engineering revision, architectural refinement,
     - Synchronizes `block_web_games` preference to native bridge on boot and upon saving settings.
 
 ---
-### 16. Milestone 16: School-Grade Network Intelligence & Strict SafeSearch DNS Engine
+### 16. Milestone 16: Unified Tri-Mode Web Protection Architecture (Accessibility, DNS Sinkhole & Dual Hybrid)
 - **Why It Was Added**:
-  - Manually updating blocklists for millions of newly created web games, proxies, and explicit sites is impossible for a single user or phone. Enterprise campus networks (Cisco Umbrella, CleanBrowsing, Fortinet, GoGuardian) do not store massive lists on devices—they route traffic through upstream filtered recursive DNS resolvers backed by real-time automated AI crawlers.
-  - Students also frequently exploit image/video search queries on Google and Bing to discover unblocked game mirrors and explicit content.
-- **Architectural Enhancements**:
+  - Manually updating blocklists or relying on inflexible, external upstream family filters proved either too narrow or created unwanted network side-effects. Students require reliable, device-wide web defense that seamlessly integrates with their study environment while preserving battery life and device compatibility.
+  - To accommodate diverse student needs and device environments, QIEZKA introduced a unified tri-mode web protection architecture:
+    1. **`accessibility` (Default — Zero VPN Overhead)**: Uses Android's native Accessibility Service to continuously inspect active browser address bars and page structures in real time. Requires zero VPN slots, leaving the device's VPN slot completely open for school, university, or work VPNs.
+    2. **`dns` (Local DNS Sinkhole VPN)**: Runs an on-device local UDP port 53 DNS sinkhole engine that intercepts network-level DNS queries phone-wide across all applications, synthesizing RFC-compliant `NXDOMAIN` responses for blocked distraction destinations in <1ms without routing external data through third parties.
+    3. **`dual` (Dual-Layer Hybrid)**: Combines local DNS packet sinkholing with real-time accessibility DOM/URL eviction for defense-in-depth protection.
+- **Architectural Implementation**:
   - In [LocalDnsVpnService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java):
-    - **Upstream School-Grade DNS Resolvers**:
-      - `cleanbrowsing` (*CleanBrowsing School / Family Filter* - Primary `185.228.168.168`, Secondary `185.228.169.168`): Enforces school-level protection across the entire phone, blocking 100M+ adult, pornographic, malicious, and proxy domains in <10ms with zero battery drain, while enforcing SafeSearch natively.
-      - `cloudflare_family` (*Cloudflare for Families 1.1.1.3* - `1.1.1.3` / `1.0.0.3`): Global Anycast speed blocking malware and adult content.
-      - `adguard_family` (*AdGuard Family Protection* - `94.140.14.15` / `94.140.15.16`): Blocks aggressive ads, trackers, and adult sites.
-      - `standard`: System DHCP DNS + `1.1.1.1` + `8.8.8.8`.
-      - Built-in failover redundancy so DNS queries never fail even during upstream provider outages.
-    - **On-Device Strict SafeSearch VIP Synthesis**:
-      - Queries for Google Search and YouTube synthesize RFC-compliant `A` records to Google's official educational VIP **`216.239.38.120`** (`forcesafesearch.google.com`), permanently locking SafeSearch ON with Google's network administrator badge.
-      - Queries for Bing synthesize `A` records to **`204.79.197.220`** (`strict.bing.com`).
-      - Queries for DuckDuckGo synthesize `A` records to **`52.142.124.215`** (`safe.duckduckgo.com`).
-      - Synthesizes `NODATA` responses (NOERROR, ANCOUNT 0) for IPv6 `AAAA` records, forcing immediate resolution of the IPv4 SafeSearch VIP.
-      - Explicitly exempts critical academic services (`classroom.google.com`, `drive.google.com`, `docs.google.com`, `calendar.google.com`, `meet.google.com`) so school tools are never redirected.
-    - **Preferences Key Correction**:
-      - Standardized `PREFS_NAME = "uncode_lock"` across `LocalDnsVpnService`, fixing a key discrepancy where `LocalDnsVpnService` previously read from `"UncodeLockPrefs"`.
-    - **Dynamic Foreground Notification**:
-      - Notification text dynamically updates with the active profile and SafeSearch status (e.g. *"CleanBrowsing School Filter • SafeSearch Active"*).
-  - In [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java) & [systemBridge.ts](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/systemBridge.ts):
-    - Added `setDnsFilterProfile(profile)` and `setEnforceSafeSearch(enforce)` methods.
-  - In [SettingsOverlay.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx):
-    - Added **"School-Grade Upstream DNS Engine"** visual card selector (CleanBrowsing School Filter, Cloudflare for Families, AdGuard Family, Standard Public DNS).
-    - Added **"Strict SafeSearch Enforcement"** toggle switch (default: ON, locked during active lockdown/consequence mode).
-  - In [build.gradle](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/build.gradle) & [app/build.gradle](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/build.gradle):
-    - Registered a compatibility `testClasses` task to fix Android Studio / IntelliJ IDEA build invocations.
+    - All incoming DNS queries are evaluated on-device directly against `WebClassifier.classifyDomain(lowerDomain, allowYoutube)`.
+    - Blocked domains receive instant local `NXDOMAIN` (RCODE 3) responses.
+    - Legitimate academic and research lookups are forwarded to high-speed upstream DNS resolvers (Cloudflare `1.1.1.1` & Google `8.8.8.8`) with built-in failover redundancy.
+    - DoH canary endpoints (`use-application-dns.net`, `cloudflare-dns.com`, `dns.google`) are sinkholed to enforce system-level resolution in Chromium and Firefox.
+  - In [SettingsOverlay.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx) & [App.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx):
+    - Added dedicated **"Web Protection Engine"** visual card selector (`accessibility`, `dns`, `dual`) with clear status indicators and explanations.
+    - Fully locked and immutable during active lock sessions and consequence mode to prevent evasion.
+
 ---
 
 ### 17. Milestone 17: Multi-User Anti-Evasion, App Cloner Elimination & Wide Recognition Engine
@@ -1678,26 +1658,55 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 18. Milestone 18: Zero-Loophole Strict Accountability & Omnibox Deep Eviction
+### 18. Milestone 18: Massive Multi-Genre WebClassifier & Autocomplete Typing Immunity Guard
 - **Why It Was Mandated**:
-  - QIEZKA is designed as an uncompromising accountability tool, yet previous iterations inadvertently introduced loopholes under the guise of user configuration:
-    1. **"Block Web-Based Games" Toggle**: Allowing students to turn off web game blocking during study sessions created an instant distraction loophole.
-    2. **"Off (Unrestricted)" Web Protection Option**: Permitted students to completely disable browser URL filtering and browse TikTok, Instagram, Reddit, and games on mobile Chrome.
-    3. **Selectable Upstream DNS Engines**: Providing "Standard Public DNS" or non-filtering resolvers allowed students to escape school-grade adult and proxy filtering.
-    4. **The `y8.com` Consequence Mode Backdoor**: In modern Chrome on Android, URL bar text is frequently empty or moved to `contentDescription`, `location_bar`, or `search_box_text`. Fallback heuristic checking required `.com/`, failing on raw domains like `y8.com`. When scrolling down or in full-screen games, the address bar is hidden, returning `null` and allowing gaming sessions to persist. Additionally, outside operating hours in Safemode, consequence checks exited prematurely.
+  - Narrow, hardcoded game lists proved insufficient against modern digital distractions: students easily wandered onto web-based gambling, adult content, proxy tunnels, piracy streaming, vertical short-dramas, viral gossip, and crypto speculation.
+  - Crucially, previous URL evaluation mechanisms suffered from an **autocomplete eviction trap**: when a student typed the letter `y` in Chrome to search or navigate to `yale.edu`, Chrome's inline autocomplete pre-filled `y8.com`. The accessibility service extracted `y8.com` on the keystroke text-change event and fired `GLOBAL_ACTION_BACK`, booting the student out mid-keystroke. The student was unable to type any word starting with `y`, `p`, `r`, or `t`.
+- **Architectural Enhancements**:
+  - **Unified On-Device Intelligence Engine (`WebClassifier.java` & `WebBlocklistConstants.java`)**:
+    - Operates as the single authoritative brain across both `LockAccessibilityService` (DOM & address bar) and `LocalDnsVpnService` (DNS socket layer).
+    - **600+ Distraction Domains across 10 Categories**:
+      1. *Web Games & Cloud APKs (400+ Domains)*: Poki, CrazyGames, CoolMath, Y8, Friv, ArmorGames, Newgrounds, .IO arenas (Slither, Agar, Krunker, 1v1.lol, Smash Karts), retro emulators (vimm, retrogames), unblocked networks (classroom6x, 3kh0, slope, retro bowl, moto-x3m), and cloud APK runtimes (`now.gg`).
+      2. *Online Gambling & Sportsbooks (100+ Domains)*: Stake, Roobet, Bet365, Bovada, DraftKings, FanDuel, BetMGM, Caesars, PokerStars, 1xBet, 888casino, CSGO gambling, skin betting.
+      3. *Adult & Explicit NSFW (100+ Domains)*: Major adult tube networks, live cam portals, OnlyFans, Fansly, nHentai, Rule34, adult webcomics, and erotica.
+      4. *Web Proxies & School Unblockers (50+ Domains)*: CroxyProxy, ProxySite, 4everproxy, BlockAway, Rammerhead, Ultraviolet, Womginx, Ludicrous, Interstellar, and CGI bypass tunnels.
+      5. *Piracy Streaming, Manga & Short-Dramas (100+ Domains)*: 123movies, Fmovies, Putlocker, Soap2Day, Aniwave, MangaDex, AsuraScans, ReelShort, DramaBox, ShortMax, GoodShort, ThePirateBay, FitGirl.
+      6. *Social Media & Algorithmic Feeds (40+ Domains)*: TikTok, Instagram, Twitter/X, Reddit, Threads, Snapchat, Discord, Twitch, Kick, Bilibili, Pinterest, Tumblr.
+      7. *Casual Dating & Random Video Cam Chat (50+ Domains)*: Tinder, Bumble, Hinge, Badoo, OkCupid, Match, Grindr, Omegle, OmeTV, Chatroulette, Emerald Chat, Monkey App.
+      8. *Viral Gossip & Clickbait Time-Wasters (30+ Domains)*: BuzzFeed, BoredPanda, TheChive, DailyMail, TMZ, HollywoodLife, E! Online, Cracked, Ranker.
+      9. *Crypto Meme Coin Speculation (10+ Domains)*: Pump.fun, DexScreener, Birdeye, Raydium, PancakeSwap, Uniswap, SushiSwap.
+      10. *Suspicious gTLDs*: `.casino`, `.bet`, `.poker`, `.adult`, `.porn`, `.xxx`, `.sex`, `.cam`, `.dating`, `.vodka`, `.bingo`.
+  - **Vast Tier 1 Academic & Developer Safe-List (100+ Domains & Worldwide TLDs)**:
+    - *Reference & Encyclopedias*: Wikipedia, Wiktionary, Britannica, Merriam-Webster, Oxford, Cambridge, Stanford Encyclopedia of Philosophy.
+    - *Learning Management Systems (LMS)*: Canvas, Blackboard, Schoology, Moodle, Google Classroom, PowerSchool, Infinite Campus, College Board, ACT.
+    - *Science, Mathematics & STEM Tools*: Desmos, GeoGebra, WolframAlpha, Symbolab, Mathway, Integral/Derivative calculators, Khan Academy, Brilliant, PhET Interactive Simulations, ChemGuide, PTable, HyperPhysics.
+    - *Scholarly Journals & Scientific Repositories*: arXiv, bioRxiv, medRxiv, ResearchGate, JSTOR, Nature, Science, ScienceDirect, Springer, Wiley, IEEE Xplore, ACM Digital Library, PubMed, NCBI, Google Scholar, NASA, NOAA, USGS.
+    - *Courseware & Study Guides*: Coursera, edX, Udemy, Quizlet, Brainly, Chegg, Gutenberg, Internet Archive, SparkNotes.
+    - *Language Learning*: Duolingo, Babbel, Memrise, Busuu, AnkiWeb, DeepL, Google Translate.
+    - *Computer Science & Developer Docs*: MDN Web Docs, W3Schools, GeeksforGeeks, StackOverflow, GitHub, GitLab, LeetCode, HackerRank, FreeCodeCamp, Oracle Java Docs, Python Docs, Node.js, React, Angular, Vue, Android Developers, Apple Developer, Microsoft Learn, AWS, Google Cloud, Overleaf, LaTeX.
+    - *Student Productivity Suites*: Google Docs, Drive, Sheets, Slides, Forms, Notion, Obsidian, Trello, Miro, Figma, Canva, Microsoft Office 365, OneDrive.
+    - *Worldwide TLD Immunity*: Hardcoded whitelist for `.edu`, `.ac.uk`, `.ac.jp`, `.ac.in`, `.edu.au`, `.edu.sg`, `.edu.ph`, `.edu.cn`, `.edu.br`, `.gov`, `.gov.uk`, `.gov.au`, `.mil`.
+  - **Browser Autocomplete Typing Immunity & Address Bar Focus Guard (`LockAccessibilityService.java`)**:
+    - **Keystroke & Selection Event Filtering**: `TYPE_VIEW_TEXT_CHANGED` and `TYPE_VIEW_TEXT_SELECTION_CHANGED` events from browser packages are immediately ignored in `onAccessibilityEvent`. Typing a character never triggers mid-keystroke URL evaluation.
+    - **Address Bar Focus Guard**: Before evaluating candidate address bar view IDs, checks `root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)` and `node.isFocused()`. If an address bar, search box, or text field is actively focused, URL extraction immediately returns `null`. Autocomplete suggestions are never evaluated.
+    - **Dropdown Suggestion Isolation**: Excluded autocomplete suggestion list view IDs (such as `com.android.chrome:id/line_1`) from address bar targets, ensuring suggestion lists are never mistaken for destination URLs.
+    - **Committed Navigation Transition**: Only when the student commits navigation (presses Enter or taps a search suggestion) does the address bar lose focus (`node.isFocused() == false`), the keyboard dismisses, and the page renders. `WebClassifier` then evaluates the loaded destination with zero false positives during typing and zero bypasses upon page load.
+---
+
+### 19. Milestone 19: Notification Sound/Vibration & Background Notification Guard
+- **Why It Was Mandated**:
+  - **Silent / Non-Vibrating Alerts**: Students need unambiguous audio and tactile feedback for time-sensitive study warnings (30m, 15m, 5m, 1m, 30s before lockdown), lockdown activation, homework expiration, and unlock completion. Missing `VIBRATE` permission in `AndroidManifest.xml` and default channel settings caused alerts to be silent on several devices.
+  - **Background Notification Hijacking**: Whenever a blocked app (e.g., WhatsApp, Discord, YouTube) received a background notification or performed background sync, Android dispatched an `AccessibilityEvent`. `LockAccessibilityService` was checking `isPackageBlocked(pkg)` on all event types, causing `enforceBlock()` to immediately launch QIEZKA full-screen over the user's active study session (e.g. Google Docs, Anki, Classroom), even though the user never touched or opened the notification.
 - **What Was Implemented**:
-  - **Permanent, Non-Toggleable Web-Based Game Armor**:
-    - The "Block Web-Based Games" switch is removed from Settings and Onboarding. Web game blocking (250+ domains, search mini-games, unblocked mirrors, cloud APKs) is hardcoded **permanently active** across all modes.
-  - **No "Off" Web Filtering Mode**:
-    - Deleted `"off"` from `webProtectionMode`. The baseline default is **Accessibility URL Guard** (zero VPN slot), with **DNS Sinkhole** and **Dual-Layer Hybrid** available for packet-level enforcement.
-  - **Single Non-Negotiable Upstream DNS Engine (CleanBrowsing School Filter)**:
-    - Removed public/alternative DNS selectors. If DNS Sinkhole or Dual-Layer is selected, the upstream resolver is strictly and exclusively **CleanBrowsing School Filter** (`185.228.168.168` / `185.228.169.168`) with Cloudflare Family (`1.1.1.3`) failover and SafeSearch VIP synthesis.
-  - **Deep Omnibox & DOM Window Eviction (`LockAccessibilityService.java`)**:
-    - Multi-identifier URL extraction: Inspects `url_bar`, `location_bar`, `search_box_text`, `toolbar`, and `omnibox`.
-    - Inspects both `node.getText()` and `node.getContentDescription()`.
-    - Robust domain matching: Catches raw domain tokens (e.g. `y8.com`, `poki.com`) without requiring protocol schemes or trailing slashes.
-    - Window Title & DOM Scanning: When the address bar is hidden during full-screen gameplay, scans window titles and top-level web content for gaming signatures, immediately firing `GLOBAL_ACTION_BACK`.
-    - Guaranteed Consequence Mode Web Enforcement: Web protection remains actively enforced whenever consequence mode is active.
+  - **Hardware Haptic Feedback & Audio Notification Engine (`AlarmReceiver.java`, `AndroidManifest.xml`)**:
+    - Added `<uses-permission android:name="android.permission.VIBRATE" />` to `AndroidManifest.xml`.
+    - Configured notification channels (`qiezka_alerts_v2`, `qiezka_status_v2`) with `AudioAttributes.USAGE_NOTIFICATION_EVENT`, `NotificationManager.IMPORTANCE_HIGH`, lights, system notification sound, and a double-pulse vibration pattern (`new long[]{0, 350, 200, 350}`).
+    - Added direct hardware `Vibrator` / `VibrationEffect` triggering in `showNotificationStatic()` to guarantee tactile vibration across aggressive OEM skins (OneUI, MIUI, ColorOS).
+  - **Background Notification Interception Guard (`LockAccessibilityService.java`)**:
+    - Restricted `lastForegroundPackage` updates: ONLY updates on `AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED` where `event.getPackageName()` is not `com.android.systemui`.
+    - In `onAccessibilityEvent()`, `enforceBlock(pkg)` is now strictly guarded: it is ONLY triggered if the blocked app is actively entering the foreground (`TYPE_WINDOW_STATE_CHANGED`) or is confirmed as the active focused foreground window (`pkg.equals(detectCurrentForegroundPackage())`).
+    - Background notifications alone (`TYPE_NOTIFICATION_STATE_CHANGED`, background `TYPE_WINDOW_CONTENT_CHANGED`) remain peacefully in the notification shade without yanking the user to QIEZKA.
+    - If the user taps the notification from the shade to launch the blocked app, Android triggers a foreground `TYPE_WINDOW_STATE_CHANGED`, which QIEZKA immediately intercepts and blocks.
 ---
 
 

@@ -37,9 +37,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
       : 'accessibility'
   );
   const [allowYoutube, setAllowYoutubeState] = useState<boolean>(settings.allowYoutube || false);
-  const blockWebGames = true; // Milestone 18: Permanently active & cannot be turned off
-  const dnsFilterProfile = 'cleanbrowsing'; // Milestone 18: Non-negotiable school filter
-  const [enforceSafeSearch, setEnforceSafeSearchState] = useState<boolean>(settings.enforceSafeSearch !== false);
+  const blockWebGames = true; // Permanently active & cannot be turned off
   const [webError, setWebError] = useState<string | null>(null);
   
   const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
@@ -118,15 +116,6 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
     setAllowYoutubeState(allow);
   };
 
-  const handleToggleEnforceSafeSearch = (enforce: boolean) => {
-    setWebError(null);
-    if (isLockedOrConsequence) {
-      setWebError('SafeSearch settings are locked during active lockdown or consequence mode.');
-      return;
-    }
-    setEnforceSafeSearchState(enforce);
-  };
-
   const handleSaveGeneral = () => {
     onSave({ 
       apiKey: apiKey.trim() || undefined,
@@ -138,8 +127,6 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
       webProtectionMode: webProtectionMode,
       allowYoutube: allowYoutube,
       blockWebGames: blockWebGames,
-      dnsFilterProfile: dnsFilterProfile,
-      enforceSafeSearch: enforceSafeSearch
     });
   };
 
@@ -580,7 +567,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                     </div>
                     <span className="text-[10px] font-bold text-emerald-700 block mb-1">Recommended Baseline • Zero VPN Slot</span>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
-                      Inspects Omnibox address bar and DOM in real-time. Leaves VPN slot completely free for university VPNs.
+                      Inspects website URLs and web pages in real-time. Leaves VPN slot completely free for university VPNs.
                     </p>
                   </div>
 
@@ -604,9 +591,9 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                         <CheckCircle className="w-4 h-4 text-indigo-600" />
                       )}
                     </div>
-                    <span className="text-[10px] font-bold text-indigo-700 block mb-1">CleanBrowsing • Packet-Level</span>
+                    <span className="text-[10px] font-bold text-indigo-700 block mb-1">WebClassifier • Packet-Level</span>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
-                      On-device loopback VPN sinkholes distracting domains at the socket layer. Powered by CleanBrowsing School Filter.
+                      On-device loopback VPN sinkholes distracting domains at the socket layer across all browsers and apps using WebClassifier.
                     </p>
                   </div>
 
@@ -632,7 +619,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                     </div>
                     <span className="text-[10px] font-bold text-purple-700 block mb-1">Maximum Armor</span>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
-                      Runs both Accessibility Guard and CleanBrowsing DNS Sinkhole concurrently for zero-tolerance discipline.
+                      Runs both Accessibility Guard and DNS Sinkhole concurrently with WebClassifier for maximum coverage.
                     </p>
                   </div>
                 </div>
@@ -678,7 +665,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                   </div>
                 </div>
 
-                {/* Milestone 18: Permanent Web-Based Game Armor (Cannot be turned off) */}
+                {/* Web Armor Banner */}
                 <div className="bg-purple-50/80 p-3.5 rounded-2xl border border-purple-200 mt-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-start gap-2.5">
@@ -687,89 +674,19 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-purple-950">Web-Based Game Armor</span>
+                          <span className="font-bold text-xs text-purple-950">Multi-Genre Web Armor</span>
                           <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-purple-200/90 text-purple-900 border border-purple-300">
                             Permanently Active • No Bypass
                           </span>
                         </div>
                         <p className="text-[11px] text-purple-900/80 mt-1 leading-relaxed">
-                          Browser gaming portals (Poki, CrazyGames, Y8), viral .IO arenas, cloud APK backdoors (now.gg), and unblocked mirrors are permanently blocked across all modes. For strict accountability, this defense cannot be turned off.
+                          Distractions across all major categories (web games, gambling, adult content, proxies, piracy streaming, social media) are classified and blocked on-device by WebClassifier. This defense cannot be turned off.
                         </p>
                       </div>
                     </div>
                     <div className="shrink-0 p-1.5 rounded-full bg-purple-200/60 text-purple-800">
                       <Shield className="w-4 h-4 text-purple-700" />
                     </div>
-                  </div>
-                </div>
-
-                {/* Milestone 18: Non-Negotiable Upstream School DNS Engine */}
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
-                      <Wifi className="w-3.5 h-3.5 text-indigo-600" />
-                      Upstream DNS Engine (CleanBrowsing School Filter)
-                    </label>
-                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
-                      Strict Standard • 185.228.168.168
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-                    Whenever DNS Sinkhole or Dual-Layer is active, recursive DNS is strictly routed through CleanBrowsing School Filter with Cloudflare Family failover. Unfiltered public DNS is disallowed to prevent evasion.
-                  </p>
-
-                  <div className="p-3.5 rounded-xl border-2 border-indigo-600 bg-indigo-50/70 shadow-sm">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
-                        🏫 CleanBrowsing School Filter (Active)
-                      </span>
-                      <CheckCircle className="w-4 h-4 text-indigo-600" />
-                    </div>
-                    <span className="text-[10px] font-bold text-indigo-700 block mb-1">Primary: 185.228.168.168 • Failover: 1.1.1.3</span>
-                    <p className="text-[11px] text-gray-600 leading-relaxed">
-                      School-grade protection sinkholes adult content, proxy evasion backdoors, and malicious networks across the entire phone, while enforcing strict SafeSearch.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Strict SafeSearch Enforcement */}
-                <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 mt-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-start gap-2.5">
-                      <div className="p-2 rounded-xl bg-blue-100 text-blue-600 mt-0.5">
-                        <Search className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-gray-900">Strict SafeSearch Enforcement</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                            enforceSafeSearch ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'
-                          }`}>
-                            {enforceSafeSearch ? 'SafeSearch Locked ON (VIP 216.239.38.120)' : 'Standard Search'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-                          Locks SafeSearch ON at the network socket layer for Google, Bing, DuckDuckGo, and YouTube (VIP 216.239.38.120). Prevents students from discovering explicit images, videos, or proxy shortcuts through search engines.
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={enforceSafeSearch}
-                      onClick={() => handleToggleEnforceSafeSearch(!enforceSafeSearch)}
-                      disabled={isLockedOrConsequence}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        enforceSafeSearch ? 'bg-blue-600' : 'bg-gray-300'
-                      } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                          enforceSafeSearch ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
                   </div>
                 </div>
               </div>

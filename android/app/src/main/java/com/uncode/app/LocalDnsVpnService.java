@@ -53,13 +53,6 @@ public class LocalDnsVpnService extends VpnService {
     private static final String VPN_INTERFACE_IP = "10.111.222.1";
     private static final String VPN_DNS_SERVER_IP = "10.111.222.2";
 
-    // Educational & Enterprise SafeSearch VIPs (forces strict filtering at DNS socket level)
-    // forcesafesearch.google.com -> 216.239.38.120 (Google Search & YouTube Restricted Mode)
-    private static final byte[] GOOGLE_SAFE_VIP = new byte[] { (byte) 216, (byte) 239, 38, 120 };
-    // strict.bing.com -> 204.79.197.220
-    private static final byte[] BING_SAFE_VIP = new byte[] { (byte) 204, 79, (byte) 197, (byte) 220 };
-    // safe.duckduckgo.com -> 52.142.124.215
-    private static final byte[] DUCKDUCKGO_SAFE_VIP = new byte[] { 52, (byte) 142, 124, (byte) 215 };
 
     public static volatile boolean isRunning = false;
 
@@ -68,110 +61,8 @@ public class LocalDnsVpnService extends VpnService {
     private ExecutorService dnsExecutor = null;
     private volatile boolean shouldRun = false;
 
-    // Distracting domains sinkholed at the socket/DNS level
-    private static final Set<String> BLACKLISTED_DOMAINS = new HashSet<>(Arrays.asList(
-        "tiktok.com", "byteoversea.com", "ibytedtos.com", "musical.ly",
-        "instagram.com", "cdninstagram.com",
-        "facebook.com", "fb.com", "fbcdn.net", "fbsbx.com",
-        "twitter.com", "x.com", "twimg.com", "t.co",
-        "reddit.com", "redd.it", "redditmedia.com", "redditstatic.com",
-        "threads.net",
-        "snapchat.com", "sc-cdn.net",
-        "discord.com", "discordapp.com", "discordapp.net",
-        "twitch.tv", "ttvnw.net",
-        "netflix.com", "nflxvideo.net", "nflximg.net",
-        "disneyplus.com", "hulu.com", "primevideo.com",
-        "webtoons.com", "mangadex.org", "mangakakalot.com", "bilibili.tv", "bilibili.com",
-        "roblox.com", "rbxcdn.com",
-        "9gag.com", "pinterest.com", "tumblr.com"
-    ));
+    // Web distraction and gaming databases are now centralized in WebBlocklistConstants.java
 
-    // Comprehensive Web-Based Games Database (250+ Domains)
-    private static final Set<String> WEB_GAMING_DOMAINS = new HashSet<>(Arrays.asList(
-        // A. Mega Portals & Aggregators
-        "poki.com", "poki-gdn.com", "poki.cz", "poki.nl", "poki.com.br",
-        "crazygames.com", "crazygames.co.uk", "crazygames.fr", "crazygames.io",
-        "coolmathgames.com", "coolmath-games.com", "coolmath.com",
-        "kongregate.com", "kongregate.io",
-        "armorgames.com", "armorgamesonline.com",
-        "newgrounds.com", "ungrounded.net",
-        "y8.com", "y8games.com", "id.net",
-        "friv.com", "friv5.me", "friv.cm", "friv.today", "friv.cool", "frivclassic.com", "friv-2017.com",
-        "miniplay.com", "minijuegos.com",
-        "addictinggames.com", "silvergames.com",
-        "kizi.com", "kizi10.org",
-        "gamepix.com", "lagged.com",
-        "agame.com", "a-game.com", "gamesgames.com",
-        "snokido.com", "snokido.fr", "snokido.net",
-        "kbhgames.com", "playhop.com", "1001games.com",
-        "twoplayergames.org", "2playergames.com", "pomu.com", "paisdelosjuegos.com",
-        "games2girls.com", "girlsgogames.com", "mousebreaker.com", "stickpage.com",
-        "speele.nl", "jetztspielen.de", "gry.pl", "jeuxjeuxjeux.fr",
-        "arkadium.com", "gameforge.com", "gameflare.com", "gamepost.com",
-        "titotu.io", "kevin.games", "zone.msn.com", "plays.org", "bubbleshooter.net",
-
-        // B. Viral .IO & Multiplayer Arena Games
-        "slither.io", "slitherio.org", "agar.io", "agar.pro", "agariogame.club",
-        "diep.io", "krunker.io", "yendis.ch",
-        "1v1.lol", "1v1.school", "justfall.lol",
-        "paper.io", "paper-io.com", "paperio2.com",
-        "hole.io", "hole-io.com",
-        "surviv.io", "survev.io", "suroi.io",
-        "skribbl.io", "gartic.io", "garticphone.com", "drawasaurus.org",
-        "shellshock.io", "eggcombat.com", "shellshockers.io",
-        "deeeep.io", "bloxd.io", "voxiom.io", "smashkarts.io",
-        "ev.io", "zombs.io", "zombsroyale.io", "starve.io", "moomoo.io",
-        "narrow.one", "venge.io", "bonk.io", "bonk2.io",
-        "wings.io", "brutal.io", "splix.io", "lordz.io",
-        "flyordie.io", "evojaws.io", "evoworld.io",
-        "digdig.io", "yohoho.io", "taming.io", "betrayal.io",
-        "battledudes.io", "lolbeans.io", "warbrokers.io",
-        "curvefever.pro", "curvefever.com", "littlebigsnake.com", "arrow.io",
-        "iogames.space", "iogames.onl", "io-games.io",
-
-        // C. Cloud Gaming & Web APK Streaming Backdoors
-        "now.gg", "nowgg.me", "nowgg.io",
-        "play.geforcenow.com", "geforcenow.com",
-        "luna.amazon.com",
-        "boosteroid.com", "cloud.boosteroid.com",
-        "shadow.tech", "vortex.gg", "airgpu.com",
-
-        // D. Indie Web Runtimes & CDNs
-        "itch.zone", "itch.io", "gamejolt.com", "gx.games",
-        "simmer.io", "lexaloffle.com", "flowlab.io", "arcade.construct.net",
-
-        // E. Web Emulators & Retro Gaming
-        "emulatoronline.com", "retrogames.cc", "playretrogames.com", "vimm.net",
-        "emupedia.net", "emupedia.org", "afterplay.io", "eclipseemu.me",
-        "webretro.org", "game-oldies.com", "ssega.com", "playminigames.net",
-        "playclassic.games", "dosgames.com", "playdosgames.com",
-        "online-emulators.com", "retrogames.onl", "myabandonware.com",
-        "consoleroms.com", "archaic-bingo.com", "wowroms.com", "freeroms.com",
-
-        // F. Unblocked Games Dedicated Networks & Mirrors
-        "unblocked-games.com", "unblockedgames66.com", "unblockedgames66plus.com", "unblockedgames66ez.com",
-        "unblockedgames76.com", "unblockedgames77.com", "unblockedgames99.com",
-        "unblockedgames500.com", "unblockedgames119.com", "unblockedgames24h.com",
-        "classroom6x.com", "classroom-6x.org",
-        "slope-game.com", "slopeunblocked.org", "slopegame.online",
-        "hoodamath.com", "mathplayground.com", "abcya.com", "primarygames.com",
-        "freeonlinegames.com", "b-games.com", "unblocked-games-76.com",
-        "unblockedgame76.com", "unblockedgamesworld.com", "unblockedgamespod.com",
-        "unblockedgames.me", "unblocked-games-s.com", "unblockedgame.io", "unblockedgamesfree.com",
-
-        // G. Casual, Board, Puzzle & Incremental Games
-        "chess.com", "lichess.org", "chess24.com", "chessbomb.com",
-        "geoguessr.com", "worldle.teuteuf.fr", "globle-game.com", "geoguess.games", "city-guesser.com",
-        "2048game.com", "play2048.co", "2048.io",
-        "sudoku.com", "websudoku.com", "nonograms.org",
-        "wordlewebsite.com", "wordle.org", "quordle.com", "octordle.com", "sedecordle.com",
-        "solitaired.com", "cardgames.io", "solitaireparadise.com", "247solitaire.com",
-        "sporcle.com", "jetpunk.com", "tetr.io", "jstris.jezevec10.com", "cookieclicker.ee"
-    ));
-
-    private static final Set<String> YOUTUBE_DOMAINS = new HashSet<>(Arrays.asList(
-        "youtube.com", "youtu.be", "ytimg.com", "googlevideo.com", "youtube-nocookie.com"
-    ));
 
     public static void startVpn(Context context) {
         if (isRunning) return;
@@ -268,7 +159,16 @@ public class LocalDnsVpnService extends VpnService {
 
             builder.addAddress(VPN_INTERFACE_IP, 24);
             builder.addDnsServer(VPN_DNS_SERVER_IP);
-            builder.addRoute(VPN_DNS_SERVER_IP, 32); // ONLY capture traffic to our virtual DNS IP!
+            builder.addRoute(VPN_DNS_SERVER_IP, 32); // Virtual DNS IP
+            // Route common public DNS servers so apps cannot bypass local DNS by querying public resolvers directly
+            try {
+                builder.addRoute("8.8.8.8", 32);
+                builder.addRoute("8.8.4.4", 32);
+                builder.addRoute("1.1.1.1", 32);
+                builder.addRoute("1.0.0.1", 32);
+                builder.addRoute("9.9.9.9", 32);
+                builder.addRoute("208.67.222.222", 32);
+            } catch (Exception ignore) {}
 
             try {
                 builder.addDisallowedApplication(getPackageName());
@@ -384,13 +284,9 @@ public class LocalDnsVpnService extends VpnService {
         String lowerDomain = queryDomain.toLowerCase(Locale.US);
 
         boolean allowYoutube = prefs.getBoolean("allow_youtube", false);
-        boolean blockWebGames = true; // Milestone 18: Hardcoded ON, cannot be turned off
-        boolean enforceSafeSearch = true; // Milestone 18: Strict SafeSearch permanently active
-
-        // 1. Check if domain is blocked (distractions, unblocked web games, youtube if disallowed)
-        boolean isBlacklisted = isDomainBlocked(lowerDomain, allowYoutube, blockWebGames);
-
-        if (isBlacklisted) {
+        // 1. Check if domain is blocked via WebClassifier multi-genre intelligence
+        WebClassifier.ClassificationResult classResult = WebClassifier.classifyDomain(lowerDomain, allowYoutube);
+        if (classResult.isBlocked) {
             // Synthesize local sinkhole NXDOMAIN response
             byte[] responseDns = buildSinkholeResponse(packet, dnsOffset, dnsLength);
             if (responseDns != null) {
@@ -402,48 +298,12 @@ public class LocalDnsVpnService extends VpnService {
                         out.write(responseIpPacket);
                     } catch (Exception ignore) {}
                 }
-                Log.d(TAG, "Sinkholed DNS query (NXDOMAIN): " + queryDomain);
+                Log.d(TAG, "Sinkholed DNS query (NXDOMAIN): " + queryDomain + " -> " + classResult.reason);
             }
             return;
         }
 
-        // 2. School-Grade SafeSearch DNS VIP Routing (Google, Bing, DuckDuckGo, YouTube)
-        if (enforceSafeSearch) {
-            byte[] safeIp = getSafeSearchVip(lowerDomain);
-            if (safeIp != null) {
-                int qType = parseDnsQuestionType(packet, dnsOffset, packet.length);
-                if (qType == 1) { // Type A (IPv4)
-                    byte[] responseDns = buildARecordResponse(packet, dnsOffset, dnsLength, safeIp);
-                    if (responseDns != null) {
-                        byte[] responseIpPacket = buildUdpIpPacket(
-                            packet, ipHeaderLength, dstPort, srcPort, responseDns
-                        );
-                        synchronized (out) {
-                            try {
-                                out.write(responseIpPacket);
-                            } catch (Exception ignore) {}
-                        }
-                        Log.d(TAG, "Enforced SafeSearch VIP for: " + queryDomain);
-                        return;
-                    }
-                } else if (qType == 28) { // Type AAAA (IPv6) -> return NODATA so client immediately resolves IPv4 SafeSearch VIP
-                    byte[] responseDns = buildNoDataResponse(packet, dnsOffset, dnsLength);
-                    if (responseDns != null) {
-                        byte[] responseIpPacket = buildUdpIpPacket(
-                            packet, ipHeaderLength, dstPort, srcPort, responseDns
-                        );
-                        synchronized (out) {
-                            try {
-                                out.write(responseIpPacket);
-                            } catch (Exception ignore) {}
-                        }
-                        return;
-                    }
-                }
-            }
-        }
-
-        // 3. Forward query to selected upstream DNS resolver (CleanBrowsing School / Cloudflare / AdGuard / System)
+        // 2. Forward legitimate study/research query to upstream DNS resolver (Cloudflare / Google)
         byte[] dnsPayload = Arrays.copyOfRange(packet, dnsOffset, dnsOffset + dnsLength);
         byte[] upstreamResponse = forwardToUpstreamDns(dnsPayload, prefs);
         if (upstreamResponse != null) {
@@ -458,43 +318,6 @@ public class LocalDnsVpnService extends VpnService {
         }
     }
 
-    private boolean isDomainBlocked(String domain, boolean allowYoutube, boolean blockWebGames) {
-        if (domain == null || domain.isEmpty()) return false;
-        String lower = domain.toLowerCase(Locale.US);
-
-        // YouTube is blocked by default at the DNS level unless allow_youtube is explicitly enabled.
-        // When allow_youtube is enabled, DNS queries resolve normally so the browser can load educational content,
-        // while the Accessibility Service URL Guard strictly blocks YouTube Shorts (/shorts/*).
-        if (!allowYoutube) {
-            for (String yt : YOUTUBE_DOMAINS) {
-                if (lower.equals(yt) || lower.endsWith("." + yt)) return true;
-            }
-        }
-
-        // Blacklisted distraction domains
-        for (String b : BLACKLISTED_DOMAINS) {
-            if (lower.equals(b) || lower.endsWith("." + b)) {
-                return true;
-            }
-        }
-
-        // Web-based games (250+ curated domains and dynamic CDN/mirror patterns)
-        if (blockWebGames) {
-            for (String g : WEB_GAMING_DOMAINS) {
-                if (lower.equals(g) || lower.endsWith("." + g)) {
-                    return true;
-                }
-            }
-            if (lower.endsWith(".itch.zone") || lower.endsWith(".poki-gdn.com")) {
-                return true;
-            }
-            if (lower.contains("unblocked") && (lower.contains("game") || lower.contains("66") || lower.contains("76") || lower.contains("slope"))) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     private String parseDnsQuestionDomain(byte[] packet, int dnsOffset, int totalLength) {
         int pos = dnsOffset + 12; // Skip 12-byte header
@@ -515,9 +338,34 @@ public class LocalDnsVpnService extends VpnService {
         return sb.toString();
     }
 
+    /**
+     * Calculates the exact byte length of the DNS Question section.
+     * RFC 1035 / RFC 6891: Question section ends with QTYPE (2 bytes) and QCLASS (2 bytes)
+     * after the terminating 0x00 root label. Ensures any subsequent EDNS0 OPT pseudo-records
+     * in the query's Additional section are excluded from the synthesized Question section.
+     */
+    private int getDnsQuestionLength(byte[] packet, int dnsOffset, int totalLength) {
+        int pos = dnsOffset + 12;
+        while (pos < totalLength) {
+            int labelLen = packet[pos] & 0xFF;
+            if (labelLen == 0) {
+                pos++;
+                break;
+            }
+            pos += 1 + labelLen;
+        }
+        if (pos + 4 <= totalLength) {
+            return (pos + 4) - (dnsOffset + 12);
+        }
+        return Math.max(0, totalLength - (dnsOffset + 12));
+    }
+
     private byte[] buildSinkholeResponse(byte[] packet, int dnsOffset, int dnsLength) {
         try {
-            ByteBuffer buf = ByteBuffer.allocate(dnsLength);
+            int qLen = getDnsQuestionLength(packet, dnsOffset, packet.length);
+            int respLen = 12 + qLen;
+            ByteBuffer buf = ByteBuffer.allocate(respLen);
+
             // 1. Transaction ID (2 bytes)
             buf.put(packet[dnsOffset]);
             buf.put(packet[dnsOffset + 1]);
@@ -532,8 +380,7 @@ public class LocalDnsVpnService extends VpnService {
             buf.putShort((short) 0);
             buf.putShort((short) 0);
 
-            // 4. Copy original Question Section
-            int qLen = dnsLength - 12;
+            // 4. Copy strictly the Question Section
             buf.put(packet, dnsOffset + 12, qLen);
 
             return Arrays.copyOf(buf.array(), buf.position());
@@ -560,7 +407,8 @@ public class LocalDnsVpnService extends VpnService {
 
     private byte[] buildARecordResponse(byte[] packet, int dnsOffset, int dnsLength, byte[] ipBytes) {
         try {
-            int respLen = dnsLength + 16;
+            int qLen = getDnsQuestionLength(packet, dnsOffset, packet.length);
+            int respLen = 12 + qLen + 16;
             ByteBuffer buf = ByteBuffer.allocate(respLen);
 
             // 1. Transaction ID (2 bytes)
@@ -577,8 +425,7 @@ public class LocalDnsVpnService extends VpnService {
             buf.putShort((short) 0);
             buf.putShort((short) 0);
 
-            // 4. Copy original Question Section
-            int qLen = dnsLength - 12;
+            // 4. Copy strictly the Question Section (RFC 1035 / RFC 6891 compliant)
             buf.put(packet, dnsOffset + 12, qLen);
 
             // 5. Answer Section (Compression pointer to Question at offset 12 -> 0xC00C)
@@ -598,7 +445,10 @@ public class LocalDnsVpnService extends VpnService {
 
     private byte[] buildNoDataResponse(byte[] packet, int dnsOffset, int dnsLength) {
         try {
-            ByteBuffer buf = ByteBuffer.allocate(dnsLength);
+            int qLen = getDnsQuestionLength(packet, dnsOffset, packet.length);
+            int respLen = 12 + qLen;
+            ByteBuffer buf = ByteBuffer.allocate(respLen);
+
             // 1. Transaction ID (2 bytes)
             buf.put(packet[dnsOffset]);
             buf.put(packet[dnsOffset + 1]);
@@ -613,8 +463,7 @@ public class LocalDnsVpnService extends VpnService {
             buf.putShort((short) 0);
             buf.putShort((short) 0);
 
-            // 4. Copy original Question Section
-            int qLen = dnsLength - 12;
+            // 4. Copy strictly the Question Section
             buf.put(packet, dnsOffset + 12, qLen);
 
             return Arrays.copyOf(buf.array(), buf.position());
@@ -623,47 +472,15 @@ public class LocalDnsVpnService extends VpnService {
         }
     }
 
-    private byte[] getSafeSearchVip(String domain) {
-        if (domain == null || domain.isEmpty()) return null;
 
-        if (isGoogleSearchDomain(domain)) {
-            return GOOGLE_SAFE_VIP;
-        }
-        if (domain.equals("bing.com") || domain.equals("www.bing.com") || (domain.endsWith(".bing.com") && (domain.startsWith("www.") || domain.startsWith("cn.")))) {
-            return BING_SAFE_VIP;
-        }
-        if (domain.equals("duckduckgo.com") || domain.equals("www.duckduckgo.com")) {
-            return DUCKDUCKGO_SAFE_VIP;
-        }
-        if (domain.equals("youtube.com") || domain.equals("www.youtube.com") || domain.equals("m.youtube.com") || domain.equals("youtubei.googleapis.com")) {
-            return GOOGLE_SAFE_VIP;
-        }
-        return null;
-    }
-
-    private boolean isGoogleSearchDomain(String domain) {
-        if (domain.equals("google.com") || domain.equals("www.google.com")) return true;
-        if (domain.contains("google.")) {
-            // Keep critical academic tools and Google services unrestricted
-            if (domain.startsWith("drive.") || domain.startsWith("docs.") || domain.startsWith("mail.") ||
-                domain.startsWith("accounts.") || domain.startsWith("play.") || domain.startsWith("fonts.") ||
-                domain.startsWith("meet.") || domain.startsWith("classroom.") || domain.startsWith("calendar.") ||
-                domain.startsWith("admin.") || domain.startsWith("cloud.")) {
-                return false;
-            }
-            return domain.startsWith("www.google.") || domain.startsWith("google.");
-        }
-        return false;
-    }
 
     private List<InetAddress> getUpstreamDnsServers(SharedPreferences prefs) {
         List<InetAddress> servers = new ArrayList<>();
-        // Milestone 18: Non-negotiable CleanBrowsing School Filter standard
-        addDnsServer(servers, "185.228.168.168");
-        addDnsServer(servers, "185.228.169.168");
-        // Failover redundancy to Cloudflare Family (1.1.1.3)
-        addDnsServer(servers, "1.1.1.3");
-        addDnsServer(servers, "1.0.0.3");
+        // High-performance upstream resolvers for non-distraction research
+        addDnsServer(servers, "1.1.1.1");
+        addDnsServer(servers, "1.0.0.1");
+        addDnsServer(servers, "8.8.8.8");
+        addDnsServer(servers, "8.8.4.4");
         return servers;
     }
 
@@ -782,11 +599,9 @@ public class LocalDnsVpnService extends VpnService {
             builder = new Notification.Builder(this);
         }
 
-        String subText = "CleanBrowsing School Filter • SafeSearch Active";
-
         return builder
             .setContentTitle("QIEZKA Web Guard Active")
-            .setContentText(subText)
+            .setContentText("WebClassifier On-Device Protection Active")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .build();

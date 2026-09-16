@@ -653,11 +653,12 @@ public class LockAccessibilityService extends AccessibilityService {
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         }
 
-        // Track foreground app switches
+        // Track foreground app switches (ONLY on actual window/activity state transitions)
+        int eventType = event.getEventType();
         CharSequence pkgChar = event.getPackageName();
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
-            if (!pkgStr.equals("com.android.systemui")) {
+            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && !pkgStr.equals("com.android.systemui")) {
                 lastForegroundPackage = pkgStr;
             }
         }
@@ -701,7 +702,15 @@ public class LockAccessibilityService extends AccessibilityService {
                 // Outside operating hours (3:00 AM to 7:00 PM): QIEZKA allows general daytime access,
                 // BUT web-based games (y8, poki, etc.) and distracting websites remain strictly blocked in consequence mode!
                 if (pkgChar != null && isBrowserPackage(pkgChar.toString())) {
-                    handleBrowserUrlInspection(event, pkgChar.toString());
+                    if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+                        eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
+                        return;
+                    }
+                    boolean isWindowStateChanged = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+                    String currentFg = detectCurrentForegroundPackage();
+                    if (isWindowStateChanged || pkgChar.toString().equals(currentFg)) {
+                        handleBrowserUrlInspection(event, pkgChar.toString());
+                    }
                 }
                 return;
             }
@@ -725,14 +734,35 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         // If QIEZKA is already the active foreground window, ignore background events from other apps
-        if (getPackageName().equals(detectCurrentForegroundPackage())) {
+        String currentForeground = detectCurrentForegroundPackage();
+        if (getPackageName().equals(currentForeground)) {
             return;
         }
 
         if (isPackageBlocked(pkg)) {
-            enforceBlock(pkg);
+            // Milestone 19: Background Notification Guard
+            // Only enforce block if the blocked app is actually entering or active in the foreground!
+            // Background notifications alone (TYPE_NOTIFICATION_STATE_CHANGED, TYPE_WINDOW_CONTENT_CHANGED)
+            // must NOT hijack the screen or transfer the user to QIEZKA.
+            boolean isWindowStateChanged = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+            boolean isForegroundApp = pkg.equals(currentForeground);
+
+            if (isWindowStateChanged || isForegroundApp) {
+                enforceBlock(pkg);
+            } else {
+                Log.d(TAG, "Ignored background/notification event from blocked package: " + pkg + " (event=" + eventType + ")");
+            }
         } else if (isBrowserPackage(pkg)) {
-            handleBrowserUrlInspection(event, pkg);
+            // Typing Immunity: Ignore keystrokes and text selection events while user is editing in address bars
+            if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
+                return;
+            }
+            boolean isWindowStateChanged = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+            boolean isForegroundApp = pkg.equals(currentForeground);
+            if (isWindowStateChanged || isForegroundApp) {
+                handleBrowserUrlInspection(event, pkg);
+            }
         }
     }
 
@@ -757,133 +787,17 @@ public class LockAccessibilityService extends AccessibilityService {
         "mark.via.gp"
     ));
 
-    private static final Set<String> BLACKLISTED_WEB_DOMAINS = new HashSet<>(Arrays.asList(
-        "tiktok.com",
-        "instagram.com",
-        "facebook.com", "fb.com",
-        "twitter.com", "x.com",
-        "reddit.com",
-        "threads.net",
-        "snapchat.com",
-        "discord.com",
-        "twitch.tv",
-        "netflix.com",
-        "disneyplus.com",
-        "hulu.com",
-        "primevideo.com",
-        "webtoons.com",
-        "mangadex.org",
-        "mangakakalot.com",
-        "bilibili.tv", "bilibili.com",
-        "roblox.com",
-        "9gag.com",
-        "pinterest.com",
-        "tumblr.com"
-    ));
-
-    // Comprehensive Web-Based Games Database (250+ Domains)
-    private static final Set<String> WEB_GAMING_DOMAINS = new HashSet<>(Arrays.asList(
-        // A. Mega Portals & Aggregators
-        "poki.com", "poki-gdn.com", "poki.cz", "poki.nl", "poki.com.br",
-        "crazygames.com", "crazygames.co.uk", "crazygames.fr", "crazygames.io",
-        "coolmathgames.com", "coolmath-games.com", "coolmath.com",
-        "kongregate.com", "kongregate.io",
-        "armorgames.com", "armorgamesonline.com",
-        "newgrounds.com", "ungrounded.net",
-        "y8.com", "y8games.com", "id.net",
-        "friv.com", "friv5.me", "friv.cm", "friv.today", "friv.cool", "frivclassic.com", "friv-2017.com",
-        "miniplay.com", "minijuegos.com",
-        "addictinggames.com", "silvergames.com",
-        "kizi.com", "kizi10.org",
-        "gamepix.com", "lagged.com",
-        "agame.com", "a-game.com", "gamesgames.com",
-        "snokido.com", "snokido.fr", "snokido.net",
-        "kbhgames.com", "playhop.com", "1001games.com",
-        "twoplayergames.org", "2playergames.com", "pomu.com", "paisdelosjuegos.com",
-        "games2girls.com", "girlsgogames.com", "mousebreaker.com", "stickpage.com",
-        "speele.nl", "jetztspielen.de", "gry.pl", "jeuxjeuxjeux.fr",
-        "arkadium.com", "gameforge.com", "gameflare.com", "gamepost.com",
-        "titotu.io", "kevin.games", "zone.msn.com", "plays.org", "bubbleshooter.net",
-
-        // B. Viral .IO & Multiplayer Arena Games
-        "slither.io", "slitherio.org", "agar.io", "agar.pro", "agariogame.club",
-        "diep.io", "krunker.io", "yendis.ch",
-        "1v1.lol", "1v1.school", "justfall.lol",
-        "paper.io", "paper-io.com", "paperio2.com",
-        "hole.io", "hole-io.com",
-        "surviv.io", "survev.io", "suroi.io",
-        "skribbl.io", "gartic.io", "garticphone.com", "drawasaurus.org",
-        "shellshock.io", "eggcombat.com", "shellshockers.io",
-        "deeeep.io", "bloxd.io", "voxiom.io", "smashkarts.io",
-        "ev.io", "zombs.io", "zombsroyale.io", "starve.io", "moomoo.io",
-        "narrow.one", "venge.io", "bonk.io", "bonk2.io",
-        "wings.io", "brutal.io", "splix.io", "lordz.io",
-        "flyordie.io", "evojaws.io", "evoworld.io",
-        "digdig.io", "yohoho.io", "taming.io", "betrayal.io",
-        "battledudes.io", "lolbeans.io", "warbrokers.io",
-        "curvefever.pro", "curvefever.com", "littlebigsnake.com", "arrow.io",
-        "iogames.space", "iogames.onl", "io-games.io",
-
-        // C. Cloud Gaming & Web APK Streaming Backdoors
-        "now.gg", "nowgg.me", "nowgg.io",
-        "play.geforcenow.com", "geforcenow.com",
-        "luna.amazon.com",
-        "boosteroid.com", "cloud.boosteroid.com",
-        "shadow.tech", "vortex.gg", "airgpu.com",
-
-        // D. Indie Web Runtimes & CDNs
-        "itch.zone", "itch.io", "gamejolt.com", "gx.games",
-        "simmer.io", "lexaloffle.com", "flowlab.io", "arcade.construct.net",
-
-        // E. Web Emulators & Retro Gaming
-        "emulatoronline.com", "retrogames.cc", "playretrogames.com", "vimm.net",
-        "emupedia.net", "emupedia.org", "afterplay.io", "eclipseemu.me",
-        "webretro.org", "game-oldies.com", "ssega.com", "playminigames.net",
-        "playclassic.games", "dosgames.com", "playdosgames.com",
-        "online-emulators.com", "retrogames.onl", "myabandonware.com",
-        "consoleroms.com", "archaic-bingo.com", "wowroms.com", "freeroms.com",
-
-        // F. Unblocked Games Dedicated Networks & Mirrors
-        "unblocked-games.com", "unblockedgames66.com", "unblockedgames66plus.com", "unblockedgames66ez.com",
-        "unblockedgames76.com", "unblockedgames77.com", "unblockedgames99.com",
-        "unblockedgames500.com", "unblockedgames119.com", "unblockedgames24h.com",
-        "classroom6x.com", "classroom-6x.org",
-        "slope-game.com", "slopeunblocked.org", "slopegame.online",
-        "hoodamath.com", "mathplayground.com", "abcya.com", "primarygames.com",
-        "freeonlinegames.com", "b-games.com", "unblocked-games-76.com",
-        "unblockedgame76.com", "unblockedgamesworld.com", "unblockedgamespod.com",
-        "unblockedgames.me", "unblocked-games-s.com", "unblockedgame.io", "unblockedgamesfree.com",
-
-        // G. Casual, Board, Puzzle & Incremental Games
-        "chess.com", "lichess.org", "chess24.com", "chessbomb.com",
-        "geoguessr.com", "worldle.teuteuf.fr", "globle-game.com", "geoguess.games", "city-guesser.com",
-        "2048game.com", "play2048.co", "2048.io",
-        "sudoku.com", "websudoku.com", "nonograms.org",
-        "wordlewebsite.com", "wordle.org", "quordle.com", "octordle.com", "sedecordle.com",
-        "solitaired.com", "cardgames.io", "solitaireparadise.com", "247solitaire.com",
-        "sporcle.com", "jetpunk.com", "tetr.io", "jstris.jezevec10.com", "cookieclicker.ee"
-    ));
-
-    // Academic & Developer Resources Immune to Heuristic Game Filters
-    private static final Set<String> ACADEMIC_EXEMPT_DOMAINS = new HashSet<>(Arrays.asList(
-        "wikipedia.org", "wikimedia.org",
-        "khanacademy.org", "coursera.org", "edx.org", "udemy.com",
-        "quizlet.com", "brainly.com", "chegg.com", "duolingo.com",
-        "developer.mozilla.org", "github.com",
-        "stackoverflow.com", "stackexchange.com",
-        "docs.unity3d.com", "docs.godotengine.org", "unrealengine.com",
-        "arxiv.org", "researchgate.net", "jstor.org", "nature.com", "sciencedirect.com"
-    ));
+    // Web distraction, gaming domains, and academic safe-lists are centralized in WebBlocklistConstants.java
 
     private boolean isBrowserPackage(String pkg) {
         if (pkg == null) return false;
         if (KNOWN_BROWSER_PACKAGES.contains(pkg)) return true;
         String lower = pkg.toLowerCase(Locale.US);
-        return lower.contains("browser") || lower.contains("chrome");
+        return lower.contains("browser") || lower.contains("chrome") || lower.contains("webapk");
     }
 
     private void handleBrowserUrlInspection(AccessibilityEvent event, String pkg) {
-        // Milestone 18: Zero Loophole — Accessibility URL & DOM inspection is always active
+        // Milestone 18: WebClassifier on-device semantic evaluation is always active
         // as the baseline protective layer across all operating modes and consequence mode.
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
@@ -891,148 +805,17 @@ public class LockAccessibilityService extends AccessibilityService {
         try {
             String url = extractUrlFromBrowser(root, pkg);
             boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
-            boolean blockWebGames = true; // Milestone 18: Permanently locked ON, no toggle
 
-            boolean isBlocked = false;
-            String reason = "Distracting website blocked during focus mode";
+            WebClassifier.ClassificationResult result = WebClassifier.classify(url, root, allowYoutube);
 
-            if (url != null && !url.trim().isEmpty()) {
-                String lowerUrl = url.toLowerCase(Locale.US).trim();
-
-                // Check YouTube:
-                // Native YouTube app is completely blocked (only accessible through browser).
-                // By default, YouTube web is also completely blocked.
-                // When allow_youtube is true, educational/long-form videos on YouTube web are allowed,
-                // but YouTube Shorts (/shorts/*) are strictly blocked.
-                if (lowerUrl.contains("youtube.com") || lowerUrl.contains("youtu.be")) {
-                    if (!allowYoutube) {
-                        isBlocked = true;
-                        reason = "YouTube is blocked during focus mode";
-                    } else {
-                        if (lowerUrl.contains("/shorts") || lowerUrl.contains("#shorts")) {
-                            isBlocked = true;
-                            reason = "YouTube Shorts are blocked during study sessions";
-                        }
-                    }
-                }
-
-                // Check general distraction web blacklist
-                if (!isBlocked) {
-                    for (String domain : BLACKLISTED_WEB_DOMAINS) {
-                        if (lowerUrl.contains(domain)) {
-                            isBlocked = true;
-                            reason = "Distracting website blocked: " + domain;
-                            break;
-                        }
-                    }
-                }
-
-                // Check Web-Based Games & Dynamic Heuristics (250+ domains, unblocked mirrors, cloud APKs, search mini-games)
-                if (!isBlocked && blockWebGames) {
-                    // 1. Browser Internal Game Schemes (Chrome Dino, Edge Surf)
-                    if (lowerUrl.startsWith("chrome://dino") || lowerUrl.contains("chrome://network-error/-106") ||
-                        lowerUrl.startsWith("edge://surf") || lowerUrl.startsWith("opera://game")) {
-                        isBlocked = true;
-                        reason = "Browser mini-games are blocked during study sessions";
-                    }
-
-                    // 2. Google Search & Bing Embedded Canvas Games
-                    if (!isBlocked && (lowerUrl.contains("google.") || lowerUrl.contains("bing.com")) &&
-                        (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
-                        String[] searchTriggers = {
-                            "snake", "play+snake", "play%20snake",
-                            "tic+tac+toe", "tic%20tac%20toe",
-                            "pacman", "pac-man", "pac%20man",
-                            "minesweeper", "solitaire",
-                            "atari+breakout", "atari%20breakout",
-                            "dreidel", "fidget+spinner", "fidget%20spinner",
-                            "earth+day+quiz", "memory+game", "play+game"
-                        };
-                        for (String trigger : searchTriggers) {
-                            if (lowerUrl.contains("q=" + trigger) || lowerUrl.contains("&q=" + trigger) || lowerUrl.contains("query=" + trigger)) {
-                                isBlocked = true;
-                                reason = "Search-embedded mini-games are blocked during focus mode";
-                                break;
-                            }
-                        }
-                    }
-
-                    // 3. Direct Web Gaming Domain Database Matching (250+ domains)
-                    if (!isBlocked) {
-                        for (String domain : WEB_GAMING_DOMAINS) {
-                            if (lowerUrl.contains(domain)) {
-                                isBlocked = true;
-                                reason = "Web-based game blocked during focus mode (" + domain + ")";
-                                break;
-                            }
-                        }
-                    }
-
-                    // 4. Unblocked Game Mirrors & Dynamic Path Patterns (with Academic Safe-List Immunity)
-                    if (!isBlocked) {
-                        boolean isAcademicExempt = false;
-                        for (String exempt : ACADEMIC_EXEMPT_DOMAINS) {
-                            if (lowerUrl.contains(exempt)) {
-                                isAcademicExempt = true;
-                                break;
-                            }
-                        }
-                        if (!isAcademicExempt && (lowerUrl.contains(".edu/") || lowerUrl.endsWith(".edu"))) {
-                            isAcademicExempt = true;
-                        }
-
-                        if (!isAcademicExempt) {
-                            if (lowerUrl.contains(".itch.zone") || lowerUrl.contains("poki-gdn.com")) {
-                                isBlocked = true;
-                                reason = "Web-based game runtime blocked during focus mode";
-                            } else if (lowerUrl.contains("unblocked-games") || lowerUrl.contains("unblockedgames") ||
-                                       lowerUrl.contains("unblocked_games") || lowerUrl.contains("classroom6x") ||
-                                       lowerUrl.contains("slope-game") || lowerUrl.contains("slopeunblocked") ||
-                                       lowerUrl.contains("slopegame") || lowerUrl.contains("retrobowl") ||
-                                       lowerUrl.contains("moto-x3m")) {
-                                isBlocked = true;
-                                reason = "Unblocked games mirror blocked during focus mode";
-                            } else if (lowerUrl.contains("sites.google.com/") &&
-                                      (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("arcade") ||
-                                       lowerUrl.contains("slope") || lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
-                                isBlocked = true;
-                                reason = "Google Sites game mirror blocked during focus mode";
-                            } else if (lowerUrl.contains(".github.io/") &&
-                                      (lowerUrl.contains("unblocked") || lowerUrl.contains("game") || lowerUrl.contains("slope") ||
-                                       lowerUrl.contains("1v1") || lowerUrl.contains("retro") || lowerUrl.contains("emulator"))) {
-                                isBlocked = true;
-                                reason = "GitHub Pages game mirror blocked during focus mode";
-                            } else if (lowerUrl.contains("nytimes.com/games") || lowerUrl.contains("nytimes.com/crosswords") ||
-                                       lowerUrl.contains("nytimes.com/puzzles") || lowerUrl.contains("washingtonpost.com/crossword") ||
-                                       lowerUrl.contains("theguardian.com/crosswords") || lowerUrl.contains("zone.msn.com") ||
-                                       lowerUrl.contains("yandex.com/games") || lowerUrl.contains("yandex.ru/games") ||
-                                       lowerUrl.contains("scratch.mit.edu/projects/")) {
-                                isBlocked = true;
-                                reason = "Web games section blocked during study sessions";
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Address bar text not extracted (e.g. Chrome full-screen canvas, scrolled down, or hidden omnibox on y8.com).
-                // Fallback: Scan active window DOM hierarchy for web-based gaming titles, headers, or canvas indicators!
-                if (blockWebGames) {
-                    String gamingMatch = scanWindowForBlacklistedGaming(root, 0);
-                    if (gamingMatch != null) {
-                        isBlocked = true;
-                        reason = "Web game detected in browser tab: " + gamingMatch;
-                    }
-                }
-            }
-
-            if (isBlocked) {
-                Log.w(TAG, "Blocked browser URL/Game: " + url + " (" + reason + ")");
+            if (result.isBlocked) {
+                Log.w(TAG, "WebClassifier blocked browser content: " + (url != null ? url : "DOM Content") + " (" + result.reason + ")");
                 performGlobalAction(GLOBAL_ACTION_BACK);
 
                 long now = System.currentTimeMillis();
                 if (now - lastBrowserToastTime > 2500L) {
                     lastBrowserToastTime = now;
-                    final String finalReason = reason;
+                    final String finalReason = result.reason;
                     new Handler(Looper.getMainLooper()).post(() -> {
                         Toast.makeText(getApplicationContext(), "⚠️ " + finalReason, Toast.LENGTH_SHORT).show();
                     });
@@ -1043,56 +826,42 @@ public class LockAccessibilityService extends AccessibilityService {
         }
     }
 
-    /**
-     * Fallback DOM inspection for browser windows when the URL bar is hidden or scrolled out of view.
-     * Detects web game titles, headers, and known gaming portal signatures directly from the accessibility tree.
-     */
-    private String scanWindowForBlacklistedGaming(AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 10) return null;
-
-        CharSequence textSeq = node.getText();
-        CharSequence descSeq = node.getContentDescription();
-        String text = textSeq != null ? textSeq.toString().toLowerCase(Locale.US).trim() : null;
-        String desc = descSeq != null ? descSeq.toString().toLowerCase(Locale.US).trim() : null;
-
-        String[] checkValues = {text, desc};
-        for (String val : checkValues) {
-            if (val != null && val.length() >= 2) {
-                if (val.contains("y8.com") || val.contains("y8 games") || val.contains("play on y8") ||
-                    val.contains("poki.com") || val.contains("crazygames") || val.contains("crazy games") ||
-                    val.contains("coolmathgames") || val.contains("coolmath games") || val.contains("unblocked games") ||
-                    val.contains("kizi.com") || val.contains("friv.com") || val.contains("armorgames") ||
-                    val.contains("kongregate") || val.contains("now.gg") || val.contains("slope unblocked") ||
-                    val.contains("retro bowl unblocked") || val.contains("play retro bowl") || val.contains("1v1.lol") ||
-                    val.contains("agar.io") || val.contains("slither.io") || val.contains("survev.io") ||
-                    val.contains("diep.io") || val.contains("shell shockers")) {
-                    return val;
-                }
-            }
-        }
-
-        int childCount = node.getChildCount();
-        for (int i = 0; i < childCount; i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                String match = scanWindowForBlacklistedGaming(child, depth + 1);
-                if (match != null) return match;
-            }
-        }
-        return null;
-    }
-
     private String extractUrlFromBrowser(AccessibilityNodeInfo root, String pkg) {
         if (root == null) return null;
 
-        // 1. Chrome / Chromium family: Query multiple known location bar & omnibox view IDs
+        // Layer 1: Input Focus Guard. If any address bar or search input is actively focused by the user,
+        // typing or autocomplete is in progress. Eviction must NEVER occur during active typing.
+        AccessibilityNodeInfo focusNode = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (focusNode != null) {
+            try {
+                if (focusNode.isFocused() || focusNode.isEditable()) {
+                    String focusId = focusNode.getViewIdResourceName();
+                    if (focusId != null) {
+                        String lowerFocusId = focusId.toLowerCase(Locale.US);
+                        if (lowerFocusId.contains("url") || lowerFocusId.contains("location") ||
+                            lowerFocusId.contains("search") || lowerFocusId.contains("toolbar") ||
+                            lowerFocusId.contains("address") || lowerFocusId.contains("omnibox") ||
+                            lowerFocusId.contains("line_1")) {
+                            return null; // User is actively typing in the address bar
+                        }
+                    }
+                    CharSequence focusClass = focusNode.getClassName();
+                    if (focusClass != null && focusClass.toString().toLowerCase(Locale.US).contains("edittext")) {
+                        return null; // Active input focus in an editable text field
+                    }
+                }
+            } finally {
+                focusNode.recycle();
+            }
+        }
+
+        // 1. Chrome / Chromium family: Query multiple known address bar view IDs
         String[] chromeViewIds = {
             "com.android.chrome:id/url_bar",
             "com.android.chrome:id/search_box_text",
             "com.android.chrome:id/location_bar",
             "com.android.chrome:id/toolbar",
             "com.android.chrome:id/omnibox_text_field",
-            "com.android.chrome:id/line_1",
             "org.chromium.chrome:id/url_bar"
         };
         for (String id : chromeViewIds) {
@@ -1100,6 +869,9 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
+                        if (node.isFocused()) {
+                            return null; // Active typing or autocomplete in progress
+                        }
                         CharSequence text = node.getText();
                         if (text != null && text.length() > 0) return text.toString();
                         CharSequence desc = node.getContentDescription();
@@ -1120,6 +892,9 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
+                        if (node.isFocused()) {
+                            return null; // Active typing or autocomplete in progress
+                        }
                         CharSequence text = node.getText();
                         if (text != null && text.length() > 0) return text.toString();
                         CharSequence desc = node.getContentDescription();
@@ -1140,6 +915,9 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
+                        if (node.isFocused()) {
+                            return null; // Active typing or autocomplete in progress
+                        }
                         CharSequence text = node.getText();
                         if (text != null && text.length() > 0) return text.toString();
                     }
@@ -1150,24 +928,36 @@ public class LockAccessibilityService extends AccessibilityService {
         // 4. Edge
         List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId("com.microsoft.emmx:id/url_bar");
         if (nodes != null && !nodes.isEmpty()) {
-            AccessibilityNodeInfo node = nodes.get(0);
-            CharSequence text = node.getText();
-            if (text != null && text.length() > 0) return text.toString();
-            CharSequence desc = node.getContentDescription();
-            if (desc != null && desc.length() > 0) return desc.toString();
+            for (AccessibilityNodeInfo node : nodes) {
+                if (node != null) {
+                    if (node.isFocused()) {
+                        return null; // Active typing or autocomplete in progress
+                    }
+                    CharSequence text = node.getText();
+                    if (text != null && text.length() > 0) return text.toString();
+                    CharSequence desc = node.getContentDescription();
+                    if (desc != null && desc.length() > 0) return desc.toString();
+                }
+            }
         }
 
         // 5. Brave
         nodes = root.findAccessibilityNodeInfosByViewId("com.brave.browser:id/url_bar");
         if (nodes != null && !nodes.isEmpty()) {
-            AccessibilityNodeInfo node = nodes.get(0);
-            CharSequence text = node.getText();
-            if (text != null && text.length() > 0) return text.toString();
-            CharSequence desc = node.getContentDescription();
-            if (desc != null && desc.length() > 0) return desc.toString();
+            for (AccessibilityNodeInfo node : nodes) {
+                if (node != null) {
+                    if (node.isFocused()) {
+                        return null; // Active typing or autocomplete in progress
+                    }
+                    CharSequence text = node.getText();
+                    if (text != null && text.length() > 0) return text.toString();
+                    CharSequence desc = node.getContentDescription();
+                    if (desc != null && desc.length() > 0) return desc.toString();
+                }
+            }
         }
 
-        // 6. Generic Heuristic Fallback through hierarchy
+        // 6. Generic Heuristic Fallback through hierarchy (Targeting address bar & input nodes only)
         return findUrlInHierarchy(root, 0);
     }
 
@@ -1175,27 +965,40 @@ public class LockAccessibilityService extends AccessibilityService {
         if (node == null || depth > 8) return null;
 
         String resId = node.getViewIdResourceName();
+        boolean isAddressOrInput = false;
         if (resId != null) {
             String lowerResId = resId.toLowerCase(Locale.US);
             if (lowerResId.contains("url_bar") || lowerResId.contains("location_bar") || 
-                lowerResId.contains("address_bar") || lowerResId.contains("omnibox") ||
-                lowerResId.contains("toolbar")) {
-                CharSequence text = node.getText();
-                if (text != null && text.length() > 0) return text.toString();
-                CharSequence desc = node.getContentDescription();
-                if (desc != null && desc.length() > 0) return desc.toString();
+                lowerResId.contains("address_bar") ||
+                lowerResId.contains("toolbar") || lowerResId.contains("search_box")) {
+                isAddressOrInput = true;
             }
         }
 
-        CharSequence[] seqs = {node.getText(), node.getContentDescription()};
-        for (CharSequence cs : seqs) {
-            if (cs != null) {
-                String t = cs.toString().toLowerCase(Locale.US).trim();
-                if (t.startsWith("http://") || t.startsWith("https://") ||
-                    t.contains("y8.com") || t.contains("poki.com") || t.contains("crazygames.com") ||
-                    t.contains(".com") || t.contains(".net") || t.contains(".org") ||
-                    t.contains(".io") || t.contains(".gg") || t.contains(".fr") || t.contains(".ee")) {
+        CharSequence className = node.getClassName();
+        if (className != null && className.toString().toLowerCase(Locale.US).contains("edittext")) {
+            isAddressOrInput = true;
+        }
+        if (node.isEditable()) {
+            isAddressOrInput = true;
+        }
+
+        if (isAddressOrInput) {
+            if (node.isFocused()) {
+                return null; // Active typing or autocomplete in progress
+            }
+            CharSequence text = node.getText();
+            if (text != null && text.length() > 0) {
+                String t = text.toString().trim();
+                if (t.contains(".") || t.startsWith("http://") || t.startsWith("https://") || t.contains("/")) {
                     return t;
+                }
+            }
+            CharSequence desc = node.getContentDescription();
+            if (desc != null && desc.length() > 0) {
+                String d = desc.toString().trim();
+                if (d.contains(".") || d.startsWith("http://") || d.startsWith("https://") || d.contains("/")) {
+                    return d;
                 }
             }
         }
