@@ -1756,6 +1756,10 @@ imagine if that was qiezka
 that could be another model in future
 qiezka would be even stronger
 
+for a true genuine useful app looks suspicious and qiezka says its blocked
+thats acceptable, you can find multiple of the same apps anyways but you cant find the same qiezka anywhere
+for a genuine distracting app successfully disguises, will be tested and hardened soon if i encounter such app
+
 
 ## 🔮 Future Roadmap & Ecosystem Forks
 
