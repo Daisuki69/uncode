@@ -58,8 +58,9 @@ public final class WebClassifier {
     // Cache mapping normalized destination URL / domain -> ClassificationResult
     private static final Map<String, ClassificationResult> decisionCache = new ConcurrentHashMap<>();
 
-    // Maximum DOM traversal depth
-    private static final int MAX_DOM_DEPTH = 8;
+    // Maximum DOM traversal depth (increased to 25 to inspect deep Chromium WebView and CustomTab hierarchies)
+    private static final int MAX_DOM_DEPTH = 25;
+    private static final int MAX_NODE_SCAN_COUNT = 350;
 
     // Educational SafeSearch VIPs
     private static final byte[] GOOGLE_SAFE_VIP = new byte[] { (byte) 216, (byte) 239, 38, 120 };
@@ -195,7 +196,9 @@ public final class WebClassifier {
     };
 
     private static final String[] DOM_PIRACY_TOKENS = {
-        "stream server", "watch in hd free", "download episode", "unlock next episode", "drama coins", "download torrent"
+        "stream server", "watch in hd free", "download episode", "unlock next episode", "drama coins", "download torrent",
+        "continue watching", "lastest update", "latest update", "top k-drama", "top c-drama", "k-drama", "c-drama",
+        "watch history", "sign in now to save your watch history"
     };
 
     // ── Academic Promotion Keywords (Protects research papers & study guides) ──
@@ -297,6 +300,43 @@ public final class WebClassifier {
 
     /**
      * Authoritative destination website classification entry point (for LockAccessibilityService).
+    /**
+     * Standalone PWA and WebAPK classification for web applications running without an address bar.
+     * Evaluates the window title, manifest app label, and active DOM hierarchy.
+     */
+    public static ClassificationResult classifyStandalonePwa(String windowTitle, AccessibilityNodeInfo root, boolean allowYoutube) {
+        if (windowTitle != null && !windowTitle.trim().isEmpty()) {
+            String cleanTitle = windowTitle.trim();
+            String lowerTitle = cleanTitle.toLowerCase(Locale.US);
+
+            if (WebBlocklistConstants.isAcademicExempt(lowerTitle)) {
+                return ClassificationResult.allowed();
+            }
+
+            if (BlacklistConstants.isBlacklisted("", cleanTitle)) {
+                return ClassificationResult.blocked("Distracting PWA app blocked: " + cleanTitle);
+            }
+
+            ClassificationResult catRes = evaluateMultiGenreCategories(lowerTitle);
+            if (catRes.isBlocked) {
+                return catRes;
+            }
+        }
+
+        if (root != null) {
+            DomScanStats stats = new DomScanStats();
+            ClassificationResult domRes = inspectDom(root, 0, stats);
+            if (domRes.isBlocked) {
+                return domRes;
+            }
+        }
+
+        return ClassificationResult.allowed();
+    }
+
+    /**
+     * Main on-device semantic classification entry point for Accessibility Service.
+     * Evaluates destination URLs and DOM content in real-time.
      *
      * @param rawUrl        The extracted address bar string.
      * @param root          The browser window's AccessibilityNodeInfo root.
@@ -613,6 +653,7 @@ public final class WebClassifier {
         int gamingTitleScore = 0;
         int gameHudScore = 0;
         int academicScore = 0;
+        int totalNodesScanned = 0;
         String detectedToken = null;
     }
 
@@ -621,9 +662,10 @@ public final class WebClassifier {
      * in-game HUD controls, gambling buttons, adult triggers, and streaming players.
      */
     private static ClassificationResult inspectDom(AccessibilityNodeInfo node, int depth, DomScanStats stats) {
-        if (node == null || depth > MAX_DOM_DEPTH) {
+        if (node == null || depth > MAX_DOM_DEPTH || stats.totalNodesScanned >= MAX_NODE_SCAN_COUNT) {
             return ClassificationResult.allowed();
         }
+        stats.totalNodesScanned++;
 
         CharSequence textSeq = node.getText();
         CharSequence descSeq = node.getContentDescription();
@@ -637,6 +679,16 @@ public final class WebClassifier {
             // Direct web game domain match in title/content
             if (WebBlocklistConstants.isWebGameDomain(val)) {
                 return ClassificationResult.blocked("Web-based game detected: " + val);
+            }
+
+            // Direct piracy / media domain check
+            if (WebBlocklistConstants.isPiracyOrMediaDomain(val)) {
+                return ClassificationResult.blocked("Piracy / media streaming portal detected: " + val);
+            }
+
+            // Hardcoded distraction blacklist match (e.g. KissKH, DramaBox, Loklok, etc.)
+            if (BlacklistConstants.isBlacklisted("", val)) {
+                return ClassificationResult.blocked("Distracting web app signature detected: " + val);
             }
 
             // Real-time Gambling DOM triggers

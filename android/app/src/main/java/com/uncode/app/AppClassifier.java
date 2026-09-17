@@ -106,7 +106,8 @@ public final class AppClassifier {
         // Short-Dramas, Web Novels, Comics & Anime Streamers
         "short drama", "shortmax", "reelshort", "dramabox", "goodshort", "snackshort", "moboreels",
         "netshort", "webtoon", "manga", "manhwa", "manhua", "comic", "comics", "anime", "webnovel",
-        "light novel", "fanfiction", "wattpad", "wuxia", "livestream", "live stream", "broadcast"
+        "light novel", "fanfiction", "wattpad", "wuxia", "livestream", "live stream", "broadcast",
+        "kisskh", "kissasian", "bilibili", "loklok", "cloudstream", "stremio", "onstream"
     };
 
     private static final String[] NEGATIVE_PKG_SUBSTRINGS = {
@@ -189,9 +190,21 @@ public final class AppClassifier {
             return false;
         }
 
+        String appLabel = null;
+        if (context != null) {
+            try {
+                PackageManager pm = context.getPackageManager();
+                if (pm != null) {
+                    ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+                    CharSequence lbl = pm.getApplicationLabel(ai);
+                    if (lbl != null) appLabel = lbl.toString();
+                }
+            } catch (Exception ignore) {}
+        }
+
         // Tier 1d: Hardcoded Distraction Blacklist & Hostile Signatures MUST take precedence!
-        // YouTube native app, TikTok, games, and social media can NEVER be allowed.
-        if (BlacklistConstants.isBlacklisted(pkg)) {
+        // YouTube native app, TikTok, games, KissKH PWA, and social media can NEVER be allowed.
+        if (BlacklistConstants.isBlacklisted(pkg, appLabel)) {
             return true;
         }
 
@@ -258,6 +271,52 @@ public final class AppClassifier {
 
         String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
         String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
+
+        // Tier 2b: Hardcoded Distraction Blacklist & Hostile Signatures (Checks both package name and app label)
+        if (BlacklistConstants.isBlacklisted(pkg, appLabel)) {
+            Log.i(TAG, "Blocked by BlacklistConstants: " + pkg + " (" + appLabel + ")");
+            return true;
+        }
+
+        // Milestone 20: WebAPK & PWA Deep Metadata Inspection
+        if (pkg.startsWith("org.chromium.webapk") || pkg.contains("webapk")) {
+            if (BlacklistConstants.isBlacklisted(pkg, appLabel)) {
+                Log.w(TAG, "Blocked WebAPK by app label signature: " + pkg + " (" + appLabel + ")");
+                return true;
+            }
+            if (hasNegativeDistractionSignals(lowerLabel, lowerPkg)) {
+                Log.w(TAG, "Blocked WebAPK by negative signals: " + pkg + " (" + appLabel + ")");
+                return true;
+            }
+            try {
+                ApplicationInfo appInfoWithMeta = pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA);
+                if (appInfoWithMeta != null && appInfoWithMeta.metaData != null) {
+                    String startUrl = appInfoWithMeta.metaData.getString("org.chromium.webapk.shell_apk.startUrl");
+                    if (startUrl == null) {
+                        startUrl = appInfoWithMeta.metaData.getString("org.chromium.webapk.shell_apk.scopeUrl");
+                    }
+                    if (startUrl != null && !startUrl.isEmpty()) {
+                        Log.i(TAG, "Inspecting WebAPK startUrl: " + startUrl + " for pkg: " + pkg);
+                        String lowerStart = startUrl.toLowerCase(Locale.ROOT);
+                        if (WebBlocklistConstants.isPiracyOrMediaDomain(lowerStart) ||
+                            WebBlocklistConstants.isWebGameDomain(lowerStart) ||
+                            WebBlocklistConstants.isGamblingDomain(lowerStart) ||
+                            WebBlocklistConstants.isAdultDomain(lowerStart) ||
+                            BlacklistConstants.isBlacklisted(startUrl, appLabel)) {
+                            Log.w(TAG, "Blocked WebAPK matching blocklist: " + pkg + " (" + appLabel + ", " + startUrl + ")");
+                            return true;
+                        }
+                        WebClassifier.ClassificationResult urlResult = WebClassifier.classify(startUrl, null, false);
+                        if (urlResult.isBlocked) {
+                            Log.w(TAG, "Blocked WebAPK via WebClassifier: " + pkg + " (" + appLabel + ", " + startUrl + " - " + urlResult.reason + ")");
+                            return true;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Error inspecting WebAPK meta-data for " + pkg + ": " + e.getMessage());
+            }
+        }
 
         // Milestone 17: Fake Calculator & Secret Vault Inspection
         if (isFakeCalculatorVault(pm, pkg, lowerLabel, lowerPkg)) {
@@ -339,11 +398,13 @@ public final class AppClassifier {
     public static boolean isForbiddenDistraction(Context context, String pkg) {
         if (pkg == null || context == null) return false;
         if (pkg.equals("com.android.settings")) return true;
-        if (BlacklistConstants.isBlacklisted(pkg)) return true;
         try {
             PackageManager pm = context.getPackageManager();
             if (pm == null) return false;
             ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
+            CharSequence labelChar = pm.getApplicationLabel(appInfo);
+            String appLabel = labelChar != null ? labelChar.toString().toLowerCase(Locale.ROOT) : "";
+            if (BlacklistConstants.isBlacklisted(pkg, appLabel)) return true;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 if (appInfo.category == ApplicationInfo.CATEGORY_GAME ||
                     appInfo.category == ApplicationInfo.CATEGORY_SOCIAL) {
@@ -353,8 +414,6 @@ public final class AppClassifier {
             if ((appInfo.flags & ApplicationInfo.FLAG_IS_GAME) != 0) {
                 return true;
             }
-            CharSequence labelChar = pm.getApplicationLabel(appInfo);
-            String appLabel = labelChar != null ? labelChar.toString().toLowerCase(Locale.ROOT) : "";
             String lowerPkg = pkg.toLowerCase(Locale.ROOT);
             if (isFakeCalculatorVault(pm, pkg, appLabel, lowerPkg)) {
                 return true;

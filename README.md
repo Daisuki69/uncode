@@ -1707,6 +1707,48 @@ This section details every major engineering revision, architectural refinement,
     - In `onAccessibilityEvent()`, `enforceBlock(pkg)` is now strictly guarded: it is ONLY triggered if the blocked app is actively entering the foreground (`TYPE_WINDOW_STATE_CHANGED`) or is confirmed as the active focused foreground window (`pkg.equals(detectCurrentForegroundPackage())`).
     - Background notifications alone (`TYPE_NOTIFICATION_STATE_CHANGED`, background `TYPE_WINDOW_CONTENT_CHANGED`) remain peacefully in the notification shade without yanking the user to QIEZKA.
     - If the user taps the notification from the shade to launch the blocked app, Android triggers a foreground `TYPE_WINDOW_STATE_CHANGED`, which QIEZKA immediately intercepts and blocks.
+
+---
+
+### 20. Milestone 20: PWA (WebAPK) Deep Inspection & Recents Task-Switching Guard
+- **Why It Was Mandated**:
+  - **PWA (WebAPK) & Trusted Web Activity (TWA) Reality**:
+    - Progressive Web Apps and TWAs (such as KissKH, Loklok, KissAsian, DramaBox, etc.) appear on the home screen as WebAPK or TWA stubs (e.g. `id.kisskh.twa`, `org.chromium.webapk.*`).
+    - *On Initial Launch*: The launcher briefly triggers the stub APK, which was caught by static package checks.
+    - *On Android Recents Resume (Android 16 QPR1 AOSP & Galaxy A30 Android 11 One UI 2.x)*: The running task attaches directly to the Chromium host wrapper: `com.android.chrome/org.chromium.chrome.browser.customtabs.CustomTabActivity` (or `SameTaskWebApkActivity` / `WebappActivity`). When resumed from Recents, Android OS attaches directly to the running Chrome window. The package reported by WindowManager is `com.android.chrome`—NOT `id.kisskh.twa` or `org.chromium.webapk.*`.
+    - Because `com.android.chrome` is an allowed browser tool, static package blacklisting returned `false` and routed the event to browser inspection.
+  - **The Null Address Bar & The Single Gate Flaw**:
+    - Standalone PWAs and TWAs run in fullscreen / standalone display mode with **no omnibox or address bar**.
+    - `extractUrlFromBrowser()` always returned `null`.
+    - Prior `WebClassifier.classify()` logic gated execution on `if (!isDestinationUrl(cleanUrl)) return allowed();`. When `cleanUrl` was null/empty, it immediately granted an automatic pass without ever checking the DOM, giving KissKH an automatic pass.
+  - **Chromium View Nesting & `MAX_DOM_DEPTH` Barrier**:
+    - Live forensic dumping via ADB on device revealed that in Chromium-based activities (`CustomTabActivity`, `WebView`), native view groups (`action_bar_root`, `edge_to_edge_base_layout`, `coordinator`, `compositor_view_holder`) consume the first 8-9 levels of the view hierarchy.
+    - Web page elements (such as `"kisskh"`, video titles, `"continue watching"`, and episode tags) reside between depths 10 and 22.
+    - Because `MAX_DOM_DEPTH` was previously capped at 8, DOM traversal terminated prematurely before reaching any HTML/web content.
+  - **`CustomTabActivity` Exemption in `isStandalonePwa()`**:
+    - `isStandalonePwa()` previously only audited `WebappActivity` and `WebApk`. It failed to identify `CustomTabActivity` used by TWAs (`id.kisskh.twa`) and standalone web wrappers.
+  - **WindowManager Window Title Blindness on Android 11+ Custom Tabs**:
+    - On Android 11 One UI and Android 16 AOSP, `AccessibilityWindowInfo.getTitle()` returns `null` or empty for `CustomTabActivity` windows. Relying solely on window title checks caused the engine to skip classification.
+- **Architectural Enhancements**:
+  - **Z-Order Window Hierarchy Audit for Blocked Tasks (`detectCurrentForegroundPackage()`)**:
+    - Audits all application windows in `getWindows()`. If any application window in the active task belongs to a blacklisted package (e.g. `id.kisskh.twa`), `detectCurrentForegroundPackage()` returns that blocked package directly, bypassing Chrome's foreground wrapper.
+  - **Deep DOM Traversal with Safety Budget (`WebClassifier.java`)**:
+    - Increased `MAX_DOM_DEPTH` from 8 to 25 to penetrate Chromium compositor view holders and inspect live web elements.
+    - Added `MAX_NODE_SCAN_COUNT = 350` to guarantee high-performance execution (<2ms) without UI thread lag.
+  - **CustomTab & Standalone WebApp Interception (`LockAccessibilityService.java`)**:
+    - Expanded `isStandalonePwa()` to include `customtab`, `customtabs`, and `customtabactivity`.
+    - Guaranteed fallback: In any browser package where `url == null` (no address bar present), the engine **always** audits the DOM via `WebClassifier.classifyStandalonePwa()` instead of granting an automatic pass.
+  - **Streaming & Drama Token Signatures (`WebClassifier.java`)**:
+    - Expanded `DOM_PIRACY_TOKENS` with live tokens extracted from device dumps: `"continue watching"`, `"lastest update"`, `"latest update"`, `"top k-drama"`, `"top c-drama"`, `"k-drama"`, `"c-drama"`, `"watch history"`, `"sign in now to save your watch history"`.
+    - Integrated direct matching against `BlacklistConstants.isBlacklisted("", val)`.
+  - **Continuous Ticker Hardening**:
+    - Updated `inspectBrowserForBlockedPwaOrContent()`: when hostile web content or blocked URLs are caught by the background ticker, the engine invokes `enforceBlock(pkg)` (minimizing to Home + bringing QIEZKA Lock to front with retry post-delays) rather than merely pressing Back.
+  - **Runtime Event Subscription Integrity**:
+    - Maintained programmatic subscription to `TYPE_WINDOW_STATE_CHANGED`, `TYPE_WINDOWS_CHANGED`, `TYPE_WINDOW_CONTENT_CHANGED`, `TYPE_VIEW_CLICKED`, `TYPE_VIEW_FOCUSED`, and `TYPE_VIEW_SCROLLED`.
+  - **Direct Lock Screen Redirection (`enforceBlock()`) — Zero Home Redirection**:
+    - Completely eliminated `goHome()` / `GLOBAL_ACTION_HOME` from the eviction pathway. Previously, simultaneously dispatching `goHome()` and `launchLockOverlay()` created an OS animation race condition where the launcher and QIEZKA fought each other in a visible stutter loop until one side won.
+    - All blocked, unwanted, or distracting apps/PWAs now point directly and instantly to QIEZKA Lock (`MainActivity`) via `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TOP | FLAG_ACTIVITY_SINGLE_TOP | FLAG_ACTIVITY_REORDER_TO_FRONT`, immediately locking the device without ever bouncing through the Home launcher.
+
 ---
 
 

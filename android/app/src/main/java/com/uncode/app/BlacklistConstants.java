@@ -388,18 +388,34 @@ public final class BlacklistConstants {
     ));
 
     public static boolean isBlacklisted(String packageName) {
-        if (packageName == null) return false;
-        String lower = packageName.trim().toLowerCase();
+        return isBlacklisted(packageName, null);
+    }
 
-        // Explicitly allow system package installers per user instruction
-        if (lower.contains("packageinstaller")) {
-            return false;
+    public static boolean isBlacklisted(String packageName, String appLabel) {
+        if (packageName != null) {
+            String lower = packageName.trim().toLowerCase(java.util.Locale.ROOT);
+            if (lower.contains("packageinstaller")) {
+                return false;
+            }
+            if (HARDCODED_BLACKLISTED_PACKAGES.contains(lower)) {
+                return true;
+            }
+            if (hasHostileSubstring(lower)) {
+                return true;
+            }
         }
+        if (appLabel != null) {
+            String lowerLabel = appLabel.trim().toLowerCase(java.util.Locale.ROOT);
+            String normalizedLabel = lowerLabel.replace(" ", "").replace("-", "").replace("_", "").replace(".", "");
+            if (hasHostileSubstring(lowerLabel) || hasHostileSubstring(normalizedLabel)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-        if (HARDCODED_BLACKLISTED_PACKAGES.contains(lower)) {
-            return true;
-        }
-        // Heuristic substring signature checks to automatically block unlisted clones, forks, and modded APKs
+    private static boolean hasHostileSubstring(String lower) {
+        if (lower == null || lower.isEmpty()) return false;
         return lower.contains("parallel") ||
                lower.contains("dualspace") ||
                lower.contains("multispace") ||
@@ -417,8 +433,23 @@ public final class BlacklistConstants {
                lower.contains("photovault") ||
                lower.contains("gallerylock") ||
                lower.contains("kisskh") ||
+               lower.contains("kissasian") ||
                lower.contains("bilibili") ||
                lower.contains("danmaku.bili") ||
+               lower.contains("webapk") ||
+               lower.contains("crazygames") ||
+               lower.contains("123movies") ||
+               lower.contains("fmovies") ||
+               lower.contains("soap2day") ||
+               lower.contains("aniwave") ||
+               lower.contains("9anime") ||
+               lower.contains("gogoanime") ||
+               lower.contains("mangadex") ||
+               lower.contains("asurascans") ||
+               lower.contains("manganelo") ||
+               lower.contains("snackshort") ||
+               lower.contains("playlet") ||
+               lower.contains("sereal") ||
                lower.contains("chelpus") ||
                lower.contains("luckypatcher") ||
                lower.contains("instaprime") ||
@@ -433,6 +464,10 @@ public final class BlacklistConstants {
                lower.contains("shortmax") ||
                lower.contains("goodshort") ||
                lower.contains("moboreels") ||
+               lower.contains("topshort") ||
+               lower.contains("netshort") ||
+               lower.contains("shorttv") ||
+               lower.contains("kalostv") ||
                lower.contains("loklok") ||
                lower.contains("cloudstream") ||
                lower.contains("movieboxpro") ||

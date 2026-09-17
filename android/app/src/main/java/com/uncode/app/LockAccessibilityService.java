@@ -19,6 +19,7 @@ import android.view.inputmethod.InputMethodInfo;
 
 import android.app.Notification;
 import android.widget.Toast;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import java.lang.reflect.Method;
@@ -309,6 +310,7 @@ public class LockAccessibilityService extends AccessibilityService {
     private SharedPreferences prefs;
 
     private String lastForegroundPackage = null;
+    private String lastBlockedPackage = null;
     private final Set<String> firedWarningKeys = new HashSet<>();
     private final Handler tickerHandler = new Handler(Looper.getMainLooper());
     private final Runnable tickerRunnable = new Runnable() {
@@ -361,8 +363,11 @@ public class LockAccessibilityService extends AccessibilityService {
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.packageNames = null; // Watch all packages
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED |
+                          AccessibilityEvent.TYPE_WINDOWS_CHANGED |
+                          AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED |
                           AccessibilityEvent.TYPE_VIEW_CLICKED |
-                          AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED;
+                          AccessibilityEvent.TYPE_VIEW_FOCUSED |
+                          AccessibilityEvent.TYPE_VIEW_SCROLLED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
         info.flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS |
                      AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS |
@@ -444,7 +449,7 @@ public class LockAccessibilityService extends AccessibilityService {
                 for (ResolveInfo info : browserApps) {
                     if (info.activityInfo != null && info.activityInfo.packageName != null) {
                         String bPkg = info.activityInfo.packageName;
-                        if (!BlacklistConstants.isBlacklisted(bPkg)) {
+                        if (!BlacklistConstants.isBlacklisted(bPkg) && !bPkg.contains("webapk")) {
                             dynamicExemptPackages.add(bPkg);
                         }
                     }
@@ -653,12 +658,14 @@ public class LockAccessibilityService extends AccessibilityService {
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         }
 
-        // Track foreground app switches (ONLY on actual window/activity state transitions)
+        // Track foreground app switches
         int eventType = event.getEventType();
         CharSequence pkgChar = event.getPackageName();
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
-            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && !pkgStr.equals("com.android.systemui")) {
+            if ((eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                 eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+                 eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED) && !isSystemOrLauncher(pkgStr)) {
                 lastForegroundPackage = pkgStr;
             }
         }
@@ -721,6 +728,22 @@ public class LockAccessibilityService extends AccessibilityService {
 
         if (!isLockdownActive) return;
 
+        // Milestone 20: Immediate evaluation on window stack reordering (such as Recents task switch)
+        // In Android, TYPE_WINDOWS_CHANGED events dispatched by WindowManager have event.getPackageName() == null!
+        // It MUST be evaluated here before any null package check.
+        if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            String currentFg = detectCurrentForegroundPackage();
+            if (currentFg != null && !currentFg.equals(getPackageName()) && !isSystemOrLauncher(currentFg)) {
+                if (isPackageBlocked(currentFg)) {
+                    enforceBlock(currentFg);
+                    return;
+                } else if (isBrowserPackage(currentFg)) {
+                    handleBrowserUrlInspection(event, currentFg);
+                    return;
+                }
+            }
+        }
+
         if (pkgChar == null) return;
         String pkg = pkgChar.toString();
 
@@ -733,34 +756,64 @@ public class LockAccessibilityService extends AccessibilityService {
             return;
         }
 
-        // If QIEZKA is already the active foreground window, ignore background events from other apps
-        String currentForeground = detectCurrentForegroundPackage();
-        if (getPackageName().equals(currentForeground)) {
+        // Milestone 19/20: Drop pure background notifications from non-active apps
+        if (eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
             return;
         }
 
         if (isPackageBlocked(pkg)) {
-            // Milestone 19: Background Notification Guard
-            // Only enforce block if the blocked app is actually entering or active in the foreground!
-            // Background notifications alone (TYPE_NOTIFICATION_STATE_CHANGED, TYPE_WINDOW_CONTENT_CHANGED)
-            // must NOT hijack the screen or transfer the user to QIEZKA.
-            boolean isWindowStateChanged = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+            // Milestone 20: PWA & Recents Task-Switch Interceptor
+            boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+                                    eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED);
+            boolean isInteraction = (eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED || 
+                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+                                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED);
+
+            // Direct inspection of event source node visibility on screen:
+            boolean isVisibleOnScreen = false;
+            AccessibilityNodeInfo source = event.getSource();
+            if (source != null) {
+                try {
+                    isVisibleOnScreen = source.isVisibleToUser();
+                } finally {
+                    source.recycle();
+                }
+            }
+
+            String currentForeground = detectCurrentForegroundPackage();
             boolean isForegroundApp = pkg.equals(currentForeground);
 
-            if (isWindowStateChanged || isForegroundApp) {
+            if (isTransition || isInteraction || isVisibleOnScreen || isForegroundApp) {
                 enforceBlock(pkg);
             } else {
-                Log.d(TAG, "Ignored background/notification event from blocked package: " + pkg + " (event=" + eventType + ")");
+                Log.d(TAG, "Ignored background event from blocked package: " + pkg + " (event=" + eventType + ")");
             }
+            return;
         } else if (isBrowserPackage(pkg)) {
             // Typing Immunity: Ignore keystrokes and text selection events while user is editing in address bars
             if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
                 return;
             }
-            boolean isWindowStateChanged = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+            boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+                                    eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED);
+            boolean isInteraction = (eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED || 
+                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+                                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED);
+
+            boolean isVisibleOnScreen = false;
+            AccessibilityNodeInfo source = event.getSource();
+            if (source != null) {
+                try {
+                    isVisibleOnScreen = source.isVisibleToUser();
+                } finally {
+                    source.recycle();
+                }
+            }
+
+            String currentForeground = detectCurrentForegroundPackage();
             boolean isForegroundApp = pkg.equals(currentForeground);
-            if (isWindowStateChanged || isForegroundApp) {
+            if (isTransition || isInteraction || isVisibleOnScreen || isForegroundApp) {
                 handleBrowserUrlInspection(event, pkg);
             }
         }
@@ -793,11 +846,109 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkg == null) return false;
         if (KNOWN_BROWSER_PACKAGES.contains(pkg)) return true;
         String lower = pkg.toLowerCase(Locale.US);
-        return lower.contains("browser") || lower.contains("chrome") || lower.contains("webapk");
+        return lower.contains("browser") || lower.contains("chrome");
+    }
+
+    private boolean isSystemOrLauncher(String pkg) {
+        if (pkg == null) return false;
+        return pkg.equals("com.android.systemui") || KNOWN_LAUNCHERS.contains(pkg);
+    }
+
+    /**
+     * Resolves the title of the active or topmost application window from WindowManager.
+     */
+    private String resolveActiveWindowTitle(AccessibilityNodeInfo root) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && root != null) {
+                AccessibilityWindowInfo win = root.getWindow();
+                if (win != null) {
+                    CharSequence t = win.getTitle();
+                    if (t != null && t.length() > 0) return t.toString();
+                }
+            }
+            List<AccessibilityWindowInfo> windows = getWindows();
+            if (windows != null && !windows.isEmpty()) {
+                for (AccessibilityWindowInfo w : windows) {
+                    if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive() || w.isFocused())) {
+                        CharSequence t = w.getTitle();
+                        if (t != null && t.length() > 0) return t.toString();
+                    }
+                }
+                for (AccessibilityWindowInfo w : windows) {
+                    if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                        CharSequence t = w.getTitle();
+                        if (t != null && t.length() > 0) return t.toString();
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+        return null;
+    }
+
+    /**
+     * Inspects whether an active window or event in a browser package represents a standalone
+     * Progressive Web App (PWA) / WebAPK / TWA / CustomTab rather than normal browser tab navigation.
+     */
+    private boolean isStandalonePwa(String pkg, String eventClass, String windowTitle, AccessibilityNodeInfo root) {
+        if (eventClass != null) {
+            String lowerClass = eventClass.toLowerCase(Locale.US);
+            if (lowerClass.contains("webappactivity") || 
+                lowerClass.contains("sametaskwebapkactivity") || 
+                lowerClass.contains("webapplauncheractivity") || 
+                lowerClass.contains("customtab") ||
+                lowerClass.contains("customtabs") ||
+                lowerClass.contains("webapk")) {
+                return true;
+            }
+        }
+        if (windowTitle != null && !windowTitle.trim().isEmpty()) {
+            String lowerTitle = windowTitle.toLowerCase(Locale.US).trim();
+            if (!lowerTitle.equals("chrome") && !lowerTitle.equals("google chrome") && 
+                !lowerTitle.equals("samsung internet") && !lowerTitle.equals("internet") &&
+                !lowerTitle.equals("firefox") && !lowerTitle.equals("brave") &&
+                !lowerTitle.equals("opera") && !lowerTitle.equals("edge")) {
+                return true;
+            }
+        }
+        if (root != null && extractUrlFromBrowser(root, pkg) == null) {
+            // Any browser window without an address bar represents a standalone PWA, TWA, or embedded webapp
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Inspects a browser window during continuous ticker execution to catch standalone PWAs.
+     */
+    private void inspectBrowserForBlockedPwaOrContent(AccessibilityNodeInfo root, String pkg) {
+        if (root == null || pkg == null) return;
+        String windowTitle = resolveActiveWindowTitle(root);
+        if (windowTitle != null && BlacklistConstants.isBlacklisted("", windowTitle)) {
+            Log.w(TAG, "Ticker caught blocked PWA window title: " + windowTitle + " (pkg=" + pkg + ")");
+            enforceBlock(pkg);
+            return;
+        }
+
+        String url = extractUrlFromBrowser(root, pkg);
+        boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
+
+        if (url == null) {
+            WebClassifier.ClassificationResult res = WebClassifier.classifyStandalonePwa(windowTitle, root, allowYoutube);
+            if (res.isBlocked) {
+                Log.w(TAG, "Ticker caught blocked standalone PWA content: " + (windowTitle != null ? windowTitle : "DOM") + " (" + res.reason + ")");
+                enforceBlock(pkg);
+            }
+        } else {
+            WebClassifier.ClassificationResult res = WebClassifier.classify(url, root, allowYoutube);
+            if (res.isBlocked) {
+                Log.w(TAG, "Ticker caught blocked browser URL: " + url + " (" + res.reason + ")");
+                enforceBlock(pkg);
+            }
+        }
     }
 
     private void handleBrowserUrlInspection(AccessibilityEvent event, String pkg) {
-        // Milestone 18: WebClassifier on-device semantic evaluation is always active
+        // Milestone 18/20: WebClassifier on-device semantic evaluation is always active
         // as the baseline protective layer across all operating modes and consequence mode.
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
@@ -805,12 +956,32 @@ public class LockAccessibilityService extends AccessibilityService {
         try {
             String url = extractUrlFromBrowser(root, pkg);
             boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
+            String eventClass = event != null && event.getClassName() != null ? event.getClassName().toString() : null;
+            String windowTitle = resolveActiveWindowTitle(root);
+
+            if (url == null) {
+                // Standalone PWA / WebAPK / TWA / CustomTab evaluation
+                if (windowTitle != null && BlacklistConstants.isBlacklisted("", windowTitle)) {
+                    Log.w(TAG, "Blocked standalone PWA by window title: " + windowTitle + " (pkg=" + pkg + ")");
+                    enforceBlock(pkg);
+                    return;
+                }
+
+                // Deep semantic classification on PWA window title & DOM
+                WebClassifier.ClassificationResult pwaRes = WebClassifier.classifyStandalonePwa(windowTitle, root, allowYoutube);
+                if (pwaRes.isBlocked) {
+                    Log.w(TAG, "WebClassifier blocked standalone PWA: " + (windowTitle != null ? windowTitle : "DOM") + " (" + pwaRes.reason + ")");
+                    enforceBlock(pkg);
+                    return;
+                }
+                return;
+            }
 
             WebClassifier.ClassificationResult result = WebClassifier.classify(url, root, allowYoutube);
 
             if (result.isBlocked) {
                 Log.w(TAG, "WebClassifier blocked browser content: " + (url != null ? url : "DOM Content") + " (" + result.reason + ")");
-                performGlobalAction(GLOBAL_ACTION_BACK);
+                enforceBlock(pkg);
 
                 long now = System.currentTimeMillis();
                 if (now - lastBrowserToastTime > 2500L) {
@@ -1022,8 +1193,30 @@ public class LockAccessibilityService extends AccessibilityService {
         // Package installers & App store updates are explicitly allowed
         if (isInstallerOrStoreApp(pkg)) return false;
 
+        // Query app label for fast-path blacklist matching
+        String appLabel = null;
+        try {
+            PackageManager pm = getPackageManager();
+            if (pm != null) {
+                android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+                CharSequence lbl = pm.getApplicationLabel(ai);
+                if (lbl != null) appLabel = lbl.toString();
+            }
+        } catch (Exception ignore) {}
+
         // Hardcoded Distraction Blacklist Check (Strictly Takes Precedence over all categories)
-        if (BlacklistConstants.isBlacklisted(pkg)) return true;
+        if (BlacklistConstants.isBlacklisted(pkg, appLabel)) return true;
+
+        // Also inspect active window title if this package is currently in front (e.g. KissKH running under Chrome)
+        try {
+            if (isBrowserPackage(pkg)) {
+                String winTitle = resolveActiveWindowTitle(null);
+                if (winTitle != null && BlacklistConstants.isBlacklisted("", winTitle)) {
+                    Log.w(TAG, "isPackageBlocked: identified blocked PWA window title: " + winTitle + " under " + pkg);
+                    return true;
+                }
+            }
+        } catch (Exception ignore) {}
 
         if (isKeyboardApp(pkg)) return false;
         if (isAuthenticatorApp(pkg)) return false;
@@ -1183,17 +1376,37 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         // 3. If consequence mode or lockdown is currently active in operating hours, continuously enforce blocking!
-        if (isConsequenceActive) {
-            if (inOperatingHours) {
-                String currentForegroundPkg = detectCurrentForegroundPackage();
-                if (currentForegroundPkg != null && isPackageBlocked(currentForegroundPkg)) {
-                    enforceBlock(currentForegroundPkg);
+        if ((isConsequenceActive && inOperatingHours) || isLockdownActive) {
+            AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
+            if (activeRoot != null) {
+                try {
+                    CharSequence p = activeRoot.getPackageName();
+                    if (p != null) {
+                        String rootPkg = p.toString();
+                        if (!isSystemOrLauncher(rootPkg) && !rootPkg.equals(getPackageName())) {
+                            if (isPackageBlocked(rootPkg)) {
+                                enforceBlock(rootPkg);
+                            } else if (isBrowserPackage(rootPkg)) {
+                                inspectBrowserForBlockedPwaOrContent(activeRoot, rootPkg);
+                            }
+                        }
+                    }
+                } finally {
+                    activeRoot.recycle();
                 }
             }
-        } else if (isLockdownActive) {
+
             String currentForegroundPkg = detectCurrentForegroundPackage();
-            if (currentForegroundPkg != null && isPackageBlocked(currentForegroundPkg)) {
-                enforceBlock(currentForegroundPkg);
+            if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
+                if (isPackageBlocked(currentForegroundPkg)) {
+                    enforceBlock(currentForegroundPkg);
+                } else if (isBrowserPackage(currentForegroundPkg)) {
+                    String winTitle = resolveActiveWindowTitle(null);
+                    if (winTitle != null && BlacklistConstants.isBlacklisted("", winTitle)) {
+                        Log.w(TAG, "Ticker caught blocked PWA by window title: " + winTitle);
+                        enforceBlock(currentForegroundPkg);
+                    }
+                }
             }
         }
     }
@@ -1277,17 +1490,25 @@ public class LockAccessibilityService extends AccessibilityService {
 
     public void enforceBlock(String pkg) {
         long now = System.currentTimeMillis();
-        if (now - lastBlockTimestamp < 800L) {
+        if (now - lastBlockTimestamp < 350L && pkg != null && pkg.equals(lastBlockedPackage)) {
             return; // Debounce rapid accessibility events from the same launch attempt
         }
         lastBlockTimestamp = now;
+        lastBlockedPackage = pkg;
 
-        Log.w(TAG, "enforceBlock on distracting app: " + pkg + " — bringing QIEZKA lock screen to front");
-        if (Settings.canDrawOverlays(this)) {
-            launchLockOverlay();
-        } else {
-            goHome();
-        }
+        Log.w(TAG, "enforceBlock on distracting app: " + pkg + " — directly bringing QIEZKA lock to front (no home redirection)");
+        
+        // Directly bring QIEZKA lock screen to front immediately
+        launchLockOverlay();
+
+        tickerHandler.postDelayed(() -> {
+            String fg = detectCurrentForegroundPackage();
+            if (fg != null && !fg.equals(getPackageName()) && !isSystemOrLauncher(fg)) {
+                if (isPackageBlocked(fg)) {
+                    launchLockOverlay();
+                }
+            }
+        }, 200L);
     }
 
     public void onScheduleStartTriggered() {
@@ -1302,40 +1523,90 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     public String detectCurrentForegroundPackage() {
-        // 1. Inspect interactive application windows
+        // 1. Z-Order Window Audit: Check if any active or visible application window belongs to a blocked package.
+        // This defeats TWA/CustomTab host wrapping (e.g. id.kisskh.twa wrapped in com.android.chrome),
+        // split-screen multi-window bypasses, and floating windows.
         try {
             List<AccessibilityWindowInfo> windows = getWindows();
             if (windows != null && !windows.isEmpty()) {
                 for (AccessibilityWindowInfo w : windows) {
                     if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION) {
-                        if (w.isActive() || w.isFocused()) {
-                            AccessibilityNodeInfo root = w.getRoot();
-                            if (root != null) {
+                        AccessibilityNodeInfo root = w.getRoot();
+                        if (root != null) {
+                            try {
                                 CharSequence p = root.getPackageName();
-                                root.recycle();
                                 if (p != null) {
                                     String pkg = p.toString();
-                                    if (!pkg.equals("com.android.systemui")) {
+                                    if (!isSystemOrLauncher(pkg) && isPackageBlocked(pkg)) {
                                         lastForegroundPackage = pkg;
                                         return pkg;
                                     }
                                 }
+                            } finally {
+                                root.recycle();
                             }
                         }
                     }
                 }
+            }
+        } catch (Exception ignore) {}
+
+        // 2. Primary: Inspect active root window directly
+        try {
+            AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
+            if (activeRoot != null) {
+                CharSequence p = activeRoot.getPackageName();
+                activeRoot.recycle();
+                if (p != null) {
+                    String rootPkg = p.toString();
+                    if (!isSystemOrLauncher(rootPkg)) {
+                        lastForegroundPackage = rootPkg;
+                        return rootPkg;
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+
+        // 3. Secondary: Inspect interactive application windows in Z-order
+        try {
+            List<AccessibilityWindowInfo> windows = getWindows();
+            if (windows != null && !windows.isEmpty()) {
+                // First pass: Active or Focused application window
+                for (AccessibilityWindowInfo w : windows) {
+                    if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive() || w.isFocused())) {
+                        AccessibilityNodeInfo root = w.getRoot();
+                        if (root != null) {
+                            try {
+                                CharSequence p = root.getPackageName();
+                                if (p != null) {
+                                    String pkg = p.toString();
+                                    if (!isSystemOrLauncher(pkg)) {
+                                        lastForegroundPackage = pkg;
+                                        return pkg;
+                                    }
+                                }
+                            } finally {
+                                root.recycle();
+                            }
+                        }
+                    }
+                }
+                // Second pass: Top visible application window
                 for (AccessibilityWindowInfo w : windows) {
                     if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION) {
                         AccessibilityNodeInfo root = w.getRoot();
                         if (root != null) {
-                            CharSequence p = root.getPackageName();
-                            root.recycle();
-                            if (p != null) {
-                                String pkg = p.toString();
-                                if (!pkg.equals("com.android.systemui")) {
-                                    lastForegroundPackage = pkg;
-                                    return pkg;
+                            try {
+                                CharSequence p = root.getPackageName();
+                                if (p != null) {
+                                    String pkg = p.toString();
+                                    if (!isSystemOrLauncher(pkg)) {
+                                        lastForegroundPackage = pkg;
+                                        return pkg;
+                                    }
                                 }
+                            } finally {
+                                root.recycle();
                             }
                         }
                     }
@@ -1343,35 +1614,19 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         } catch (Exception ignore) {}
 
-        // 2. Fallback: getRootInActiveWindow()
-        try {
-            AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (root != null) {
-                CharSequence p = root.getPackageName();
-                root.recycle();
-                if (p != null) {
-                    String pkg = p.toString();
-                    if (!pkg.equals("com.android.systemui")) {
-                        lastForegroundPackage = pkg;
-                        return pkg;
-                    }
-                }
-            }
-        } catch (Exception ignore) {}
-
-        // 3. Fallback: last recorded foreground package from events
-        if (lastForegroundPackage != null && !lastForegroundPackage.equals("com.android.systemui")) {
+        // 4. Fallback: last recorded non-system/non-launcher foreground package from events
+        if (lastForegroundPackage != null && !isSystemOrLauncher(lastForegroundPackage)) {
             return lastForegroundPackage;
         }
 
-        return null;
+        return lastForegroundPackage;
     }
 
     private void launchLockOverlay() {
         try {
             Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
             if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
                 boolean isConsequence = prefs != null && prefs.getBoolean("consequence_active", false);
                 launch.putExtra("route", isConsequence ? "logs" : "locked");
                 startActivity(launch);
@@ -1381,17 +1636,6 @@ public class LockAccessibilityService extends AccessibilityService {
         }
     }
 
-    /**
-     * Sends the user to the Home screen instead of forcing them back into QIEZKA.
-     * This is the correct behaviour: QIEZKA is not a kiosk, just a selective blocker.
-     */
-    private void goHome() {
-        try {
-            performGlobalAction(GLOBAL_ACTION_HOME);
-        } catch (Exception e) {
-            Log.e(TAG, "goHome failed: " + e.getMessage());
-        }
-    }
 
     /**
      * Handles SystemUI events.

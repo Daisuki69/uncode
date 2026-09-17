@@ -246,7 +246,9 @@ public final class WebBlocklistConstants {
 
     // ── Piracy Streaming, Manga & Short Dramas (100+ Domains) ──
     public static final Set<String> PIRACY_AND_MEDIA_DOMAINS = new HashSet<>(Arrays.asList(
-        // Free Video Streaming
+        // Free Video & Asian Drama Streaming (KissKH, KissAsian)
+        "kisskh.co", "kisskh.me", "kisskh.ovh", "kisskh.tv", "kisskh.id",
+        "kissasian.cam", "kissasian.lu", "kissasian.sh", "kissasian.li", "kissasian.video",
         "123movies.net", "123moviesgo.to", "fmovies.to", "fmovies.ps", "putlocker.pe",
         "soap2day.to", "soap2day.ac", "lookmovie2.to", "flixtor.to", "sflix.to",
         "bflix.gg", "solarmovie.pe", "solarmovie.cr", "primewire.tf", "primewire.li",
@@ -494,6 +496,7 @@ public final class WebBlocklistConstants {
      */
     public static boolean isPiracyOrMediaDomain(String lowerDomain) {
         if (lowerDomain == null) return false;
+        if (lowerDomain.contains("kisskh") || lowerDomain.contains("kissasian")) return true;
         for (String s : PIRACY_AND_MEDIA_DOMAINS) {
             if (lowerDomain.equals(s) || lowerDomain.endsWith("." + s) || lowerDomain.contains("/" + s)) {
                 return true;
