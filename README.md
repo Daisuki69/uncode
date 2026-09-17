@@ -41,7 +41,7 @@
 **[📱 OEM Guides](#-oem-rom-optimization-guide)** • 
 **[📂 Codebase Tour](#-codebase-architecture--tour)** • 
 **[📜 Engineering Changelog](#-engineering-changelog--architecture-evolution-log)** • 
-**[🔮 Future Roadmap](#-future-roadmap--potential-enhancements)** • 
+**[🔮 Future Roadmap & Forks](#-future-roadmap--ecosystem-forks)** • 
 **[❓ FAQ](#-frequently-asked-questions-faq)**
 
 </div>
@@ -1710,28 +1710,15 @@ This section details every major engineering revision, architectural refinement,
 ---
 
 
-## 🔮 Future Roadmap & Potential Enhancements
+## 🔮 Future Roadmap & Ecosystem Forks
 
-This section outlines features and architectural improvements planned for future releases of QIEZKA, explaining **why** each enhancement is needed and **how** it will be engineered.
-
----
-
-### 1. Automatic Game Category Detection (`ApplicationInfo.CATEGORY_GAME`)
-- **Why It Is Needed**:
-  - During testing, it was observed that unlisted indie games (such as *Coxeta*) could be selected in the "Allowed Apps" customization picker and run during lockdown.
-  - **Why this happens currently**:
-    1. In `LockPlugin.java` (`getInstalledApps()`), candidate packages are only filtered against `BlacklistConstants.isBlacklisted(pkg)`. While major games (Roblox, Genshin, PUBG, MLBB, etc.) are blacklisted, indie or newly installed games are not in the hardcoded blacklist.
-    2. Once a student adds an unlisted game to their `allowedApps` whitelist, `AppClassifier.isPackageBlocked()` grants an explicit bypass because `userWhitelist.contains(pkg)` is evaluated before category heuristics.
-- **Proposed Implementation**:
-  - In [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java):
-    - When iterating installed apps in `getInstalledApps()`, inspect `appInfo.category == ApplicationInfo.CATEGORY_GAME` (API 26+) and check for negative gaming keywords in the app label.
-    - Exclude games from the candidate list so they cannot be selected in the Allowed Apps picker.
-  - In [AppClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java):
-    - Elevate `CATEGORY_GAME` and `hasNegativeDistractionSignals()` above `userWhitelist.contains(pkg)` so that even if a student modifies local storage or imports a manipulated JSON file with game package IDs, the native accessibility service intercepts and blocks the game immediately.
+This section outlines features, architectural milestones, modular ecosystem forks, and cross-fork synchronization strategies planned for the QIEZKA platform, explaining **why** each component is needed, **how** it will be engineered, and the **feasibility analysis** behind experimental concepts.
 
 ---
 
-### 2. Fully Offline On-Device OCR (Google ML Kit Text Recognition)
+### 1. Core Roadmap Enhancements (QIEZKA Base)
+
+#### 1.1 Fully Offline On-Device OCR (Google ML Kit Text Recognition)
 - **Why It Is Needed**:
   - Currently, extracting text from photographed homework relies on OCR.space's REST API. If the student has poor internet connectivity, rate-limit issues, or an expired API key, OCR extraction fails.
 - **Proposed Implementation**:
@@ -1739,35 +1726,21 @@ This section outlines features and architectural improvements planned for future
   - Runs fully on-device on the Neural Processing Unit (NPU/CPU) via Google Play Services in under 300ms with zero network traffic.
   - Uses OCR.space as an optional secondary fallback for complex multi-column handwritten equations.
 
----
-
-### 3. Fine-Grained Allowed App Time Quotas
+#### 1.2 Fine-Grained Allowed App Time Quotas
 - **Why It Is Needed**:
   - Whitelisting essential communication apps (like WhatsApp or Telegram) or web browsers is necessary for asking classmates questions or researching, but students can easily get sidetracked and spend 45 minutes chatting instead of studying.
 - **Proposed Implementation**:
   - Add a configurable per-session time quota (e.g. max 10 minutes total for messaging apps per 90-minute study session).
   - In `LockAccessibilityService.java`, track cumulative foreground time for secondary whitelisted apps. Once the quota is exhausted, the accessibility service displays a floating toast `"Messaging quota reached for this study session"` and minimizes the app back to QIEZKA.
 
----
-
-### 4. Encrypted Cloud Backup & Multi-Device Synchronization
+#### 1.3 Encrypted Cloud Backup & Multi-Device Synchronization
 - **Why It Is Needed**:
   - Currently, backups are exported as plaintext JSON files via Android's Storage Access Framework (SAF). Students who switch devices or reinstall the OS must manually transfer JSON files, and storing raw Gemini API keys in plaintext presents a security concern.
 - **Proposed Implementation**:
   - Implement client-side AES-256-GCM encryption with a user-defined password before writing backup files or uploading to Google Drive / WebDAV.
   - Decrypts only on the target device when the correct master passphrase is provided.
 
----
-
-### 5. Consequence Mode Audio & Haptic Alarm Alerts
-- **Why It Was Requested**:
-  - When a lock session expires without submission, the app currently posts an Android system notification. However, if the phone is placed across the desk or in silent mode, the student may not realize that Consequence Mode has engaged.
-- **Proposed Implementation**:
-  - Implement an optional audible tone and distinct haptic vibration pattern in `AlarmReceiver` upon lock timeout using Android's `RingtoneManager.TYPE_ALARM` and `Vibrator` API, ensuring immediate awareness.
-
----
-
-### 6. Academic Performance Analytics & Study Streak Tracking
+#### 1.4 Academic Performance Analytics & Study Streak Tracking
 - **Why It Is Needed**:
   - Students want positive reinforcement and visual feedback on their long-term focus habits.
 - **Proposed Implementation**:
@@ -1776,6 +1749,113 @@ This section outlines features and architectural improvements planned for future
     - Ratio of passed homeworks vs failed consequence triggers.
     - Consecutive day study streak counter.
     - Visual timeline of daily focus sessions.
+
+---
+
+### 2. Planned Ecosystem Forks & Specialized Sister Apps
+
+QIEZKA's hardcore accessibility lockdown engine, foreground window interceptor, and anti-tamper architecture can be adapted into focused sister applications for distinct behavioral challenges:
+
+```mermaid
+flowchart TD
+    CORE["⚡ Base QIEZKA<br/>(Homework Verification Engine)"]
+    
+    FORK1["🧠 Quiz<br/>• In-App Quiz & Drills<br/>• Language Learning<br/>• Reading Enforcement"]
+    FORK2["🔗 Bridge<br/>• External App Gating<br/>• Duolingo / Anki / Khan<br/>• Score Threshold Release"]
+    FORK3["🌊 Flow<br/>• Zero-Schedule Engine<br/>• Target App Interceptor<br/>• Autonomous Anti-Doomscrolling"]
+
+    CORE -.->|Modular Fork| FORK1
+    CORE -.->|Modular Fork| FORK2
+    CORE -.->|Modular Fork| FORK3
+```
+
+#### 2.1 Quiz: Active Recall & Reading Enforcement Fork
+- **Core Concept**:
+  - Replaces physical homework camera grading with **instant interactive knowledge verification**. To unlock your phone or exit lockdown, you must actively pass a rigorous quiz generated by QIEZKA's AI engine or curated question banks.
+- **Target Workflows & Integrations**:
+  - **Language Learning Drills**: Daily vocabulary memorization, kanji/hanzi character recognition, verb conjugations, and grammar drills. The phone remains locked until the user scores ≥90% on their daily language set.
+  - **Reading Enforcement & Comprehension Gate**: Students often claim to have "read" assigned chapters while merely daydreaming or skimming. In this mode, the user assigns an article, textbook chapter, or PDF; QIEZKA analyzes the text via Gemini and generates specific conceptual questions that can only be answered if the text was genuinely read and understood. Skim-and-cheat is impossible.
+- **Unlock Condition**: High-accuracy quiz completion (e.g. 5/5 correct answers with randomized question ordering and timer limits).
+
+#### 2.2 Bridge: External Study & Quiz App Enforcement Fork
+- **Core Concept**:
+  - Instead of taking quizzes inside QIEZKA, device unlocking is tied directly to **external third-party learning applications**.
+- **How It Operates**:
+  - The student selects their target external learning app (e.g., Duolingo, Anki, Quizlet, Khan Academy, LeetCode, or a university study portal).
+  - QIEZKA places the device in lockdown, whitelisting *only* the chosen educational app and emergency dialers.
+  - **Score / Milestone Verification**: The student must achieve a designated score, complete a set number of flashcards, or earn a target XP count in the external app.
+  - **Verification Engine**: Android Accessibility inspection scans the external app's active UI tree (detecting "Lesson Complete", "Score: 100%", "Deck Finished") or queries Android `UsageStatsManager` / Intent result callbacks to confirm genuine task completion before lifting the system lockdown.
+
+#### 2.3 Flow: Autonomous Zero-Schedule Anti-Doomscrolling Fork
+- **Core Concept**:
+  - In current QIEZKA, lockdown requires explicit scheduling or active task creation. **Flow eliminates schedules and tasks entirely.** It operates silently in the background as a permanent algorithmic circuit breaker.
+- **Autonomous Detection Engine**:
+  - Continuously monitors foreground activity across identified short-form dopamine pit apps: Instagram Reels, TikTok, YouTube Shorts, X/Twitter, Reddit, Facebook Reels.
+  - Uses `LockAccessibilityService` scroll rate detection and foreground session timers to recognize doomscrolling behavior in real-time (e.g., >7 rapid vertical swipes within 30 seconds, or uninterrupted continuous consumption exceeding 10 minutes).
+- **Autonomous Interventional Lock**:
+  - When doomscrolling is detected, Flow automatically yanks the foreground, displays a full-screen cool-off lockdown or floating intervention banner, and enforces a mandatory dopamine detox cooldown (e.g. 15–30 minutes) without the user ever having had to pre-plan a study session.
+
+---
+
+### 3. Cross-Fork Classifier & Blocklist Management Architecture
+
+A major engineering challenge across multiple forked apps is maintaining blocklists, categorizations, and link filters: *if a student discovers a new distraction domain or updates a classifier rule, modifying and recompiling every single fork independently is tedious and unsustainable.*
+
+QIEZKA plans two viable architectural solutions to this distribution problem:
+
+```mermaid
+flowchart LR
+    subgraph ModelA ["Model A: Mandatory Offline Companion Hub (Central / Base QIEZKA)"]
+        HUB["📱 Central / Base QIEZKA<br/>(Master Classifier & Rule Hub)<br/>• 100% Offline<br/>• Sole App Updated via APK"]
+        F1["🧠 Quiz"]
+        F2["🔗 Bridge"]
+        F3["🌊 Flow"]
+        HUB -.->|Mandatory Runtime Gate<br/>(Forks refuse to run if Central missing)| F1
+        HUB -.->|Mandatory Runtime Gate<br/>(Forks refuse to run if Central missing)| F2
+        HUB -.->|Mandatory Runtime Gate<br/>(Forks refuse to run if Central missing)| F3
+        HUB ==>|Local IPC: Blocklists & Classifier| F1
+        HUB ==>|Local IPC: Blocklists & Classifier| F2
+        HUB ==>|Local IPC: Blocklists & Classifier| F3
+    end
+
+    subgraph ModelB ["Model B: Standalone Dynamic Remote Pull (Online Model)"]
+        GH["🌐 Hardcoded Remote Resource<br/>(GitHub Raw / CDN Manifest)"]
+        B1["🧠 Quiz"]
+        B2["🔗 Bridge"]
+        B3["🌊 Flow"]
+        GH -.->|Direct Async HTTPS Pull| B1
+        GH -.->|Direct Async HTTPS Pull| B2
+        GH -.->|Direct Async HTTPS Pull| B3
+    end
+```
+
+#### Model A: Mandatory Offline Companion App (`Central` - Companion Hub)
+- **Mandatory Runtime Gating (Required Prerequisite)**:
+  - Every fork (`Quiz`, `Bridge`, `Flow`) is **required to run ONLY if the companion app (`Central` / Base QIEZKA) is installed, working, and actively running in the background**.
+  - If the companion app is missing, stopped, or disabled, the forked apps immediately refuse to execute or enforce lockdown.
+- **Single-App Update Architecture (Zero-Fork Recompilation)**:
+  - **The Problem It Solves**: In an offline ecosystem, if you want to add a specific unlisted link or an updated classifier heuristic, updating every single fork would be exhausting.
+  - **The Solution**: You **only download/update ONE app: an updated QIEZKA companion app APK**.
+  - **Zero Touching of Forked Apps**: Because every fork queries `Central` via local Android IPC (`ContentProvider` / AIDL Binder) for real-time decisions on what to block and classify, downloading an updated QIEZKA companion app immediately updates the classification and blocking rules across all forked apps—**without having to update, recompile, or reinstall any of the forks!**
+
+#### Model B: Standalone Dynamic Remote Pull (Online Model)
+- **Role & Philosophy**: If the apps are allowed to run online without a BYOK Model, the need for a secondary companion app is eliminated.
+- **Hardcoded Remote Source Endpoints**:
+  - Each fork operates completely standalone and contains hardcoded links/endpoints to trusted remote resources (e.g. version-controlled GitHub Raw JSON manifests or remote rulebooks).
+  - The forks always pull and update their classifiers, unlisted links, and blocklists directly from the hardcoded resources on launch or network availability.
+  - Operates completely standalone with local caching and offline fallback.
+
+---
+
+### 4. Feasibility Analysis: Speculative & High-Risk Forks ("On-Hold / Not Recommended")
+
+Several potential forks have been proposed but are currently deemed **impractical or fundamentally vulnerable to anti-cheat bypasses** under QIEZKA's "Zero Honor System" doctrine:
+
+| Proposed Fork | Concept | Fatal Vulnerabilities & Anti-Cheat Failure Modes | Feasibility Verdict |
+| :--- | :--- | :--- | :---: |
+| **🏋️ QIEZKA Fitness** | Unlock device by completing physical workout (running, lifting, pushups). | • **Camera Spoofing**: User points camera at a laptop screen playing an online YouTube workout video or holds up a static photo.<br/>• **Smartwatch Shaking**: Smartwatch accelerometers and step counters can be faked by shaking the wrist or attaching the watch to a household fan/pet.<br/>• **Hardware Barrier**: Requires expensive smartwatches with real-time PPG heart-rate telemetry to even approximate effort. | ⚠️ **On Hold** (High bypass risk; unfeasible without tamper-proof biometric heart-rate variance). |
+| **🧹 QIEZKA Chores** | Unlock device by doing dishes, cleaning bedroom, or folding laundry. | • **Static Photo Re-use**: Taking a photo of an already clean corner of the room or reusing an old photograph.<br/>• **Zero Objective Ground Truth**: AI cannot determine if a bed was made today or last month, or if the user was the person who cleaned it.<br/>• **Stageability**: Placing two plates in a dish rack to simulate a full chore. | ❌ **Rejected / Impractical** (Fundamentally relies on the honor system). |
+| **🎨 QIEZKA Creative** | Unlock device by drawing, painting, or writing poetry/fiction. | • **Plagiarism & Image Download**: Downloading artwork or text from Pinterest, Google Images, or AI generators and photographing the monitor.<br/>• **Subjective Effort**: No algorithmic metric can verify whether a 5-minute sketch represents honest effort or deliberate evasion. | ❌ **Rejected / Impractical** (Impossible to verify effort objectively without continuous surveillance). |
 
 ---
 
