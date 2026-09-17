@@ -1750,6 +1750,7 @@ This section details every major engineering revision, architectural refinement,
     - All blocked, unwanted, or distracting apps/PWAs now point directly and instantly to QIEZKA Lock (`MainActivity`) via `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TOP | FLAG_ACTIVITY_SINGLE_TOP | FLAG_ACTIVITY_REORDER_TO_FRONT`, immediately locking the device without ever bouncing through the Home launcher.
 
 ---
+note: i do notice a home app wwhen defaulted, you cant uninstall it, have to navigate to settings inorder to do so, imagine if qieka is a home app. that could be another model in future
 
 
 ## 🔮 Future Roadmap & Ecosystem Forks
