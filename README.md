@@ -1757,7 +1757,7 @@ that could be another model in future
 qiezka would be even stronger
 
 for a true genuine useful app looks suspicious and qiezka says its blocked
-thats acceptable, you can find multiple of the same apps anyways but you cant find the same qiezka anywhere
+thats acceptable, you can find multiple of the same apps anyways but you cant find the same qiezka anywhere, but if something truly is unique and useful can always contact me and will allow such app in future
 for a genuine distracting app successfully disguises, will be tested and hardened soon if i encounter such app
 
 
