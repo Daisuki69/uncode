@@ -1794,6 +1794,9 @@ so uninstall isnt merely uninstall you have to select first different launcher i
 
 would require to sOmehow intercept a default home launcher selectiOn whenever it happens
 
+wait actually cant we just abuse the accesibility feature, instead of blocking the whole settings app, what if we just block a specific layer that allows the user to deactivate/uninstall qiezka like
+/appinfo/uninstall/accesibility, this must be discussed
+
 [1]: https://developer.android.com/reference/kotlin/android/content/Intent.html?utm_source=chatgpt.com "Intent  |  API reference  |  Android Developers"
 [2]: https://developer.android.com/reference/android/provider/Settings?authuser=9&utm_source=chatgpt.com "Settings  |  API reference  |  Android Developers"
 [3]: https://developer.android.com/reference/android/app/role/RoleManager?authuser=7&utm_source=chatgpt.com "RoleManager  |  API reference  |  Android Developers"
