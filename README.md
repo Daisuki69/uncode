@@ -1754,7 +1754,137 @@ note: i do notice a home app when defaulted, you cant uninstall it, have to navi
 the app would be persistent always since it will be the first thing you will see the moment phone boots
 imagine if that was qiezka
 that could be another model in future
-qiezka would be even stronger
+qiezka would be even strongerAndroid Developers][1])
+
+QIEZKA could use a **“Home shell / proxy” architecture**:
+quezka is still is an app icon but is also the home app so it feels like this is normal
+```
+
+### The key trick
+
+QIEZKA **is technically the Home handler**, but its Home activity doesn't have to *look* like a launcher.
+
+When the user presses Home:
+
+1. Android launches QIEZKA because QIEZKA owns the Home role.
+2. QIEZKA checks its state.
+3. If there's **no active lockdown**, QIEZKA immediately hands control back to the original launcher.
+4. The original launcher appears exactly as normal.
+5. QIEZKA can remain in the background monitoring/enforcing.
+
+So from the user's perspective:
+
+> **“QIEZKA is the Home app, but Home still looks completely normal.”**
+
+That is different from making QIEZKA itself a launcher.
+
+### BUT there's a nasty Android detail
+
+You can't simply have:
+
+```text
+QIEZKA = default Home
+      ↓
+return original launcher
+      ↓
+Android thinks original launcher is still Home
+```
+
+The system's Home resolution is still pointing at QIEZKA. Android's Home selection is specifically designed around selecting the activity that handles `CATEGORY_HOME`. ([Android Developers][2app
+So QIEZKA would need to **explicitly launch the original launcher as another activity/task** rather than somehow making Android forget that QIEZKA is Home.
+
+And that creates an interesting loop:
+
+```text
+Home button
+    ↓
+QIEZKA
+    ↓
+"Normal mode?"
+    ↓
+YES
+    ↓
+launch original launcher
+    ↓
+original launcher visible
+```
+
+If the user presses Home again while the original launcher is visible, Android will resolve Home **again**, potentially bringing QIEZKA back.
+
+QIEZKA can then immediately launch the original launcher again.
+
+That could produce:
+
+```text
+User: presses Home
+        ↓
+QIEZKA briefly receives Home
+        ↓
+QIEZKA launches Samsung/Pixel launcher
+        ↓
+User sees Samsung/Pixel launcher
+        ↓
+User presses Home
+        ↓
+QIEZKA receives Home again
+        ↓
+QIEZKA launches Samsung/Pixel launcher
+```
+
+With careful task/launch flags, this can be made much less noticeable.
+
+### And this is actually VERY interesting for QIEZKA
+
+It would give QIEZKA two modes:
+
+**Normal**
+
+```text
+Android
+  ↓
+QIEZKA Home proxy
+  ↓
+Original launcher
+  ↓
+Phone looks completely normal
+```
+
+**Lockdown**
+
+```text
+Android
+  ↓
+QIEZKA Home proxy
+  ↓
+QIEZKA Lock/Home environment
+  ↓
+Allowed apps only
+```
+
+So QIEZKA wouldn't need to build an entire replacement launcher UI.
+
+It could essentially say:
+
+> **“I am the Home authority, but I delegate the visual Home screen to the user's existing launcher unless enforcement requires otherwise.”**
+
+That's a pretty clever architecture.
+
+### One limitation
+
+It isn't literally:
+
+> “QIEZKA is the Home app while Android simultaneously considers Samsung/Pixel Launcher the Home app.”
+
+Android normally has one selected Home handler for the user. The `ROLE_HOME` role represents that Home role. ([Android Developers][3])
+
+It's more accurately:
+
+> **QIEZKA is the system's Home handler, while the original launcher is the visual Home implementation that QIEZKA forwards to.**
+
+[1]: https://developer.android.com/reference/kotlin/android/content/Intent.html?utm_source=chatgpt.com "Intent  |  API reference  |  Android Developers"
+[2]: https://developer.android.com/reference/android/provider/Settings?authuser=9&utm_source=chatgpt.com "Settings  |  API reference  |  Android Developers"
+[3]: https://developer.android.com/reference/android/app/role/RoleManager?authuser=7&utm_source=chatgpt.com "RoleManager  |  API reference  |  Android Developers"
+
 
 for a true genuine useful app looks suspicious and qiezka says its blocked
 thats acceptable, you can find multiple of the same apps anyways but you cant find the same qiezka anywhere, but if something truly is unique and useful can always contact me and will allow such app in future
