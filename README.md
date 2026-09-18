@@ -1754,64 +1754,19 @@ note: i do notice a home app when defaulted, you cant uninstall it, have to navi
 the app would be persistent always since it will be the first thing you will see the moment phone boots
 imagine if that was qiezka
 that could be another model in future
-qiezka would be even strongerAndroid Developers][1])
+qiezka would be even stronger
 
-QIEZKA could use a **“Home shell / proxy” architecture**:
-quezka is still is an app icon but is also the home app so it feels like this is normal
-```
+qiezka would be like a home shell architecture
+making qiezka a homelauncher would require me to code a home launcehr ui... and i dont want to do that so the idea here is
+make qiezka a home app but we will use the previous home launcher as the the ui with a qiezka as an app
 
-### The key trick
+like as if qiezka was never the home launcher in the first place
+if user clicks home button qiezka handler would be launched and quickly launch the previous launcher
 
-QIEZKA **is technically the Home handler**, but its Home activity doesn't have to *look* like a launcher.
 
-When the user presses Home:
 
-1. Android launches QIEZKA because QIEZKA owns the Home role.
-2. QIEZKA checks its state.
-3. If there's **no active lockdown**, QIEZKA immediately hands control back to the original launcher.
-4. The original launcher appears exactly as normal.
-5. QIEZKA can remain in the background monitoring/enforcing.
 
-So from the user's perspective:
 
-> **“QIEZKA is the Home app, but Home still looks completely normal.”**
-
-That is different from making QIEZKA itself a launcher.
-
-### BUT there's a nasty Android detail
-
-You can't simply have:
-
-```text
-QIEZKA = default Home
-      ↓
-return original launcher
-      ↓
-Android thinks original launcher is still Home
-```
-
-The system's Home resolution is still pointing at QIEZKA. Android's Home selection is specifically designed around selecting the activity that handles `CATEGORY_HOME`. ([Android Developers][2app
-So QIEZKA would need to **explicitly launch the original launcher as another activity/task** rather than somehow making Android forget that QIEZKA is Home.
-
-And that creates an interesting loop:
-
-```text
-Home button
-    ↓
-QIEZKA
-    ↓
-"Normal mode?"
-    ↓
-YES
-    ↓
-launch original launcher
-    ↓
-original launcher visible
-```
-
-If the user presses Home again while the original launcher is visible, Android will resolve Home **again**, potentially bringing QIEZKA back.
-
-QIEZKA can then immediately launch the original launcher again.
 
 That could produce:
 
@@ -1824,52 +1779,13 @@ QIEZKA launches Samsung/Pixel launcher
         ↓
 User sees Samsung/Pixel launcher
         ↓
-User presses Home
+user taps apps and sees qiezka is there
         ↓
-QIEZKA receives Home again
-        ↓
-QIEZKA launches Samsung/Pixel launcher
-```
 
-With careful task/launch flags, this can be made much less noticeable.
 
-### And this is actually VERY interesting for QIEZKA
 
-It would give QIEZKA two modes:
-
-**Normal**
-
-```text
-Android
-  ↓
-QIEZKA Home proxy
-  ↓
-Original launcher
-  ↓
-Phone looks completely normal
-```
-
-**Lockdown**
-
-```text
-Android
-  ↓
-QIEZKA Home proxy
-  ↓
-QIEZKA Lock/Home environment
-  ↓
-Allowed apps only
-```
 
 So QIEZKA wouldn't need to build an entire replacement launcher UI.
-
-It could essentially say:
-
-> **“I am the Home authority, but I delegate the visual Home screen to the user's existing launcher unless enforcement requires otherwise.”**
-
-That's a pretty clever architecture.
-
-### One limitation
 
 It isn't literally:
 
