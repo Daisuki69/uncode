@@ -1763,24 +1763,18 @@ make qiezka a home app but we will use the previous home launcher as the the ui 
 like as if qiezka was never the home launcher in the first place
 if user clicks home button qiezka handler would be launched and quickly launch the previous launcher
 
-
-
-
-
-
 That could produce:
 User: presses Home
         ↓
 QIEZKA briefly receives Home
         ↓
-QIEZKA launches Samsung/Pixel launcher
+QIEZKA launches Samsung/Pixel launcher(whatever mdoe it is lockdown nor normal )
         ↓
 User sees Samsung/Pixel launcher
         ↓
-user taps apps and sees qiezka is there
+user taps apps and sees qiezka app icon is there
         ↓
-
-
+User taps qiezka, qiezka shows the app ui
 
 
 So QIEZKA wouldn't need to build an entire replacement launcher UI.
@@ -1793,9 +1787,12 @@ Android normally has one selected Home handler for the user. The `ROLE_HOME` rol
 
 It's more accurately:
 
-> **QIEZKA is the system's Home handler, while the original launcher is the visual Home implementation that QIEZKA forwards to.**
-
+> **QIEZKA is the system's Home handler, while the original launcher is the visual Home implementation that QIEZKA forwards to.*
 benefits: qiezka would be very persistent, it would add another friction to the current DeviceAdmin uninstall friction
+so uninstall isnt merely uninstall you have to select first different launcher inorder to uninstall qiezka, but it wpuld be intercepted
+> and somehow you also need to deactivate admin inorder to unInstall qiezka, which is also intercept
+
+would require to sOmehow intercept a default home launcher selectiOn whenever it happens
 
 [1]: https://developer.android.com/reference/kotlin/android/content/Intent.html?utm_source=chatgpt.com "Intent  |  API reference  |  Android Developers"
 [2]: https://developer.android.com/reference/android/provider/Settings?authuser=9&utm_source=chatgpt.com "Settings  |  API reference  |  Android Developers"
