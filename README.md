@@ -1769,8 +1769,6 @@ if user clicks home button qiezka handler would be launched and quickly launch t
 
 
 That could produce:
-
-```text
 User: presses Home
         ↓
 QIEZKA briefly receives Home
@@ -1796,6 +1794,8 @@ Android normally has one selected Home handler for the user. The `ROLE_HOME` rol
 It's more accurately:
 
 > **QIEZKA is the system's Home handler, while the original launcher is the visual Home implementation that QIEZKA forwards to.**
+
+benefits: qiezka would be very persistent, it would add another friction to the current DeviceAdmin uninstall friction
 
 [1]: https://developer.android.com/reference/kotlin/android/content/Intent.html?utm_source=chatgpt.com "Intent  |  API reference  |  Android Developers"
 [2]: https://developer.android.com/reference/android/provider/Settings?authuser=9&utm_source=chatgpt.com "Settings  |  API reference  |  Android Developers"
