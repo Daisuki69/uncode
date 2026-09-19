@@ -1798,7 +1798,7 @@ wait actually cant we just abuse the accesibility feature, instead of blocking t
 /appinfo/uninstall/accesibility, this must be discussed
 
 what if a feature if web or a site cant be clasified to be allowed or blocked then qiezka can use another layer, how did iser get into this tab, use the recent searched things or hyperlinks that he used
-
+this whole flow can only be applicable in the very last stage before unlisted allowing sites ,for blocking sites a loss of one site because there is no context last layer is a acceptable loss, hundreds of other sites exist, it also reduces redundancy
 [1]: https://developer.android.com/reference/kotlin/android/content/Intent.html?utm_source=chatgpt.com "Intent  |  API reference  |  Android Developers"
 [2]: https://developer.android.com/reference/android/provider/Settings?authuser=9&utm_source=chatgpt.com "Settings  |  API reference  |  Android Developers"
 [3]: https://developer.android.com/reference/android/app/role/RoleManager?authuser=7&utm_source=chatgpt.com "RoleManager  |  API reference  |  Android Developers"
