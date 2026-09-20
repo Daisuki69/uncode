@@ -1941,6 +1941,45 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
+### Patch 24: Consolidated 3-Stage Inverted Architecture & Universal System Partition Protocol
+
+- **Why It Was Mandated (The Paradigm Shift)**:
+  - **The Positive Whitelist Treadmill**: In Patch 23, we manually extracted and partitioned 191 packages from Universal Android Debloater (UAD-NG). However, Android's ecosystem is fragmented across thousands of device models. Every minor OEM OTA update (One UI 7, HyperOS 2, OxygenOS 15) invents new proprietary sub-APK package names for camera document scanners, S-Pen tools, live Bokeh, and screenshot crop handlers. Attempting to maintain an ever-growing positive whitelist of package names is an endless, fragile treadmill where students on unlisted devices get unexpectedly evicted to the lock screen.
+  - **The "Do We Need UAD-NG in the First Place?" Breakthrough**:
+    - UAD-NG is **not useless**—its purpose was simply inverted. Instead of attempting to use UAD-NG as an incomplete positive whitelist of "good" packages, UAD-NG provides the **authoritative ground truth for what system bloat, Game Turbo daemons, and instant game stores to VETO in Stage 1**.
+    - By leveraging UAD-NG to build an airtight **Master Veto Gate**, we can safely open the **System Partition Gateway** to all clean OEM hardware sub-APKs (`FLAG_SYSTEM`) **universally, permanently, and with zero future maintenance**.
+
+- **The Consolidated 3-Stage Architecture**:
+  Collapsed fragmented evaluation gates into 3 razor-sharp, consolidated stages:
+  1. **Stage 1: Master Veto Gate (Supreme Negative Filter)**:
+     - **Hardcoded Distraction Blacklist**: YouTube, TikTok, Netflix, Instagram, KissKH (vetoed regardless of whether they are preloaded in `/system`).
+     - **Anti-Tamper Shield (`isSettingsOrDeviceManager`)**: Android Settings (`com.android.settings`), MIUI Security Center (`com.miui.securitycenter`), ColorOS Phone Manager (`com.coloros.safecenter`), Samsung Device Care (`com.samsung.android.lool`), Transsion Phone Master, Vivo iManager, and any package/label containing *"Settings"*, *"Phone Manager"*, *"Device Care"*, *"Security Center"*, *"Cleaner"*, or *"Battery Saver"*. Students cannot open system management hubs to force-stop QIEZKA or revoke Accessibility.
+     - **Negative Categories & UAD Bloatware Signatures**:
+       - `CATEGORY_GAME`, `CATEGORY_SOCIAL`, `CATEGORY_VIDEO`, `FLAG_IS_GAME`.
+       - Container/sandbox signatures (`.clone.`, `.dual.`, `.secondspace.`, `.vault.`).
+       - UAD-NG bloat/game signatures: `"joyose"`, `"gamecenter"`, `"gamebooster"`, `"gamemode"`, `"gamehome"`, `"gamespace"`, `"shortvideo"`, `"mipicks"` (GetApps), `"palmstore"`, `"glance"`.
+       - Fake calculator vaults (disguised calculators requesting Camera/Storage).
+  2. **Stage 2: Universal System & Hardware Gateway**:
+     - **Web Browser Interception**: Browsers (Chrome, Samsung Internet, Firefox) are intercepted *before* the system partition check and routed directly to `WebClassifier` (they never receive unmonitored free passes; gaming sites trigger auto-back remediation).
+     - **System Partition Gateway (`FLAG_SYSTEM` / `FLAG_UPDATED_SYSTEM_APP`)**:
+       - Any pre-installed OEM package that passed Stage 1's Master Veto is **clean hardware/OS infrastructure $\rightarrow$ INSTANTLY ALLOWED**.
+       - **What is guaranteed**: Camera document scanners (`com.xiaomi.scanner`, `com.samsung.android.app.vex.scanner`), Bokeh/portrait depth (`com.miui.extraphoto`, `com.samsung.android.app.siofviewer`), S-Pen Air Command, screenshot markup/crop, split-screen window managers (`com.miui.freeform`, `com.oplus.pscanvas`), and on-device AI engines (`com.xiaomi.aiservice`, `com.samsung.android.scs`) work out-of-the-box on **any Android device in the world**.
+  3. **Stage 3: Third-Party User App Filter (`FLAG_SYSTEM == 0`)**:
+     - Any app reaching Stage 3 is guaranteed to be a user-downloaded app from the Play Store or web.
+     - Only allowed if on the explicit user whitelist (AppSettings), verified notes apps (Keep, OneNote, Notion, Mi Canvas), or recognized academic tools (Anki, Desmos, Photomath).
+     - Unknown third-party apps drop into **Layer 5 Conservative Fallback $\rightarrow$ BLOCKED**.
+
+- **Architectural Enhancements Implemented**:
+  - **AppClassifier.java**:
+    - Centralized bloatware signatures (`joyose`, `gamecenter`, `mipicks`, `palmstore`, `glance`) into `NEGATIVE_PKG_SUBSTRINGS`.
+    - Added `isSettingsOrDeviceManager(pkg, appLabel)` with package and semantic label heuristics.
+    - Wired Stage 2 Universal System Partition Gateway into `evaluatePackage`.
+  - **LockAccessibilityService.java**:
+    - Added `isSettingsOrDeviceManager` check to `isPackageBlocked` directly below `BlacklistConstants`.
+    - Enhanced `isSystemOrLauncher(pkg)` to recognize clean system partition apps, preventing transient system overlays and screenshot previews from triggering illegal foreground app switch alerts.
+
+---
+
 note: i do notice a home app when defaulted, you cant uninstall it, have to navigate to settings inorder to do so, uninstall prevention would be home app + already device admin
 the app would be persistent always since it will be the first thing you will see the moment phone boots
 imagine if that was qiezka
