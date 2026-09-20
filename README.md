@@ -1245,10 +1245,7 @@ set "ENABLE_ACCESSIBILITY=true"
 :: 6. Activate Device Administrator to prevent uninstallation during lockdown
 set "ACTIVATE_DEVICE_ADMIN=true"
 
-:: 7. Attempt Enterprise Device Owner mode (DEFAULT: false)
-set "TRY_DEVICE_OWNER=false"
-
-:: 8. Automatically launch QIEZKA on your phone after setup completes
+:: 7. Automatically launch QIEZKA on your phone after setup completes
 set "LAUNCH_APP_ON_FINISH=true"
 ```
 
@@ -1298,9 +1295,9 @@ During **Consequence Mode**, enforcement depends on your active operating mode:
 - **Hardcore Mode**: Enforcement is **24/7 continuous**. Once Consequence Mode is triggered, all distracting apps and blacklisted domains remain blocked around the clock until the student reschedules and successfully passes the homework submission.
 
 ### 3. Emergency ADB Recovery Procedures
-If Device Owner or Device Admin lock states ever need to be manually reset from a host PC:
+If Device Administrator lock states ever need to be manually reset from a host PC:
 ```bash
-# Force-remove Device Administrator / Device Owner privileges:
+# Force-remove Device Administrator privileges:
 adb shell dpm remove-active-admin com.uncode.app/.AdminReceiver
 
 # Force-stop the app process and background services:
@@ -1421,7 +1418,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 1. Milestone 1: The Core Selective Focus Protocol
+### 1. Patch 1: The Core Selective Focus Protocol
 - **Why It Was Added**:
   - Existing app blockers failed at two extremes: soft "honor system" timers (easily bypassed during cognitive fatigue) or blunt "dumb phone" locks (disabling academic tools like lecture PDFs, notes, and AI explanation).
   - Modern academic workflows require active access to reference materials, course slide viewers, and AI tutors while completely cutting off algorithmic dopamine feeds (reels, games, social feeds).
@@ -1433,7 +1430,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 2. Milestone 2: Phantom Alarm Elimination & Exact Alarm Cancellation
+### 2. Patch 2: Phantom Alarm Elimination & Exact Alarm Cancellation
 - **Why It Was Changed**:
   - Students reported alarms triggering upcoming schedule notifications and starting lockdowns even after schedules were deleted, disabled, or updated to a different time.
   - When opened, no schedule was active for that time, causing the app to cancel the lock and return to the dashboard without blocking apps.
@@ -1446,7 +1443,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 3. Milestone 3: Floating Ball Timer Clamping & LockScreen Countdown Synchronization
+### 3. Patch 3: Floating Ball Timer Clamping & LockScreen Countdown Synchronization
 - **Why It Was Changed**:
   - The floating overlay ball timer frequently started at `1:00:00` (1 hour) regardless of whether the schedule duration was set to 25, 40, or 60 minutes.
   - On the full-screen `LockScreen.tsx`, the timer remained frozen at `40:00` and would not tick down until 20 minutes later (when 1 hour dropped below 40 minutes).
@@ -1460,7 +1457,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 4. Milestone 4: Evaluation Completion Dismissal & State Deactivation
+### 4. Patch 4: Evaluation Completion Dismissal & State Deactivation
 - **Why It Was Changed**:
   - When students submitted homework and passed AI evaluation, the floating timer ball remained on screen, continuing to count down. Tapping or exiting returned the student back into the locked schedule.
 - **Root Cause & Technical Fix**:
@@ -1474,7 +1471,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 5. Milestone 5: Intelligent Resource & AI General Knowledge Validation
+### 5. Patch 5: Intelligent Resource & AI General Knowledge Validation
 - **Why It Was Changed**:
   - When students selected both course notes and "AI General Knowledge", Step 2 in the Schedule Creator previously skipped validation entirely.
   - If an assignment was completely answerable using course notes alone (e.g. Student Grade Calculator), leaving AI General Knowledge enabled caused the auto-harvester to harvest scenario-specific details (like quiz weights and formulas) into clean resource notes upon passing.
@@ -1485,7 +1482,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 6. Milestone 6: Homeworks Log "Add Again" Cascade Rescheduling (Option B)
+### 6. Patch 6: Homeworks Log "Add Again" Cascade Rescheduling (Option B)
 - **Why It Was Added**:
   - Students with failed or expired homework sessions in the Homeworks Log needed a way to re-attempt their assignments without causing schedule overlap conflicts.
 - **What Was Implemented**:
@@ -1498,7 +1495,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 7. Milestone 7: Simulated Time Bridge & Clock Synchronization
+### 7. Patch 7: Simulated Time Bridge & Clock Synchronization
 - **Why It Was Added**:
   - Testing schedule triggers, countdown transitions, and consequence operating windows required waiting hours for real wall-clock time.
   - Simulating time purely in React caused severe desynchronization with native Android `AlarmManager`, `FloatingOverlayService`, and `LockAccessibilityService`.
@@ -1509,7 +1506,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 8. Milestone 8: Accessibility Service Self-Exemption & Safe Schedule Start
+### 8. Patch 8: Accessibility Service Self-Exemption & Safe Schedule Start
 - **Why It Was Changed**:
   - Under certain race conditions when lockdown engaged, opening QIEZKA to view instructions or capture homework photos caused QIEZKA itself to be intercepted or minimized by its own accessibility service.
 - **What Was Implemented**:
@@ -1517,7 +1514,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 9. Milestone 9: Consequence Mode Accountability & Failed Homework Archiving
+### 9. Patch 9: Consequence Mode Accountability & Failed Homework Archiving
 - **Why It Was Changed**:
   - When a student abandoned a session or let the timer expire without submitting, the app previously closed itself and left the failed schedule in limbo, failing to enforce accountability.
 - **What Was Implemented**:
@@ -1527,7 +1524,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 10. Milestone 10: Preserving App Installation & Play Store Package Installers
+### 10. Patch 10: Preserving App Installation & Play Store Package Installers
 - **Why It Was Changed**:
   - Updating or installing apps (via Google Play Store, Samsung Galaxy Store, or manual APK installation) was blocked by the accessibility window monitor during study hours because package installer activities had unknown or system category.
 - **What Was Implemented**:
@@ -1538,7 +1535,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 11. Milestone 11: Operating Modes (Safemode vs Hardcore 24/7) & Local DNS Sinkhole VPN
+### 11. Patch 11: Operating Modes (Safemode vs Hardcore 24/7) & Local DNS Sinkhole VPN
 - **Why It Was Added**:
   - Standard Consequence Mode operates only during study hours (7:00 PM – 3:00 AM). University students requested a "Hardcore" mode enforcing 24/7 round-the-clock restrictions.
   - In-app browser tabs and WebViews allowed bypassing app-level blocks to access distracting websites.
@@ -1549,7 +1546,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 12. Milestone 12: YouTube Academic Browsing Mode
+### 12. Patch 12: YouTube Academic Browsing Mode
 - **Why It Was Added**:
   - STEM students require access to YouTube coding tutorials, physics lectures, and 3Blue1Brown explanations, but the native YouTube app is an extreme distraction vector with Shorts and algorithm feeds.
 - **What Was Implemented**:
@@ -1560,7 +1557,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 13. Milestone 13: 5-Step Interactive Onboarding Wizard & Device Permissions Setup
+### 13. Patch 13: 5-Step Interactive Onboarding Wizard & Device Permissions Setup
 - **Why It Was Changed**:
   - First-run setup was too brief, missing interactive explanations of selective focus, proof-of-work expectations (photographing/screenshotting handwritten work or code), terms and conditions, and system permission verification.
 - **What Was Implemented**:
@@ -1574,7 +1571,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 14. Milestone 14: Consequence Mode Import Protection & Orphan Auto-Recovery
+### 14. Patch 14: Consequence Mode Import Protection & Orphan Auto-Recovery
 - **Why It Was Changed**:
   - A user attempted to reset the app by importing a blank JSON backup (with empty schedules, empty completedHomeworks, and `consequenceActive: false`).
   - However, native Android SharedPreferences (`uncode_lock.xml`) still had `consequence_active = true`. On boot, `getLockStatus()` queried native preferences and reinstated `consequenceActive: true`, leaving the user deadlocked in Consequence Mode with 0 failed homeworks available to reschedule and pass.
@@ -1594,7 +1591,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 15. Milestone 15: Web-Based Game Armor & Browser Gaming Defense Protocol
+### 15. Patch 15: Web-Based Game Armor & Browser Gaming Defense Protocol
 - **Why It Was Added**:
   - When native game apps (like *Coxeta*, *Genshin*, or *Roblox*) were blocked, students bypassed restrictions by opening allowed browsers (Chrome, Samsung Internet, Firefox, Brave, Edge) to play web-based games, viral .IO multiplayer games, retro emulators, cloud-streamed APKs (`now.gg`), or search-embedded mini-games (Chrome Dino, Google Snake).
 - **What Was Implemented**:
@@ -1616,7 +1613,7 @@ This section details every major engineering revision, architectural refinement,
     - Synchronizes `block_web_games` preference to native bridge on boot and upon saving settings.
 
 ---
-### 16. Milestone 16: Unified Tri-Mode Web Protection Architecture (Accessibility, DNS Sinkhole & Dual Hybrid)
+### 16. Patch 16: Unified Tri-Mode Web Protection Architecture (Accessibility, DNS Sinkhole & Dual Hybrid)
 - **Why It Was Added**:
   - Manually updating blocklists or relying on inflexible, external upstream family filters proved either too narrow or created unwanted network side-effects. Students require reliable, device-wide web defense that seamlessly integrates with their study environment while preserving battery life and device compatibility.
   - To accommodate diverse student needs and device environments, QIEZKA introduced a unified tri-mode web protection architecture:
@@ -1635,7 +1632,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 17. Milestone 17: Multi-User Anti-Evasion, App Cloner Elimination & Wide Recognition Engine
+### 17. Patch 17: Multi-User Anti-Evasion, App Cloner Elimination & Wide Recognition Engine
 - **Why It Must Be Implemented**:
   - Traditional Android app blockers operate on a naive single-user, single-instance model: they inspect package IDs on the primary user account (`UserHandle 0`).
   - When students experience high cognitive friction during difficult study sessions, their brain actively searches for technical escape routes. In modern Android, the OS provides virtualization and multi-tenancy frameworks that circumvent basic package checks:
@@ -1658,7 +1655,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 18. Milestone 18: Massive Multi-Genre WebClassifier & Autocomplete Typing Immunity Guard
+### 18. Patch 18: Massive Multi-Genre WebClassifier & Autocomplete Typing Immunity Guard
 - **Why It Was Mandated**:
   - Narrow, hardcoded game lists proved insufficient against modern digital distractions: students easily wandered onto web-based gambling, adult content, proxy tunnels, piracy streaming, vertical short-dramas, viral gossip, and crypto speculation.
   - Crucially, previous URL evaluation mechanisms suffered from an **autocomplete eviction trap**: when a student typed the letter `y` in Chrome to search or navigate to `yale.edu`, Chrome's inline autocomplete pre-filled `y8.com`. The accessibility service extracted `y8.com` on the keystroke text-change event and fired `GLOBAL_ACTION_BACK`, booting the student out mid-keystroke. The student was unable to type any word starting with `y`, `p`, `r`, or `t`.
@@ -1693,7 +1690,7 @@ This section details every major engineering revision, architectural refinement,
     - **Committed Navigation Transition**: Only when the student commits navigation (presses Enter or taps a search suggestion) does the address bar lose focus (`node.isFocused() == false`), the keyboard dismisses, and the page renders. `WebClassifier` then evaluates the loaded destination with zero false positives during typing and zero bypasses upon page load.
 ---
 
-### 19. Milestone 19: Notification Sound/Vibration & Background Notification Guard
+### 19. Patch 19: Notification Sound/Vibration & Background Notification Guard
 - **Why It Was Mandated**:
   - **Silent / Non-Vibrating Alerts**: Students need unambiguous audio and tactile feedback for time-sensitive study warnings (30m, 15m, 5m, 1m, 30s before lockdown), lockdown activation, homework expiration, and unlock completion. Missing `VIBRATE` permission in `AndroidManifest.xml` and default channel settings caused alerts to be silent on several devices.
   - **Background Notification Hijacking**: Whenever a blocked app (e.g., WhatsApp, Discord, YouTube) received a background notification or performed background sync, Android dispatched an `AccessibilityEvent`. `LockAccessibilityService` was checking `isPackageBlocked(pkg)` on all event types, causing `enforceBlock()` to immediately launch QIEZKA full-screen over the user's active study session (e.g. Google Docs, Anki, Classroom), even though the user never touched or opened the notification.
@@ -1710,7 +1707,7 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### 20. Milestone 20: PWA (WebAPK) Deep Inspection & Recents Task-Switching Guard
+### 20. Patch 20: PWA (WebAPK) Deep Inspection & Recents Task-Switching Guard
 - **Why It Was Mandated**:
   - **PWA (WebAPK) & Trusted Web Activity (TWA) Reality**:
     - Progressive Web Apps and TWAs (such as KissKH, Loklok, KissAsian, DramaBox, etc.) appear on the home screen as WebAPK or TWA stubs (e.g. `id.kisskh.twa`, `org.chromium.webapk.*`).
@@ -1750,6 +1747,196 @@ This section details every major engineering revision, architectural refinement,
     - All blocked, unwanted, or distracting apps/PWAs now point directly and instantly to QIEZKA Lock (`MainActivity`) via `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TOP | FLAG_ACTIVITY_SINGLE_TOP | FLAG_ACTIVITY_REORDER_TO_FRONT`, immediately locking the device without ever bouncing through the Home launcher.
 
 ---
+
+### Maintenance Patch (Post-P20): Comprehensive MMS, SIM Card Toolkit (STK) & Carrier Push Exemption Protocol
+- **Why It Was Mandated**:
+  - Cellular carriers (such as Globe Telecom, Smart Communications, and DITO in the Philippines) and global telecom providers routinely dispatch proactive push notifications, Flash SMS (Class 0 SMS alerts), USSD interactive menus (e.g. `*143#`, `*123#`), SIM Toolkit (STK) Display Text prompts (load balance updates, promo expirations, network advisories), and native MMS incoming alerts.
+  - These carrier alerts are hosted by specialized system activities and dialogs:
+    - Samsung One UI: `com.sec.android.app.simappdialog` (SIM Application Dialog for Flash SMS & proactive SIM pushes), `com.sec.android.app.simsetting`, `com.samsung.android.app.telephonyui`.
+    - AOSP & Google: `com.android.stk`, `com.android.stk2`, `com.google.android.stk`, `com.android.mms`, `com.android.mms.service`, `com.google.android.apps.messaging`.
+    - MediaTek & Transsion (Infinix, Tecno, Itel): `com.mediatek.stk`, `com.mediatek.simprocessor`, `com.transsion.simtoolkit`, `com.transsion.stk`, `com.transsion.mms`.
+    - Qualcomm & other OEMs: `com.qualcomm.qti.simcontacts`, `com.qualcomm.qti.uim`, `com.vivo.stk`, `com.coloros.simsettings`, `com.huawei.stk`.
+  - *The Trap*: These telephony components declare `CATEGORY_UNDEFINED` (`-1`) and were absent from `ALWAYS_EXEMPT` and `TELEPHONY_PACKAGES`. Whenever a carrier alert popped onto the screen, `AppClassifier`'s Layer 5 conservative fallback judged it as an unknown distracting application, and `LockAccessibilityService` instantly triggered `enforceBlock()`, taking over the screen and blocking the user from reading or acknowledging their carrier message.
+- **Architectural Enhancements Implemented**:
+  - **Exhaustive Telephony & SIM Exemption (`ALWAYS_EXEMPT` & `TELEPHONY_PACKAGES`)**:
+    - Expanded both static hash sets across `LockAccessibilityService.java` and `AppClassifier.java` to cover 40+ standardized telephony, SIM Toolkit, MMS, Cell Broadcast, and carrier configuration packages across all major Android OEMs.
+    - Added explicit coverage for Philippine carrier services (`ph.com.globe`, `ph.com.globe.globeathome`, `ph.com.globe.globeonesuperapp`, `com.globe.services`, `com.globe.telecom`, `ph.com.smart`, `com.smart.services`, `ph.dito.telecommunity`, `com.dito.services`).
+  - **Dynamic Multi-Vector Heuristic Engine (`isSimOrCarrierService`)**:
+    - *Dynamic Substring Matching*: Inspects package names for `.stk`, `simtoolkit`, `simapp`, `simsetting`, `simprocessor`, `simcard`, `simcontacts`, `.mms`, `mms.service`, `cellbroadcast`, `emergencyalert`, `carrierdefaultapp`, `carrierconfig`, `telephonyui`, and `ims`.
+    - *Localized Label Heuristics*: Automatically recognizes system labels including `"sim toolkit"`, `"sim card toolkit"`, `"sim menu"`, `"menu ng sim"` (Philippine Tagalog localized SIM menu), `"stk"`, `"globe services"`, `"smart menu"`, `"dito menu"`, `"cell broadcast"`, `"wireless emergency alerts"`, and `"mms service"`.
+    - *Anti-Collision Guard*: Explicitly excludes third-party social chat apps (Facebook Messenger, WhatsApp, Telegram) to ensure social distractions remain strictly restricted.
+  - **Layer 4c Pipeline & Instant Fast-Path Clearance**:
+    - In `LockAccessibilityService.isPackageBlocked()`: checks `isSimOrCarrierService(pkg, appLabel)` immediately after metadata retrieval, granting instant pass-through before blacklist or fallback evaluation.
+    - In `AppClassifier.java`: evaluates `isSimOrCarrierService` at Tier 1b and as Layer 4c before the Layer 5 conservative fallback.
+  - **Whitelist State Persistence & UI Integration (`LockPlugin.java`)**:
+    - Automatically injects `ALWAYS_EXEMPT` into the persisted whitelist in SharedPreferences during `startLockdown` and `startConsequenceState`.
+    - In `getInstalledApps`: maps carrier/SIM packages to the `MessageSquare` icon with `isAutoAllowed: true`.
+
+---
+
+### Maintenance Patch (Post-P20): Browser Tab Remediation & Prevention of Infinite Chrome Lockout
+- **Why It Was Mandated**:
+  - **The Infinite Lockout Trap**: Google Chrome (and OEM browsers like Samsung Internet) is an essential allowed academic tool for coursework, Google Docs, Anki web, Wikipedia, and homework research.
+  - When a student navigated to a distracting site (e.g. `reddit.com`, `youtube.com`, `poki.com`) and QIEZKA evicted them, Chrome remained suspended in the background with the blocked URL loaded as the active tab.
+  - When the student subsequently re-opened Chrome to do schoolwork, Chrome automatically restored the active tab from disk.
+  - Within 50ms, `WebClassifier` detected the restored URL and immediately triggered `enforceBlock("com.android.chrome")`, kicking the student out to the QIEZKA Lock screen.
+  - Because the eviction fired before the user's finger could tap the omnibox or close the tab, the student became **indefinitely locked out of Chrome**, completely preventing legitimate academic usage.
+- **Architectural Enhancements Implemented**:
+  - **The Autonomous Browser Remediation Cascade (`remediateBlockedBrowserTab`)**:
+    - Replaced the blunt, indiscriminate `enforceBlock(pkg)` on general browsers with an intelligent two-step remediation cascade inside `LockAccessibilityService.java`.
+    - **Step 1: Rapid History Rollback (`GLOBAL_ACTION_BACK`)**: If the student arrived at the blocked site via a hyperlink from a legitimate research page (e.g. Wikipedia or Google Search), Back immediately steps them back to their study page, allowing uninterrupted research.
+    - **Step 2: Safe Tab Neutralization via `about:blank` Intent Injection**: If the tab has no prior history (e.g. cold-started, restored from previous session, or trapped by JavaScript `history.pushState`), QIEZKA dispatches an explicit `ACTION_VIEW` intent with `Browser.EXTRA_APPLICATION_ID`:
+      ```java
+      Intent safeIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("about:blank"));
+      safeIntent.setPackage(pkg);
+      safeIntent.putExtra("com.android.browser.application_id", pkg);
+      safeIntent.putExtra(Browser.EXTRA_APPLICATION_ID, pkg);
+      safeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+      startActivity(safeIntent);
+      ```
+      This replaces the toxic URL with a clean, offline `about:blank` canvas inside the same tab in under 1ms, permanently disarming the restored session without spawning unwanted tabs.
+    - **Step 3: Guaranteed Academic Safe-List Immunity**: Added `about:blank`, `about:`, `chrome://newtab`, and `edge://newtab` to `WebBlocklistConstants.isAcademicExempt` to guarantee that blank/clean tabs never re-trigger classification.
+  - **Preserved Standalone PWA Strict Eviction**:
+    - Dedicated media streaming stubs and TWAs lacking omniboxes (e.g. `id.kisskh.twa`) bypass remediation and remain subject to immediate, uncompromising `enforceBlock()` eviction.
+  - **Educational HUD Toast**:
+    - Informs the student with debounced HUD feedback: `"⚠️ [Reason]. Resetting to safe tab."`, clearly explaining why the tab was reset without disorienting the student.
+
+---
+
+### Maintenance Patch (Post-P20): Lockdown False-Positive Resolution, Consequence Backup Restore & Hardcore Notification Guard
+- **Why It Was Mandated**:
+  - **False-Positive Lockdown Detection in Import/Export**: In `SettingsOverlay.tsx`, `isLockedOrConsequence` was computed from `settings.schedules?.some(s => s.isActive)`. In QIEZKA, all user schedules default to `isActive: true` (indicating enabled status). Consequently, even after tapping "Reset All Locks", the app permanently treated the user as locked down, displaying `"🔒 Backup import is disabled during active lockdown or consequence mode"` and locking out settings.
+  - **Consequence Mode Backup Import Blindspot**: In `SettingsOverlay.tsx`, `handleImport` only handled `if (!data.settings.consequenceActive)`. If a backup was imported with `consequenceActive: true`, native Android (`uncode_lock.xml`) was never informed, leaving `LockAccessibilityService` disarmed until a schedule was manually triggered.
+  - **Hardcoded Notification Body in Hardcore Mode**: In `LockAccessibilityService.java`, `AlarmReceiver.java`, and `LockPlugin.java`, consequence expiration notifications hardcoded `"during operating hours (7 PM – 3 AM)"`. In **Hardcore Mode** (24/7 round-the-clock restrictions), this was factually erroneous and misleading to students.
+  - **Stale Device Owner Remnants**: Dead `isDeviceOwner` properties remained in `Onboarding.tsx`, `PermissionWalkthrough.tsx`, `App.tsx`, and setup scripts from an obsolete enterprise experiment.
+- **Architectural Enhancements Implemented**:
+  - **Accurate Real-Time Lock Coupling**:
+    - Passed real-time lockdown state (`isLockActive={appState === 'locked' || !!activeScheduleId}`) from `App.tsx` directly to `SettingsOverlay.tsx`.
+    - Decoupled `isLockedOrConsequence` from static schedule arrays so clearing active locks via "Reset All Locks" restores backup import and settings access immediately.
+  - **Full-Spectrum Native Bridge Sync on Backup Import**:
+    - Enhanced `handleImport` to synchronize `consequenceActive` (`setConsequenceActive(true, ...)`), `operatingMode`, `webProtectionMode`, `allowYoutube`, `blockWebGames`, and `timeOffset` to native Android.
+    - Enhanced `App.tsx` `loadAll()` to automatically detect imported consequences and arm `LockAccessibilityService` immediately on launch.
+  - **Dynamic 24/7 Hardcore Notification Guard**:
+    - Updated `LockAccessibilityService.java`, `AlarmReceiver.java`, and `LockPlugin.java` to check `operating_mode`.
+    - If in Hardcore Mode, displays: `"⚠️ Homework Expired — Consequence Active (Hardcore)"` with body: `"Study session expired without passing. Distracting apps remain restricted 24/7 (Hardcore Mode) until rescheduled and passed."`.
+  - **Complete Device Owner Purge**:
+    - Purged dead `isDeviceOwner` references from `App.tsx`, `Onboarding.tsx`, `PermissionWalkthrough.tsx`, `qiezka.bat`, and documentation while preserving full Device Administrator (`isAdminActive`, `DeviceAdminReceiver`) uninstallation protection.
+
+---
+
+### Patch 21: Browser Web Filtering Remediation & Academic Immunity Protocol
+- **Why It Was Mandated**:
+  - **The Standalone PWA False-Identity Trap**: In `LockAccessibilityService.java`, whenever `url == null` (which naturally occurs during active typing, search autocomplete, page loading, or when Chrome scrolls the address bar off-screen), the engine mistakenly classified standard Google Chrome (`com.android.chrome`) as a standalone PWA. It executed `WebClassifier.classifyStandalonePwa` across the DOM, detected mentions of gaming domains (`y8.com` in Wikipedia articles and footnotes), and called `enforceBlock("com.android.chrome")`—booting the student to the QIEZKA lock screen.
+  - **In-Page Form Input Scraping**: `findUrlInHierarchy` inspected any node with `node.isEditable() == true` or `className.contains("EditText")`. When a student typed `y8.com` into Wikipedia's in-page search input box, QIEZKA scraped that input as the browser's address bar URL before the student even hit Enter, triggering false-positive eviction.
+  - **Academic Exemption Window Title Blindness**: Chrome formats tab titles as `"Chrome: Freeciv - Wikipedia"` or `"Platforms - Wikipedia"`. `WebBlocklistConstants.isAcademicExempt` strictly checked for `"wikipedia.org"`, failing to protect encyclopedic tabs from DOM inspection.
+  - **Remediation Lockout Trap**: `remediateBlockedBrowserTab` invoked `performGlobalAction(GLOBAL_ACTION_BACK)` as its primary defense. When a tab had no prior history stack (e.g. opened directly or restored on startup), Android minimized Chrome and resumed QIEZKA. Reopening Chrome restored the same tab, causing an inescapable infinite lockout loop.
+- **Architectural Enhancements Implemented**:
+  - **Strict Browser / PWA Separation**:
+    - General browsers (`com.android.chrome`, `com.sec.android.app.sbrowser`, `org.mozilla.firefox`, `com.microsoft.emmx`, `com.brave.browser`, `com.opera.browser`) are strictly segregated from standalone PWAs.
+    - If `url == null` in a general browser (due to scrolling, typing, or tab transitions), the engine immediately returns safely. No DOM scanning is performed, and `enforceBlock` is never invoked.
+  - **In-Page Web Form Input Isolation**:
+    - Restricted `findUrlInHierarchy` strictly to nodes bearing verified native browser toolbar resource IDs (`url_bar`, `location_bar`, `address_bar`, `omnibar`, `url_field`).
+    - Explicitly pruned anonymous `EditText` nodes (`resId == null`) and blocked traversal into `WebView`, `RenderCoordinates`, and `ContentView` trees. Typing inside Wikipedia, Google, or form fields is never scraped as an omnibox URL.
+  - **Universal Academic Safe-List Immunity**:
+    - Expanded `WebBlocklistConstants.isAcademicExempt` to recognize `"wikipedia"`, `"wikimedia"`, `"wiktionary"`, `"wikibooks"`, `"wikidata"`, `"britannica"`, `"canvaslms"`, `"instructure"`, `"classroom.google"`, `"desmos"`, `"khanacademy"`, `"arxiv"`, `"jstor"`, `"github"`, and `"stackoverflow"` across both URLs and window titles.
+    - Added academic score guards in `WebClassifier.inspectDom`: when an academic page is active, keyword mentions of game or media domains in article bodies or references are unconditionally allowed.
+  - **In-Place Tab Neutralization & Safe Navigation Guard**:
+    - Discovered that passing Chrome's package name as `Browser.EXTRA_APPLICATION_ID` triggers Chromium's `DONT_CLOBBER_TABS_WITH_CHROME_APP_ID`, which forces `TabOpenType.OPEN_NEW_TAB` on every call and blows up the open tab count. Passing `getPackageName()` (`"com.uncode.app"`) ensures Chrome reuses at most one tab.
+
+---
+
+### Patch 22: Native Auto-Back & In-Place Unload Web Remediation
+- **Why It Was Mandated**:
+  - **Omnibox Decoupling in Chromium**: In Patch 21, setting the Omnibox text to `about:blank` via accessibility `ACTION_SET_TEXT` only modified the visual text of the toolbar `EditText` widget. Because Chromium decouples the toolbar UI from Chromium's native C++ `WebContents` navigation pipeline, the underlying blocked page (e.g. `y8.com`) remained running and playable on screen.
+  - **Student Continuity Loss**: Students navigating from legitimate research (e.g. Wikipedia, Google Classroom) to a blocked link or typing an address need to be reversed smoothly to their prior safe origin without tab accumulation or browser termination.
+- **Architectural Enhancements Implemented**:
+  - **Tier 1 Native Auto-Back Unload (`GLOBAL_ACTION_BACK`)**:
+    - When a blocked URL is first detected (`consecutiveBlockedUrlHits <= 1`), `remediateBlockedBrowserTab` executes `performGlobalAction(GLOBAL_ACTION_BACK)`.
+    - Causes Chrome's native navigation controller to pop the session history entry, completely destroying and unloading the blocked page/DOM and returning the user to the safe origin (e.g. Wikipedia, Google) in the exact same tab.
+    - Zero new tabs created; tab count remains strictly constant.
+  - **Tier 2 In-Place Home Button Reset (`com.android.chrome:id/home_button`)**:
+    - If a tab has no navigation history stack (e.g. fresh tab with 0 history entries or tab reopened from app launch) and the blocked URL persists on repeat passes (`consecutiveBlockedUrlHits >= 2`), the service clicks `com.android.chrome:id/home_button` directly on the active toolbar.
+    - Resets the active tab in-place to `chrome-native://newtab`, unloading all blocked content with zero tab accumulation.
+  - **Tier 3 Reusable Safe Single Tab Intent Fallback**:
+    - If toolbar accessibility nodes cannot be located (e.g. fullscreen video), dispatches an intent with `Browser.EXTRA_APPLICATION_ID = getPackageName()` and `Browser.EXTRA_CREATE_NEW_TAB = false`. Chromium routes this to `TabOpenType.REUSE_APP_ID_MATCHING_TAB_ELSE_NEW_TAB`, guaranteeing at most one safety tab is ever opened or reused.
+- **Verification**:
+  - Verified on live connected device `f678bc48`:
+    1. Navigating Wikipedia $\rightarrow$ `y8.com` in Omnibox $\rightarrow$ Enter: Immediately auto-backs to Wikipedia; `y8.com` is completely unloaded; tab count stays constant (86 tabs).
+    2. Navigating New Tab Page $\rightarrow$ `y8.com` in Omnibox $\rightarrow$ Enter: Auto-back / Home button cleanly neutralizes tab in-place to New Tab Page; tab count remains at 86 tabs with zero lockout.
+
+---
+
+### Patch 23: Universal Android Debloater (UAD-NG) Standalone Allowlist, AOSP Screenshot Markup/Share & Emergency Safety Immunity Protocol
+*(Reflected from user request: New Patch 21 / Patch 23 update)*
+
+- **Why It Was Mandated**:
+  - **AOSP Screenshot Interception False-Positive**: On clean AOSP (Android 14/15/16), taking a screenshot generates a bottom preview card offering "Share" and "Edit" actions:
+    - Tapping **"Share"** launches Android's native system share sheet: `com.android.intentresolver` (`ChooserActivity` / `ChooserActivityLauncher`).
+    - Tapping **"Edit"** launches Android's native image annotation and crop tool: `com.google.android.markup` (`AnnotateActivity`).
+    - In Android's package metadata, both packages declare `ApplicationInfo.category = -1` (`CATEGORY_UNDEFINED`). Because neither package contains overt academic keywords (like "study" or "school"), `AppClassifier` Layer 5 Conservative Fallback classified them as unknown third-party apps, triggering immediate lockdown interception and kicking the user back to the lock screen.
+  - **The OEM Fragmentation Challenge & Why UAD-NG Was Chosen**:
+    - Manually discovering, reverse-engineering, and curating every proprietary vendor background service, screenshot editor, share sheet, photo cropper, and emergency package across dozens of phone brands (Samsung, Xiaomi, Oppo, Vivo, Motorola, Huawei, Transsion, OnePlus, Google) is **fundamentally impractical, brutal to maintain, and extremely extensive to do ourselves**.
+    - Instead of guessing or haphazardly adding individual package names, we leveraged **Universal Android Debloater Next Generation (UAD-NG)**—a battle-tested, community-maintained database of over 5,300+ Android packages. UAD-NG meticulously documents package roles, OEM origins, and safe-to-remove classifications, providing an authoritative ground truth on what is an essential system/hardware component versus what is genuine bloat.
+  - **Strict Architectural Separation (Isolated Standalone Allowlist)**:
+    - Per strict design requirements, the UAD-NG system allowlist is **not** mixed or polluted into existing internal sets (such as `LockAccessibilityService.ALWAYS_EXEMPT`). Instead, it is partitioned into its own standalone definitions:
+      - Raw JSON manifest: [`src/uad_system_allowlist.json`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/uad_system_allowlist.json)
+      - High-performance Java engine: [`SystemUadAllowlist.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/SystemUadAllowlist.java)
+  - **WebClassifier Subpath Bypass Fix**:
+    - Previously, visiting `y8.com/tags/2_player` bypassed domain matching because simple URL string equality or prefix checks failed when path fragments or query parameters were appended. Fixed via robust host extraction and suffix/domain set matching in `WebClassifier.java`.
+
+- **Brand, Manufacturer & OS Partitioning (169 Essential System Packages)**:
+  The standalone allowlist categorizes all allowed system services into distinct, phone brand / manufacturer / OS sets:
+  1. **AOSP & Google Pixel (`AOSP_AND_GOOGLE_PACKAGES` - 78 packages)**:
+     - **Screenshot & Markup**: `com.google.android.markup` (Fixes AOSP Screenshot Edit).
+     - **Share Sheet & Intent Resolvers**: `com.android.intentresolver` (Fixes AOSP Screenshot Share), `com.google.android.apps.sharing`, `com.google.android.nearby.halfsheet`.
+     - **Emergency & Safety Services**: `com.android.emergency`, `com.google.android.apps.safetyhub` (Google Personal Safety & Car Crash Detection), `com.android.cellbroadcastreceiver`, `com.google.android.cellbroadcastreceiver`.
+     - **System Hardware & Consent Dialogs**: `com.android.captiveportallogin`, `com.android.vpndialogs`, `com.android.photopicker`, `com.android.printspooler`, `com.android.bluetooth`, `com.android.companiondevicemanager`, `com.android.bips`.
+     - **Accessibility & System Input**: `com.google.android.marvin.talkback`, `com.android.wallpapercropper`.
+  2. **Samsung One UI (`SAMSUNG_ONEUI_PACKAGES` - 28 packages)**:
+     - **Screenshot & Markup**: `com.sec.android.app.smartcapture` (Samsung Smart Capture toolbar), `com.sec.android.mimage.photoretouching` (Photo Editor).
+     - **Quick Share & Sharing**: `com.samsung.android.app.sharelive` (Quick Share), `com.samsung.android.aware.service`.
+     - **Emergency & Safety**: `com.sec.android.emergencymode.service` (Samsung Ultra Power Saving / Emergency Mode), `com.sec.android.emergencypbm`.
+     - **Printing & Hardware**: `com.sec.android.app.samsungapps` (Galaxy Store system updates), `com.android.bprint`.
+  3. **Xiaomi MIUI / HyperOS (`XIAOMI_MIUI_HYPEROS_PACKAGES` - 4 packages)**:
+     - **Screenshot & Markup**: `com.miui.screenshot`, `com.miui.mediaeditor` (Mi Gallery Editor).
+     - **Sharing & File Transfer**: `com.miui.mishare.connectivity` (Mi Share).
+     - **Gallery & Media**: `com.miui.gallery`.
+  4. **Oppo, OnePlus & Realme ColorOS / OxygenOS (`OPPO_ONEPLUS_REALME_COLOROS_PACKAGES` - 14 packages)**:
+     - **Screenshot & Markup**: `com.coloros.screenshot`, `com.oplus.screenshot`, `com.oneplus.screenshot`, `com.coloros.photoeditor`, `com.oplus.photoeditor`.
+     - **Share & Nearby**: `com.coloros.oshare` (Oppo Share), `com.oplus.oshare`.
+     - **Emergency & SOS**: `com.oplus.sos`, `com.coloros.safecenter`.
+  5. **Vivo & iQOO FuntouchOS / OriginOS (`VIVO_IQOO_FUNTOUCH_PACKAGES` - 2 packages)**:
+     - **Screenshot & Markup**: `com.vivo.smartshot` (Vivo Smart Capture).
+     - **Sharing**: `com.vivo.easyshare` (Vivo EasyShare).
+  6. **Motorola My UX / Hello UI (`MOTOROLA_MYUX_PACKAGES` - 2 packages)**:
+     - **Screenshot & Markup**: `com.motorola.screenshoteditor`, `com.motorola.photoeditor`.
+  7. **Huawei & Honor EMUI / MagicOS (`HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES` - 11 packages)**:
+     - **Screenshot & Markup**: `com.huawei.smartshot`, `com.hihonor.smartshot`, `com.huawei.photos`.
+     - **Emergency & SOS**: `com.huawei.sos`, `com.hihonor.sos`.
+     - **Printing & Sharing**: `com.huawei.printservice`, `com.huawei.nearby`.
+  8. **Transsion (Infinix, Tecno, Itel) XOS / HiOS (`TRANSSION_INFINIX_TECNO_XOS_PACKAGES` - 1 package)**:
+     - **Screenshot & Capture**: `com.transsion.screencapture`.
+  9. **Sony, Asus, LG, TCL & Other Vendors (`SONY_ASUS_TCL_OTHERS_PACKAGES` - 13 packages)**:
+     - **Screenshot & Editing**: `com.sonyericsson.photoeditor`, `cn.nubia.supersnap`, `com.lge.nextcapture`.
+     - **Emergency & SOS**: `com.tcl.sos`, `com.asus.dialer`.
+  10. **Universal Core Framework & Hardware Overlays (`UNIVERSAL_CORE_FRAMEWORK_PACKAGES` - 16 packages)**:
+     - System UI overlays, emergency watchfaces, MTP host services, and carrier configuration overlays.
+
+- **Architectural Enhancements Implemented**:
+  - **Zero-Allocation $O(1)$ Hash Set + Heuristic Fallback (`SystemUadAllowlist.java`)**:
+    - Aggregates all brand-partitioned sets into an unmodifiable master `UAD_SYSTEM_ALLOWLIST` set for blazing-fast $O(1)$ membership checks.
+    - Implements a supplementary semantic pattern matcher (`isUadSystemPattern(pkg, appLabel)`) to catch unlisted OEM variants containing signatures like `.screenshot`, `photoretouching`, `intentresolver`, `captiveportallogin`, `printspooler`, or `safecenter` (with strict anti-spoofing guards against games and social media).
+  - **LockAccessibilityService Integration**:
+    - Added `SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)` directly into `isPackageBlocked(pkg)` right after SIM/telephony checks.
+    - Updated `isSystemOrLauncher(pkg)` to include `SystemUadAllowlist.isUadSystemAllowed(pkg)`. When a system share sheet, screenshot preview, or markup activity appears in the foreground, `detectCurrentForegroundPackage()` recognizes it as a system overlay and never treats it as an unauthorized foreground app switch.
+  - **AppClassifier Tier 1 & Layer 4 Integration**:
+    - In `AppClassifier.isPackageBlocked`, added `SystemUadAllowlist.isUadSystemAllowed` at Tier 1b-2, guaranteeing instant pass-through before the decision cache is touched.
+    - In `AppClassifier.evaluatePackage`, added Layer 4d directly before Layer 5 Conservative Fallback to ensure undefined-category system services never get dropped into the fallback block state.
+  - **Life Safety & Emergency Services Guarantee**:
+    - Crash detection, personal safety hubs, wireless emergency alerts, and emergency SOS services across all manufacturers now have uncompromised, unblockable system access during lockdown.
+
+---
+
 note: i do notice a home app when defaulted, you cant uninstall it, have to navigate to settings inorder to do so, uninstall prevention would be home app + already device admin
 the app would be persistent always since it will be the first thing you will see the moment phone boots
 imagine if that was qiezka

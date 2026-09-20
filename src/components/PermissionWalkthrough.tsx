@@ -17,7 +17,6 @@ export function PermissionWalkthrough({ onComplete }: PermissionWalkthroughProps
   const [perms, setPerms] = useState<{
     isAccessibilityEnabled: boolean;
     isAdminActive: boolean;
-    isDeviceOwner: boolean;
     isBatteryOptimizationIgnored: boolean;
     isNotificationGranted: boolean;
     isAdbInstall?: boolean;
@@ -25,7 +24,6 @@ export function PermissionWalkthrough({ onComplete }: PermissionWalkthroughProps
   }>({
     isAccessibilityEnabled: false,
     isAdminActive: false,
-    isDeviceOwner: false,
     isBatteryOptimizationIgnored: false,
     isNotificationGranted: false,
     isAdbInstall: false,
@@ -55,7 +53,7 @@ export function PermissionWalkthrough({ onComplete }: PermissionWalkthroughProps
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const canProceed = perms.isAccessibilityEnabled || perms.isDeviceOwner;
+  const canProceed = perms.isAccessibilityEnabled;
 
   return (
     <div className="min-h-screen w-full bg-gray-950 flex flex-col items-center justify-start sm:justify-center p-4 sm:p-6 text-white text-center overflow-y-auto pb-24 pt-8">

@@ -129,7 +129,7 @@ export default function App() {
     
     const verify = async () => {
       const perms = await checkPermissions();
-      if (!perms.isDeviceOwner && !perms.isAccessibilityEnabled) {
+      if (!perms.isAccessibilityEnabled) {
         navigate('permission_walkthrough');
       }
     };
@@ -307,9 +307,10 @@ export default function App() {
       // Check native lock status immediately upon loading
       try {
         const lockStatus = await getLockStatus();
-        if (lockStatus && lockStatus.isConsequenceActive) {
+        const isConsequenceNativelyOrInSettings = (lockStatus && lockStatus.isConsequenceActive) || loadedSettings.consequenceActive;
+        if (isConsequenceNativelyOrInSettings) {
           const hasFailedHomework = loadedCompletedHomeworks.some(h => !h.passed);
-          if (!hasFailedHomework) {
+          if (!hasFailedHomework && !loadedSettings.consequenceScheduleId) {
             // Orphaned consequence state (e.g. from blank backup import or cleared homeworks)
             // Auto-heal by clearing native consequence and resetting setting
             endLockdown().catch(() => {});
@@ -321,12 +322,16 @@ export default function App() {
             setLockEndTime(null);
             setAppState(loadedSettings.onboardingComplete ? 'dashboard' : 'onboarding');
           } else {
+            const targetScheduleId = lockStatus?.activeScheduleId || loadedSettings.consequenceScheduleId || null;
+            const safeAllowed = (loadedSettings.allowedApps || []).map((a: AllowedApp) => a.id);
+            // Ensure native consequence mode is armed
+            setConsequenceActive(true, targetScheduleId || undefined, safeAllowed).catch(() => {});
             setSettings(prev => ({
               ...prev,
               consequenceActive: true,
-              consequenceScheduleId: lockStatus.activeScheduleId || prev.consequenceScheduleId
+              consequenceScheduleId: targetScheduleId || prev.consequenceScheduleId
             }));
-            setActiveScheduleId(lockStatus.activeScheduleId || null);
+            setActiveScheduleId(targetScheduleId);
             setLockEndTime(null);
             setAppState('dashboard');
           }
@@ -597,11 +602,16 @@ export default function App() {
     try {
       await endLockdown();
       await setConsequenceActive(false);
+      await syncTimeOffset(0);
     } catch (e) {
       console.warn('Failed to end lockdown natively', e);
     }
     setTimeOffset(0);
-    setSettings(prev => ({ ...prev, consequenceActive: false, consequenceScheduleId: undefined }));
+    setSettings(prev => {
+      const updated = { ...prev, consequenceActive: false, consequenceScheduleId: undefined };
+      saveData('studom_settings', updated);
+      return updated;
+    });
     setActiveScheduleId(null);
     setLockEndTime(null);
     setLockPauseTime(null);
@@ -1143,6 +1153,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
                 <SettingsOverlay
                   settings={settings}
                   logs={logs}
+                  isLockActive={appState === 'locked' || !!activeScheduleId}
                   onClearLogs={() => setLogs([])}
                   onSave={(updates) => {
                     if (updates.operatingMode) {

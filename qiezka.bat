@@ -177,7 +177,7 @@ if /i "!ENABLE_ACCESSIBILITY!"=="true" (
 )
 echo.
 
-:: [6/6] Device Administrator & Device Owner setup
+:: [6/6] Device Administrator setup
 echo [6/6] Configuring Uninstall and Lockdown Protection...
 if /i "!ACTIVATE_DEVICE_ADMIN!"=="true" (
     adb.exe shell dpm set-active-admin com.uncode.app/.AdminReceiver >nul 2>&1

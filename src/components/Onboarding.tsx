@@ -79,13 +79,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [perms, setPerms] = useState<{
     isAccessibilityEnabled: boolean;
     isAdminActive: boolean;
-    isDeviceOwner: boolean;
     isBatteryOptimizationIgnored: boolean;
     isNotificationGranted: boolean;
   }>({
     isAccessibilityEnabled: false,
     isAdminActive: false,
-    isDeviceOwner: false,
     isBatteryOptimizationIgnored: false,
     isNotificationGranted: false,
   });
@@ -99,11 +97,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       setPerms({
         isAccessibilityEnabled: result.isAccessibilityEnabled,
         isAdminActive: result.isAdminActive,
-        isDeviceOwner: result.isDeviceOwner,
         isBatteryOptimizationIgnored: result.isBatteryOptimizationIgnored,
         isNotificationGranted: result.isNotificationGranted,
       });
-      if (result.isAccessibilityEnabled || result.isDeviceOwner) {
+      if (result.isAccessibilityEnabled) {
         setPermWarning(null);
       }
     } catch (e) {
@@ -531,7 +528,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             <div className="space-y-3 mb-6">
               {/* Permission 1: Accessibility Service (Essential) */}
               <div className={`p-4 rounded-2xl border transition-all ${
-                perms.isAccessibilityEnabled || perms.isDeviceOwner 
+                perms.isAccessibilityEnabled 
                   ? 'bg-emerald-950/20 border-emerald-800/60' 
                   : 'bg-gray-800/60 border-red-800/80'
               }`}>
@@ -541,7 +538,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       1. Accessibility Service (Essential)
                     </span>
                   </div>
-                  {perms.isAccessibilityEnabled || perms.isDeviceOwner ? (
+                  {perms.isAccessibilityEnabled ? (
                     <span className="px-2 py-0.5 bg-emerald-950 text-emerald-300 border border-emerald-800 rounded-lg text-[10px] font-bold flex items-center gap-1">
                       <Check className="w-3 h-3" /> Active
                     </span>
@@ -561,16 +558,16 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                     setTimeout(verifyPermissions, 1000);
                   }}
                   className={`w-full py-2.5 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                    perms.isAccessibilityEnabled || perms.isDeviceOwner
+                    perms.isAccessibilityEnabled
                       ? 'bg-gray-800 border border-emerald-700/60 text-emerald-300'
                       : 'bg-red-600 hover:bg-red-700 text-white shadow-md'
                   }`}
                 >
                   <Settings className="w-3.5 h-3.5" />
-                  <span>{perms.isAccessibilityEnabled || perms.isDeviceOwner ? 'Accessibility Service Enabled' : 'Grant Accessibility Permission'}</span>
+                  <span>{perms.isAccessibilityEnabled ? 'Accessibility Service Enabled' : 'Grant Accessibility Permission'}</span>
                 </button>
 
-                {(!perms.isAccessibilityEnabled && !perms.isDeviceOwner) && (
+                {(!perms.isAccessibilityEnabled) && (
                   <div className="mt-2.5 pt-2.5 border-t border-gray-700/40 flex items-center justify-between text-[11px] text-gray-400">
                     <span>Grayed out on Android 13+? Allow restricted settings:</span>
                     <button
@@ -720,7 +717,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <button
                 type="button"
                 onClick={() => {
-                  if (!perms.isAccessibilityEnabled && !perms.isDeviceOwner) {
+                  if (!perms.isAccessibilityEnabled) {
                     setPermWarning('Notice: Accessibility Service is required to intercept distracting apps. You can grant it now or configure it later.');
                   }
                   setStep(4);
@@ -1001,8 +998,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
               <div className="flex items-center justify-between pb-2 border-b border-gray-700/50">
                 <span className="text-gray-400 font-medium">Permissions Status</span>
-                <span className={`font-bold ${perms.isAccessibilityEnabled || perms.isDeviceOwner ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {perms.isAccessibilityEnabled || perms.isDeviceOwner ? '✓ Accessibility Granted' : '⚠ Accessibility Pending'}
+                <span className={`font-bold ${perms.isAccessibilityEnabled ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {perms.isAccessibilityEnabled ? '✓ Accessibility Granted' : '⚠ Accessibility Pending'}
                 </span>
               </div>
 
