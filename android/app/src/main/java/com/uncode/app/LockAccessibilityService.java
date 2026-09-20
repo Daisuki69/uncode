@@ -690,7 +690,8 @@ public class LockAccessibilityService extends AccessibilityService {
                lower.contains(".notes") || 
                lower.contains("memo") || 
                lower.contains("simplenote") || 
-               lower.contains("colornote");
+               lower.contains("colornote") ||
+               lower.contains("creation"); // Xiaomi Mi Canvas
     }
 
     private boolean isStudentApp(String pkg) {
@@ -716,6 +717,7 @@ public class LockAccessibilityService extends AccessibilityService {
                lower.contains("wolfram") ||
                lower.contains("adobe.reader") ||
                lower.contains("camscanner") ||
+               lower.contains("scanner") ||
                lower.contains("translate") ||
                lower.contains("deepl") ||
                lower.contains("duolingo") ||

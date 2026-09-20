@@ -1874,64 +1874,68 @@ This section details every major engineering revision, architectural refinement,
     - Tapping **"Share"** launches Android's native system share sheet: `com.android.intentresolver` (`ChooserActivity` / `ChooserActivityLauncher`).
     - Tapping **"Edit"** launches Android's native image annotation and crop tool: `com.google.android.markup` (`AnnotateActivity`).
     - In Android's package metadata, both packages declare `ApplicationInfo.category = -1` (`CATEGORY_UNDEFINED`). Because neither package contains overt academic keywords (like "study" or "school"), `AppClassifier` Layer 5 Conservative Fallback classified them as unknown third-party apps, triggering immediate lockdown interception and kicking the user back to the lock screen.
-  - **The OEM Fragmentation Challenge & Why UAD-NG Was Chosen**:
-    - Manually discovering, reverse-engineering, and curating every proprietary vendor background service, screenshot editor, share sheet, photo cropper, and emergency package across dozens of phone brands (Samsung, Xiaomi, Oppo, Vivo, Motorola, Huawei, Transsion, OnePlus, Google) is **fundamentally impractical, brutal to maintain, and extremely extensive to do ourselves**.
-    - Instead of guessing or haphazardly adding individual package names, we leveraged **Universal Android Debloater Next Generation (UAD-NG)**—a battle-tested, community-maintained database of over 5,300+ Android packages. UAD-NG meticulously documents package roles, OEM origins, and safe-to-remove classifications, providing an authoritative ground truth on what is an essential system/hardware component versus what is genuine bloat.
-  - **Strict Architectural Separation (Isolated Standalone Allowlist)**:
-    - Per strict design requirements, the UAD-NG system allowlist is **not** mixed or polluted into existing internal sets (such as `LockAccessibilityService.ALWAYS_EXEMPT`). Instead, it is partitioned into its own standalone definitions:
-      - Raw JSON manifest: [`src/uad_system_allowlist.json`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/uad_system_allowlist.json)
-      - High-performance Java engine: [`SystemUadAllowlist.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/SystemUadAllowlist.java)
-  - **WebClassifier Subpath Bypass Fix**:
-    - Previously, visiting `y8.com/tags/2_player` bypassed domain matching because simple URL string equality or prefix checks failed when path fragments or query parameters were appended. Fixed via robust host extraction and suffix/domain set matching in `WebClassifier.java`.
+  - **The Modular "Sub-APK" Trap & OEM Fragmentation**:
+    - Modern Android OEMs (Xiaomi/HyperOS, Samsung One UI, Oppo/ColorOS, Google Pixel) no longer bundle features into monolithic apps. Instead, they split system capabilities into **modular sub-APKs / companion packages**:
+      - **Camera**: Decouples document scanning (`com.xiaomi.scanner`, `com.samsung.android.app.vex.scanner`), Bokeh/portrait rendering (`com.miui.extraphoto`, `com.samsung.android.app.siofviewer`), and scene AI (`com.xiaomi.cameramind`, `com.oneplus.camera.pictureprocessing`).
+      - **Gallery**: Decouples photo markup/retouching into standalone editor sub-APKs (`com.miui.mediaeditor`, `com.sec.android.mimage.photoretouching`, `com.coloros.photoeditor`, `com.google.android.markup`).
+      - **Notes & Study**: Decouples stylus drawing into canvas sub-APKs (`com.miui.creation` - Mi Canvas).
+      - **Multitasking**: Decouples floating windows (`com.miui.freeform`), split-screen frameworks (`com.oplus.pscanvas`, `com.motorola.freeform`), and quick tool docks (`com.coloros.smartsidebar`, `com.samsung.android.app.cocktailbarservice`).
+      - **On-Device AI**: Decouples neural OCR and live text recognition (`com.xiaomi.aiservice`, `com.xiaomi.aicr`, `com.samsung.android.scs`, `com.google.android.as`).
+    - When a student switches the Camera to "Document Mode", taps "Edit" in the Gallery, or opens split-screen, Android transitions the active foreground window to that companion sub-APK. Because these sub-APKs declare `category = -1` (`CATEGORY_UNDEFINED`) and lack academic keyword markers, QIEZKA previously misidentified them as foreign third-party apps and evicted the student.
+    - Manually tracking and curating every proprietary sub-APK across dozens of OEMs is **brutal, fragile, and far too extensive to maintain alone**. We leveraged **Universal Android Debloater Next Generation (UAD-NG)**—cross-referencing 5,300+ packages to systematically isolate genuine system tools from bloatware.
 
-- **Brand, Manufacturer & OS Partitioning (169 Essential System Packages)**:
+- **Brand, Manufacturer & OS Partitioning (191 Essential System Packages & Sub-APKs)**:
   The standalone allowlist categorizes all allowed system services into distinct, phone brand / manufacturer / OS sets:
-  1. **AOSP & Google Pixel (`AOSP_AND_GOOGLE_PACKAGES` - 78 packages)**:
-     - **Screenshot & Markup**: `com.google.android.markup` (Fixes AOSP Screenshot Edit).
-     - **Share Sheet & Intent Resolvers**: `com.android.intentresolver` (Fixes AOSP Screenshot Share), `com.google.android.apps.sharing`, `com.google.android.nearby.halfsheet`.
-     - **Emergency & Safety Services**: `com.android.emergency`, `com.google.android.apps.safetyhub` (Google Personal Safety & Car Crash Detection), `com.android.cellbroadcastreceiver`, `com.google.android.cellbroadcastreceiver`.
-     - **System Hardware & Consent Dialogs**: `com.android.captiveportallogin`, `com.android.vpndialogs`, `com.android.photopicker`, `com.android.printspooler`, `com.android.bluetooth`, `com.android.companiondevicemanager`, `com.android.bips`.
-     - **Accessibility & System Input**: `com.google.android.marvin.talkback`, `com.android.wallpapercropper`.
-  2. **Samsung One UI (`SAMSUNG_ONEUI_PACKAGES` - 28 packages)**:
-     - **Screenshot & Markup**: `com.sec.android.app.smartcapture` (Samsung Smart Capture toolbar), `com.sec.android.mimage.photoretouching` (Photo Editor).
-     - **Quick Share & Sharing**: `com.samsung.android.app.sharelive` (Quick Share), `com.samsung.android.aware.service`.
-     - **Emergency & Safety**: `com.sec.android.emergencymode.service` (Samsung Ultra Power Saving / Emergency Mode), `com.sec.android.emergencypbm`.
-     - **Printing & Hardware**: `com.sec.android.app.samsungapps` (Galaxy Store system updates), `com.android.bprint`.
-  3. **Xiaomi MIUI / HyperOS (`XIAOMI_MIUI_HYPEROS_PACKAGES` - 4 packages)**:
-     - **Screenshot & Markup**: `com.miui.screenshot`, `com.miui.mediaeditor` (Mi Gallery Editor).
-     - **Sharing & File Transfer**: `com.miui.mishare.connectivity` (Mi Share).
-     - **Gallery & Media**: `com.miui.gallery`.
-  4. **Oppo, OnePlus & Realme ColorOS / OxygenOS (`OPPO_ONEPLUS_REALME_COLOROS_PACKAGES` - 14 packages)**:
-     - **Screenshot & Markup**: `com.coloros.screenshot`, `com.oplus.screenshot`, `com.oneplus.screenshot`, `com.coloros.photoeditor`, `com.oplus.photoeditor`.
-     - **Share & Nearby**: `com.coloros.oshare` (Oppo Share), `com.oplus.oshare`.
-     - **Emergency & SOS**: `com.oplus.sos`, `com.coloros.safecenter`.
-  5. **Vivo & iQOO FuntouchOS / OriginOS (`VIVO_IQOO_FUNTOUCH_PACKAGES` - 2 packages)**:
-     - **Screenshot & Markup**: `com.vivo.smartshot` (Vivo Smart Capture).
-     - **Sharing**: `com.vivo.easyshare` (Vivo EasyShare).
-  6. **Motorola My UX / Hello UI (`MOTOROLA_MYUX_PACKAGES` - 2 packages)**:
-     - **Screenshot & Markup**: `com.motorola.screenshoteditor`, `com.motorola.photoeditor`.
-  7. **Huawei & Honor EMUI / MagicOS (`HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES` - 11 packages)**:
-     - **Screenshot & Markup**: `com.huawei.smartshot`, `com.hihonor.smartshot`, `com.huawei.photos`.
-     - **Emergency & SOS**: `com.huawei.sos`, `com.hihonor.sos`.
-     - **Printing & Sharing**: `com.huawei.printservice`, `com.huawei.nearby`.
+  1. **AOSP & Google Pixel (`AOSP_AND_GOOGLE_PACKAGES` - 82 packages)**:
+     - **Screenshot, Share & Pickers**: `com.google.android.markup` (AOSP Edit), `com.android.intentresolver` (AOSP Share), `com.android.photopicker`, `com.android.documentsui`.
+     - **Document Scanning & Camera Services**: `com.google.android.apps.photos.scanner` (Google PhotoScan), `com.google.android.apps.camera.services`, `com.google.pixel.camera.services`.
+     - **On-Device AI Engine**: `com.google.android.as` (Android System Intelligence - Live OCR & smart clipboard).
+     - **Emergency & Safety**: `com.android.emergency`, `com.google.android.apps.safetyhub` (Car Crash Detection & Personal Safety), `com.android.cellbroadcastreceiver`.
+     - **Hardware & Dialogs**: `com.android.captiveportallogin`, `com.android.vpndialogs`, `com.android.printspooler`.
+  2. **Samsung One UI (`SAMSUNG_ONEUI_PACKAGES` - 32 packages)**:
+     - **Screenshot & Photo Editing**: `com.sec.android.app.smartcapture`, `com.sec.android.mimage.photoretouching` (Photo Editor), `com.samsung.android.app.sharelive` (Quick Share).
+     - **Document Scanner & Camera**: `com.samsung.android.app.vex.scanner` (Samsung VEX Document Scanner in Camera/Gallery), `com.samsung.android.app.siofviewer` (Live Focus portrait depth).
+     - **On-Device AI Engine**: `com.samsung.android.scs` (Samsung Core Services - On-device OCR & Smart Select).
+     - **Multitasking & Sidebars**: `com.samsung.android.app.cocktailbarservice` (Edge Screen / Edge Panels).
+     - **Emergency & Safety**: `com.sec.android.emergencymode.service`, `com.samsung.android.emergency`.
+  3. **Xiaomi MIUI / HyperOS (`XIAOMI_MIUI_HYPEROS_PACKAGES` - 11 packages)**:
+     - **Screenshot & Photo Editing**: `com.miui.screenshot`, `com.miui.mediaeditor` (Mi Gallery Editor), `com.miui.mishare.connectivity` (Mi Share), `com.miui.gallery`.
+     - **Document Scanner & Camera Sub-APKs**: `com.xiaomi.scanner` (Mi Scanner / QR & Document scanner), `com.miui.extraphoto` (Camera Bokeh & ID document mode), `com.xiaomi.cameramind` (Camera AI features).
+     - **On-Device AI Engine**: `com.xiaomi.aiservice` (HyperOS local AI inference for OCR & translation), `com.xiaomi.aicr` (Mi AI computational vision).
+     - **Multitasking & Freeform**: `com.miui.freeform` (MIUI Floating Window & Mini Window manager).
+     - **Notes & Stylus Drawing**: `com.miui.creation` (Xiaomi Mi Canvas - Stylus drawings, diagrams & notes).
+  4. **Oppo, OnePlus & Realme ColorOS / OxygenOS (`OPPO_ONEPLUS_REALME_COLOROS_PACKAGES` - 18 packages)**:
+     - **Screenshot & Photo Editing**: `com.coloros.screenshot`, `com.oplus.screenshot`, `com.oneplus.screenshot`, `com.coloros.photoeditor`, `com.oplus.photoeditor`, `com.coloros.oshare`.
+     - **Document Scanner & Camera**: `com.coloros.ocrscanner` (ColorOS OCR document scanner), `com.oneplus.camera.pictureprocessing`.
+     - **Multitasking & Sidebars**: `com.oplus.pscanvas` (Open Canvas - OnePlus fluid split-screen), `com.coloros.smartsidebar` (ColorOS Smart Sidebar quick tool drawer).
+     - **Emergency & Safety**: `com.oplus.sos`, `com.oppo.sos`.
+  5. **Vivo & iQOO FuntouchOS / OriginOS (`VIVO_IQOO_FUNTOUCH_PACKAGES` - 3 packages)**:
+     - `com.vivo.smartshot` (Smart Capture), `com.vivo.easyshare`, `com.vivo.card` (Smart Sidebar).
+  6. **Motorola My UX / Hello UI (`MOTOROLA_MYUX_PACKAGES` - 3 packages)**:
+     - `com.motorola.screenshoteditor`, `com.motorola.photoeditor`, `com.motorola.freeform` (Freeform window mode).
+  7. **Huawei & Honor EMUI / MagicOS (`HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES` - 12 packages)**:
+     - `com.huawei.smartshot`, `com.hihonor.smartshot`, `com.huawei.photos`, `com.huawei.sos`, `com.huawei.printservice`, `androidx.camera.extensions.impl` (Camera Bokeh & HDR extensions).
   8. **Transsion (Infinix, Tecno, Itel) XOS / HiOS (`TRANSSION_INFINIX_TECNO_XOS_PACKAGES` - 1 package)**:
-     - **Screenshot & Capture**: `com.transsion.screencapture`.
+     - `com.transsion.screencapture`.
   9. **Sony, Asus, LG, TCL & Other Vendors (`SONY_ASUS_TCL_OTHERS_PACKAGES` - 13 packages)**:
-     - **Screenshot & Editing**: `com.sonyericsson.photoeditor`, `cn.nubia.supersnap`, `com.lge.nextcapture`.
-     - **Emergency & SOS**: `com.tcl.sos`, `com.asus.dialer`.
+     - `com.sonyericsson.photoeditor`, `cn.nubia.supersnap`, `com.lge.nextcapture`, `com.tcl.sos`, `com.asus.dialer`.
   10. **Universal Core Framework & Hardware Overlays (`UNIVERSAL_CORE_FRAMEWORK_PACKAGES` - 16 packages)**:
      - System UI overlays, emergency watchfaces, MTP host services, and carrier configuration overlays.
 
+- **Critical Security & Anti-Distraction Exclusions**:
+  - **Joyose (`com.xiaomi.joyose`) — EXCLUDED**: Xiaomi's Game Turbo optimization daemon and telemetry collector. Exists specifically to boost gaming frame rates; has zero study utility and is not granted allowlist immunity.
+  - **MIUI Security App (`com.miui.securitycenter`) — UI EXCLUDED**: While internal bootloop-prevention hooks (`com.miui.securityadd`) are protected, the interactive UI of `securitycenter` remains strictly blocked because its "Manage Apps" screen allows students to force-stop QIEZKA or revoke Accessibility/Admin permissions during lockdown.
+  - **Multitasking Anti-Bypass Proof**: Allowing `com.miui.freeform` or `com.oplus.pscanvas` **never** allows blocked apps. QIEZKA's Accessibility Service inspects individual window task nodes; opening YouTube or TikTok inside split-screen or from a sidebar immediately triggers lockdown eviction on that specific app while leaving the student's notes intact.
+
 - **Architectural Enhancements Implemented**:
-  - **Zero-Allocation $O(1)$ Hash Set + Heuristic Fallback (`SystemUadAllowlist.java`)**:
-    - Aggregates all brand-partitioned sets into an unmodifiable master `UAD_SYSTEM_ALLOWLIST` set for blazing-fast $O(1)$ membership checks.
-    - Implements a supplementary semantic pattern matcher (`isUadSystemPattern(pkg, appLabel)`) to catch unlisted OEM variants containing signatures like `.screenshot`, `photoretouching`, `intentresolver`, `captiveportallogin`, `printspooler`, or `safecenter` (with strict anti-spoofing guards against games and social media).
-  - **LockAccessibilityService Integration**:
-    - Added `SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)` directly into `isPackageBlocked(pkg)` right after SIM/telephony checks.
-    - Updated `isSystemOrLauncher(pkg)` to include `SystemUadAllowlist.isUadSystemAllowed(pkg)`. When a system share sheet, screenshot preview, or markup activity appears in the foreground, `detectCurrentForegroundPackage()` recognizes it as a system overlay and never treats it as an unauthorized foreground app switch.
+  - **Zero-Allocation $O(1)$ Hash Set + Dynamic Heuristic Fallback (`SystemUadAllowlist.java`)**:
+    - Aggregates all 191 brand-partitioned packages into an unmodifiable master `UAD_SYSTEM_ALLOWLIST` set for blazing-fast $O(1)$ checks.
+    - Added pattern matching in `isUadSystemPattern` for `ocrscanner`, `scanner`, `cameramind`, `extraphoto`, `siofviewer`, `aiservice`, `aicr`, `freeform`, `pscanvas`, `smartsidebar`, `cocktailbar`, and `creation`.
+  - **LockAccessibilityService & Student Apps Integration**:
+    - Integrated `SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)` into `isPackageBlocked` and `isSystemOrLauncher`.
+    - Added `creation` (Mi Canvas) to `isNotesApp` and `scanner` to `isStudentApp`.
   - **AppClassifier Tier 1 & Layer 4 Integration**:
-    - In `AppClassifier.isPackageBlocked`, added `SystemUadAllowlist.isUadSystemAllowed` at Tier 1b-2, guaranteeing instant pass-through before the decision cache is touched.
-    - In `AppClassifier.evaluatePackage`, added Layer 4d directly before Layer 5 Conservative Fallback to ensure undefined-category system services never get dropped into the fallback block state.
+    - `SystemUadAllowlist.isUadSystemAllowed` executes at Tier 1b-2 and Layer 4d before Layer 5 Conservative Fallback, permanently eliminating false-positive evictions on modular OEM sub-APKs.
   - **Life Safety & Emergency Services Guarantee**:
     - Crash detection, personal safety hubs, wireless emergency alerts, and emergency SOS services across all manufacturers now have uncompromised, unblockable system access during lockdown.
 

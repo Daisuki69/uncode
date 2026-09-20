@@ -105,9 +105,13 @@ public final class SystemUadAllowlist {
         "com.android.systemui.accessibility.accessibilitymenu.auto_generated_rro_product__", // [Accessibility Services] Product RRO for Accessibility menu.
         "com.google.android.wifi.dialog", // [Captive Portal & System Dialogs] Wi-Fi dialog. App to launch user dialogs requested by the Wi-Fi servic
         "com.android.sos", // [Emergency & Safety] Emergency SOS app for quick access to emergency services and contacts.
+        "com.google.android.apps.photos.scanner", // [Document Scanner & Camera] Google PhotoScan / Document Scanner
+        "com.google.android.as", // [On-Device AI Engine] Android System Intelligence (Live text OCR, text selection)
+        "com.google.android.apps.camera.services", // [Document Scanner & Camera] Pixel Camera Services
+        "com.google.pixel.camera.services", // [Document Scanner & Camera] CameraIDRemapper & camera pipeline dependency
     }));
 
-    // ── Samsung Electronics (One UI) (28 packages) ──
+    // ── Samsung Electronics (One UI) (32 packages) ──
     public static final Set<String> SAMSUNG_ONEUI_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
         "com.samsung.android.app.talkback", // [Accessibility Services] Voice assistant. Accessibility feature Screen Reader to provide audibl
         "com.samsung.android.aware.service", // [Share Sheet & Intent Resolver] Samsung Quick Share Agent Use Wifi direct to share files between 2 Sam
@@ -137,17 +141,28 @@ public final class SystemUadAllowlist {
         "com.samsung.android.app.scrollcapture", // [Screenshot & Markup] Samsung's app for taking screenshots.
         "com.sec.android.app.SmartClipService", // [Screenshot & Markup] Default image editor on older Samsung devices.
         "com.sec.android.directshare", // [Share Sheet & Intent Resolver] Part of Samsung's SBeam service. SBeam has known security vulnerabilit
+        "com.samsung.android.app.vex.scanner", // [Document Scanner & Camera] Samsung VEX Document Scanner component in Camera/Gallery
+        "com.samsung.android.app.siofviewer", // [Document Scanner & Camera] Samsung Live Focus / Portrait rendering engine
+        "com.samsung.android.scs", // [On-Device AI Engine] Samsung Core Services (On-device OCR & Smart Select)
+        "com.samsung.android.app.cocktailbarservice", // [System Multitasking & Sidebar] Edge Screen / Edge Panels
     }));
 
-    // ── Xiaomi, Redmi & POCO (MIUI / HyperOS) (4 packages) ──
+    // ── Xiaomi, Redmi & POCO (MIUI / HyperOS) (11 packages) ──
     public static final Set<String> XIAOMI_MIUI_HYPEROS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
         "com.miui.gallery", // [Screenshot & Markup] MIUI Gallery app. Note: Removing the Gallery will break the send scree
         "com.miui.screenshot", // [Screenshot & Markup] MIUI Screenshot Screenshots will not work.
         "com.miui.mishare.connectivity", // [Share Sheet & Intent Resolver] Mi Share Unified file sharing service between Xiaomi, Oppo, Realme and
         "com.miui.mediaeditor", // [Screenshot & Markup] Xiaomi Gallery Editor Extension for MIUI Gallery that's used to edit p
+        "com.xiaomi.scanner", // [Document Scanner & Camera] Mi Scanner QR code and document scanner
+        "com.miui.extraphoto", // [Document Scanner & Camera] Xiaomi Camera Bokeh and Document mode
+        "com.xiaomi.cameramind", // [Document Scanner & Camera] Core AI features for Xiaomi stock camera app
+        "com.xiaomi.aiservice", // [On-Device AI Engine] Xiaomi on-device AI inference engine (HyperOS OCR & Translation)
+        "com.xiaomi.aicr", // [On-Device AI Engine] Mi AI Engine / computational vision
+        "com.miui.freeform", // [System Multitasking & Sidebar] MIUI Floating Window and Mini Window manager
+        "com.miui.creation", // [Notes & Canvas] Xiaomi Mi Canvas - Stylus Drawing, Diagrams & Handwritten Notes
     }));
 
-    // ── Oppo, OnePlus & Realme (ColorOS / OxygenOS) (14 packages) ──
+    // ── Oppo, OnePlus & Realme (ColorOS / OxygenOS) (18 packages) ──
     public static final Set<String> OPPO_ONEPLUS_REALME_COLOROS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
         "com.oneplus.android.cellbroadcast.overlay", // [Emergency & Safety] Wireless emergency alerts Theme pack Guessing it's a pack of themes fo
         "com.oneplus.screenshot", // [Screenshot & Markup] Needed for Power + Volume Down screenshot.
@@ -163,21 +178,27 @@ public final class SystemUadAllowlist {
         "com.oplus.exsystemservice", // [Screenshot & Markup] Has a lot of permissions. The screenshot function will stop working wh
         "com.oneplus.dialer", // [Telephony & Telecom] OnePlus Dialer used in OxygenOS 11 and lower. Note: don't forget to do
         "com.oplus.screenshot", // [Screenshot & Markup] Screenshot Needed for screenshots. Very useful app.
+        "com.coloros.ocrscanner", // [Document Scanner & Camera] ColorOS Optical Character Recognition scanner
+        "com.oplus.pscanvas", // [System Multitasking & Sidebar] Open Canvas: OnePlus fluid split-screen multi-window
+        "com.coloros.smartsidebar", // [System Multitasking & Sidebar] ColorOS Smart Sidebar quick tool drawer
+        "com.oneplus.camera.pictureprocessing", // [Document Scanner & Camera] OnePlus camera image processing companion
     }));
 
-    // ── Vivo & iQOO (FuntouchOS / OriginOS) (2 packages) ──
+    // ── Vivo & iQOO (FuntouchOS / OriginOS) (3 packages) ──
     public static final Set<String> VIVO_IQOO_FUNTOUCH_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
         "com.vivo.easyshare", // [Share Sheet & Intent Resolver] Easy share Sharing apps to another phone. https://play.google.com/stor
         "com.vivo.smartshot", // [Screenshot & Markup] S-capture Used for screenshots?
+        "com.vivo.card", // [System Multitasking & Sidebar] Vivo Smart Sidebar quick drawer
     }));
 
-    // ── Motorola / Lenovo (MyUX / HelloUI) (2 packages) ──
+    // ── Motorola / Lenovo (MyUX / HelloUI) (3 packages) ──
     public static final Set<String> MOTOROLA_MYUX_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
         "com.motorola.screenshoteditor", // [Screenshot & Markup] Screenshot Editor Edit and share your screenshots right away, or take 
         "com.motorola.photoeditor", // [Screenshot & Markup] Photo Editor Moto Photo Editor.
+        "com.motorola.freeform", // [System Multitasking & Sidebar] Motorola Freeform window mode
     }));
 
-    // ── Huawei & Honor (EMUI / MagicOS) (11 packages) ──
+    // ── Huawei & Honor (EMUI / MagicOS) (12 packages) ──
     public static final Set<String> HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
         "com.huawei.HwMultiScreenShot", // [Screenshot & Markup] Scrolling screenshot feature
         "com.huawei.printservice", // [Print Spooler] Print service
@@ -190,6 +211,7 @@ public final class SystemUadAllowlist {
         "com.hihonor.smartshot", // [Screenshot & Markup] Smart screenshots Needed for screenshots.
         "com.hihonor.printservice", // [Print Spooler] Print service
         "com.hihonor.lbs", // [Emergency & Safety] Location Based Services Location-based services (LBS) are applications
+        "androidx.camera.extensions.impl", // [Document Scanner & Camera] Camera extensions for Huawei/Honor (Bokeh, HDR)
     }));
 
     // ── Transsion Holdings (Infinix, Tecno, Itel - XOS / HiOS) (1 packages) ──
@@ -297,6 +319,30 @@ public final class SystemUadAllowlist {
             return true;
         }
 
+        // Document Scanners & Camera Processing Sub-APKs
+        if (lowerPkg.contains("ocrscanner") || lowerPkg.contains(".scanner") || lowerPkg.endsWith(".scanner") ||
+            lowerPkg.contains("cameramind") || lowerPkg.contains("extraphoto") ||
+            lowerPkg.contains("siofviewer") || lowerPkg.contains("pictureprocessing")) {
+            return true;
+        }
+
+        // On-Device AI Engines (NPU OCR & Text Extraction)
+        if (lowerPkg.contains("aiservice") || lowerPkg.contains(".aicr") ||
+            lowerPkg.equals("com.samsung.android.scs") || lowerPkg.equals("com.google.android.as")) {
+            return true;
+        }
+
+        // System Multitasking, Freeform Windows & Sidebars
+        if (lowerPkg.contains("freeform") || lowerPkg.contains("pscanvas") ||
+            lowerPkg.contains("smartsidebar") || lowerPkg.contains("cocktailbarservice")) {
+            return true;
+        }
+
+        // Stylus & Canvas Note-Taking Tools
+        if (lowerPkg.equals("com.miui.creation") || lowerPkg.contains(".creation")) {
+            return true;
+        }
+
         // App Label semantic inspection
         if (appLabel != null && !appLabel.trim().isEmpty()) {
             String lowerLabel = appLabel.toLowerCase(Locale.US);
@@ -304,7 +350,10 @@ public final class SystemUadAllowlist {
                 lowerLabel.contains("emergency sos") || lowerLabel.contains("personal safety") ||
                 lowerLabel.contains("markup") || lowerLabel.contains("photo editor") ||
                 lowerLabel.contains("screenshot") || lowerLabel.contains("intent resolver") ||
-                lowerLabel.contains("captive portal") || lowerLabel.contains("print spooler")) {
+                lowerLabel.contains("captive portal") || lowerLabel.contains("print spooler") ||
+                lowerLabel.contains("document scanner") || lowerLabel.contains("scanner") ||
+                lowerLabel.contains("mi canvas") || lowerLabel.contains("smart sidebar") ||
+                lowerLabel.contains("edge panel") || lowerLabel.contains("floating window")) {
                 return true;
             }
         }

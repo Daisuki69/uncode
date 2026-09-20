@@ -2,8 +2,9 @@
   "meta": {
     "source": "Universal Android Debloater Next Generation (UAD-NG)",
     "extracted_at": "2026-09-20T12:16:39.067Z",
-    "total_packages": 169,
-    "rationale": "Community-verified system packages required for life-safety, emergency calling, system UI prompts, screenshot editing/sharing, and campus network connectivity. Isolated from core application blocklists."
+    "total_packages": 191,
+    "rationale": "Community-verified system packages and sub-APKs required for life-safety, emergency calling, document scanning, camera processing, on-device AI, stylus note canvas, and split-screen multitasking. Isolated from core application blocklists.",
+    "updated_at": "2026-09-20T12:58:50.751Z"
   },
   "brands": {
     "aosp_and_google": {
@@ -396,6 +397,26 @@
         "category": "Emergency & Safety",
         "removal": "Expert",
         "description": "Emergency SOS app for quick access to emergency services and contacts."
+      },
+      "com.google.android.apps.photos.scanner": {
+        "category": "Document Scanner & Camera",
+        "removal": "Recommended",
+        "description": "Google PhotoScan / Document Scanner for capturing and glare-free flattening of physical papers and photos."
+      },
+      "com.google.android.as": {
+        "category": "On-Device AI Engine",
+        "removal": "Recommended",
+        "description": "Android System Intelligence (Live text OCR, on-device text selection, smart clipboard)."
+      },
+      "com.google.android.apps.camera.services": {
+        "category": "Document Scanner & Camera",
+        "removal": "Expert",
+        "description": "Pixel Camera Services: Camera calibration and computational photography companion."
+      },
+      "com.google.pixel.camera.services": {
+        "category": "Document Scanner & Camera",
+        "removal": "Advanced",
+        "description": "CameraIDRemapper and camera pipeline dependency on Pixel devices."
       }
     },
     "samsung_oneui": {
@@ -538,6 +559,26 @@
         "category": "Share Sheet & Intent Resolver",
         "removal": "Recommended",
         "description": "Part of Samsung's SBeam service. SBeam has known security vulnerabilities (https://labs.withsecure.com/advisories/samsung-s5-arbitary-file-retrieval-during-sbeam-transfer), so you should really uninstall this."
+      },
+      "com.samsung.android.app.vex.scanner": {
+        "category": "Document Scanner & Camera",
+        "removal": "Advanced",
+        "description": "Samsung VEX Document Scanner component used by stock Camera and Gallery to detect paper edges and scan documents."
+      },
+      "com.samsung.android.app.siofviewer": {
+        "category": "Document Scanner & Camera",
+        "removal": "Advanced",
+        "description": "Samsung Live Focus / Portrait rendering engine for photo depth processing."
+      },
+      "com.samsung.android.scs": {
+        "category": "On-Device AI Engine",
+        "removal": "Advanced",
+        "description": "Samsung Core Services (SCS): On-device neural inference for image OCR, text extraction, and Smart Select."
+      },
+      "com.samsung.android.app.cocktailbarservice": {
+        "category": "System Multitasking & Sidebar",
+        "removal": "Recommended",
+        "description": "Samsung Edge Screen / Edge Panels quick launcher drawer."
       }
     },
     "xiaomi_miui_hyperos": {
@@ -560,6 +601,41 @@
         "category": "Screenshot & Markup",
         "removal": "Advanced",
         "description": "Xiaomi Gallery Editor\nExtension for MIUI Gallery that's used to edit photos and videos."
+      },
+      "com.xiaomi.scanner": {
+        "category": "Document Scanner & Camera",
+        "removal": "Recommended",
+        "description": "Mi Scanner: QR code and document scanner invoked when using Xiaomi Camera Document mode."
+      },
+      "com.miui.extraphoto": {
+        "category": "Document Scanner & Camera",
+        "removal": "Recommended",
+        "description": "Xiaomi Camera Bokeh and Document photo mode for taking ID photos and flattening paper."
+      },
+      "com.xiaomi.cameramind": {
+        "category": "Document Scanner & Camera",
+        "removal": "Advanced",
+        "description": "Core AI features for Xiaomi stock camera app (HDR, scene recognition, document edge contrast)."
+      },
+      "com.xiaomi.aiservice": {
+        "category": "On-Device AI Engine",
+        "removal": "Advanced",
+        "description": "Xiaomi on-device AI inference engine (HyperOS/MIUI) for offline OCR, image text recognition, and translation."
+      },
+      "com.xiaomi.aicr": {
+        "category": "On-Device AI Engine",
+        "removal": "Advanced",
+        "description": "Mi AI Engine / computational vision services in MIUI/HyperOS."
+      },
+      "com.miui.freeform": {
+        "category": "System Multitasking & Sidebar",
+        "removal": "Advanced",
+        "description": "MIUI / HyperOS Floating Window and Mini Window manager for multi-tasking."
+      },
+      "com.miui.creation": {
+        "category": "Notes & Canvas",
+        "removal": "Manual",
+        "description": "Xiaomi Mi Canvas: Official stylus drawing, handwriting, and diagram sketching note app for Xiaomi Pad tablets and stylus phones."
       }
     },
     "oppo_oneplus_realme_coloros": {
@@ -632,6 +708,26 @@
         "category": "Screenshot & Markup",
         "removal": "Expert",
         "description": "Screenshot\nNeeded for screenshots. Very useful app."
+      },
+      "com.coloros.ocrscanner": {
+        "category": "Document Scanner & Camera",
+        "removal": "Recommended",
+        "description": "ColorOS Optical Character Recognition scanner for documents and images."
+      },
+      "com.oplus.pscanvas": {
+        "category": "System Multitasking & Sidebar",
+        "removal": "Expert",
+        "description": "Open Canvas: OnePlus / OxygenOS fluid split-screen multi-window multitasking feature."
+      },
+      "com.coloros.smartsidebar": {
+        "category": "System Multitasking & Sidebar",
+        "removal": "Recommended",
+        "description": "ColorOS Smart Sidebar quick tool drawer (ruler, calculator, screenshot shortcuts)."
+      },
+      "com.oneplus.camera.pictureprocessing": {
+        "category": "Document Scanner & Camera",
+        "removal": "Expert",
+        "description": "OnePlus camera image processing companion sub-service."
       }
     },
     "vivo_iqoo_funtouch": {
@@ -644,6 +740,11 @@
         "category": "Screenshot & Markup",
         "removal": "Expert",
         "description": "S-capture\nUsed for screenshots?"
+      },
+      "com.vivo.card": {
+        "category": "System Multitasking & Sidebar",
+        "removal": "Advanced",
+        "description": "Vivo Smart Sidebar quick drawer for study utilities."
       }
     },
     "motorola_myux": {
@@ -656,6 +757,11 @@
         "category": "Screenshot & Markup",
         "removal": "Advanced",
         "description": "Photo Editor\nMoto Photo Editor."
+      },
+      "com.motorola.freeform": {
+        "category": "System Multitasking & Sidebar",
+        "removal": "Expert",
+        "description": "Motorola Freeform window mode for multi-app multitasking."
       }
     },
     "huawei_honor_emui_magicos": {
@@ -713,6 +819,11 @@
         "category": "Emergency & Safety",
         "removal": "Expert",
         "description": "Location Based Services\nLocation-based services (LBS) are applications or services that utilize location data from a user's device, such as a smartphone or GPS, to provide relevant information, directions, or recommendations tailored to their specific location. These services rely on a combination of technologies, including Global Positioning System (GPS), Wi-Fi, cellular networks, and sensors, to determine a user's position accurately.\nNOTE: Can cause bootloops on some devices.\nThe primary goal of LBS is to offer personalized and context-aware experiences based on a user's geographical location. This can include services like:\n1. Navigation and Mapping, 2. Location-Based Advertising, 3. Social Networking, 4. Emergency Services, 5. IoT Asset Tracking\nhttps://forum.huawei.com/enterprise/en/location-based-services/thread/703168442200375296-667213855346012160"
+      },
+      "androidx.camera.extensions.impl": {
+        "category": "Document Scanner & Camera",
+        "removal": "Advanced",
+        "description": "Camera extensions for Huawei/Honor (HDR effects, Bokeh, photo processing)."
       }
     },
     "transsion_infinix_tecno_xos": {
