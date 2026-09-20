@@ -46,17 +46,106 @@ public final class AppClassifier {
     private static final Map<String, Boolean> decisionCache = new ConcurrentHashMap<>();
 
     /**
-     * Essential telephony and in-call packages that must never be blocked during lockdown
-     * to ensure emergency calling and critical incoming calls remain operational.
+     * Essential telephony, in-call, SIM Toolkit (STK), MMS, carrier and emergency packages
+     * that must never be blocked during lockdown to ensure emergency calling, SIM management,
+     * carrier push messages, and critical communication remain operational.
      */
     public static final Set<String> TELEPHONY_PACKAGES = new HashSet<>(Arrays.asList(
+        // Core Telephony, In-Call UI & Telecom
         "com.android.phone",
         "com.android.server.telecom",
         "com.android.incallui",
         "com.google.android.dialer",
         "com.samsung.android.dialer",
-        "com.samsung.android.incallui"
+        "com.samsung.android.incallui",
+        "com.samsung.android.app.telephonyui",
+        "com.sec.android.app.servicemodeapp",
+        "com.miui.telephonyui",
+        "com.oppo.telephonyui",
+        "com.coloros.telephonyui",
+        "com.vivo.telephonyui",
+        "com.asus.telephonyui",
+
+        // SIM Card Toolkit (STK) & SIM Application Services (AOSP, Samsung, MTK, Transsion, Qualcomm, etc.)
+        "com.android.stk",                         // AOSP SIM Toolkit
+        "com.android.stk2",                        // AOSP Dual-SIM STK slot 2
+        "com.google.android.stk",                  // Google SIM Toolkit
+        "com.sec.android.app.simappdialog",        // Samsung STK dialog & Flash SMS popup (Critical for Globe/Smart)
+        "com.sec.android.app.simsetting",          // Samsung SIM card manager
+        "com.sec.android.app.simsettings",         // Samsung SIM settings variant
+        "com.mediatek.stk",                        // MediaTek SIM Toolkit (Infinix, Tecno, etc.)
+        "com.mediatek.stk2",                       // MediaTek SIM Toolkit slot 2
+        "com.mediatek.simprocessor",               // MediaTek SIM Processor
+        "com.mediatek.engineermode",               // MediaTek Engineer Mode
+        "com.transsion.simtoolkit",                // Transsion SIM Toolkit (Infinix, Tecno, Itel)
+        "com.transsion.stk",                       // Transsion STK
+        "com.qualcomm.qti.simcontacts",            // Qualcomm SIM Contacts
+        "com.qualcomm.qti.uim",                    // Qualcomm User Identity Module
+        "com.qualcomm.qti.modemtestmode",          // Qualcomm Modem test
+        "com.vivo.stk",                            // Vivo SIM Toolkit
+        "com.coloros.simsettings",                 // Oppo / Realme SIM Settings
+        "com.oppo.stk",                            // Oppo STK
+        "com.coloros.stk",                         // ColorOS STK
+        "com.huawei.stk",                          // Huawei SIM Toolkit
+        "com.motorola.stk",                        // Motorola STK
+        "com.zte.stk",                             // ZTE STK
+        "com.oneplus.stk",                         // OnePlus STK
+
+        // MMS & Native Carrier Messaging Services
+        "com.android.mms",                         // AOSP Messaging / MMS
+        "com.android.mms.service",                 // AOSP MMS Service
+        "com.google.android.apps.messaging",       // Google Messages / RCS / Class 0 Flash SMS (Default on Infinix/Pixel/Samsung)
+        "com.samsung.android.messaging",           // Samsung Messages / MMS
+        "com.transsion.mms",                       // Transsion MMS / SMS
+        "com.coloros.mms",                         // ColorOS / Oppo MMS
+        "com.vivo.mms",                            // Vivo MMS
+        "com.huawei.message",                      // Huawei Messaging
+        "com.motorola.messaging",                  // Motorola Messaging
+        "com.asus.message",                        // ASUS Messaging
+        "com.zte.mms",                             // ZTE MMS
+
+        // Cell Broadcast, Wireless Emergency Alerts (WEA) & Flash Alerts
+        "com.android.cellbroadcastreceiver",       // AOSP Cell Broadcast
+        "com.android.cellbroadcastreceiver.module",// Android Mainline Cell Broadcast Module
+        "com.android.cellbroadcastservice",        // AOSP Cell Broadcast Service
+        "com.google.android.cellbroadcastreceiver",// Google Emergency Alerts
+        "com.google.android.cellbroadcastservice", // Google Cell Broadcast Service
+        "com.mediatek.cellbroadcastreceiver",      // MediaTek Cell Broadcast
+        "com.transsion.cellbroadcastreceiver",     // Transsion Cell Broadcast
+        "com.oplus.cellbroadcastreceiver",         // Oppo / Realme Cell Broadcast
+        "com.qualcomm.qti.cellbroadcastreceiver",  // Qualcomm Cell Broadcast
+        "com.sec.android.app.wlantest",            // Samsung carrier wireless test
+        "com.sec.android.app.safetyinformation",   // Samsung Safety / Emergency Information
+
+        // Carrier Default Apps, Carrier Configuration & RCS/IMS
+        "com.android.carrierdefaultapp",           // Android Carrier Default App
+        "com.android.carrierconfig",               // Carrier Config
+        "com.google.android.carrierconfig",        // Google Carrier Config
+        "com.google.android.ims",                  // Google Carrier Services / RCS
+        "com.samsung.android.ims",                 // Samsung IMS
+        "com.sec.android.carrier.carrierwifi",     // Samsung Carrier Wi-Fi
+        "com.shannon.imsservice",                  // Samsung Exynos IMS Service
+        "com.mediatek.ims",                        // MediaTek IMS
+
+        // Philippine Carrier Ecosystem (Globe Telecom, Smart Communications, DITO)
+        "ph.com.globe",                            // Globe Telecom Carrier Services
+        "ph.com.globe.globeathome",                // Globe at Home
+        "ph.com.globe.globeonesuperapp",           // GlobeOne
+        "com.globe.services",                      // Globe Services / SIM Menu
+        "com.globe.telecom",                       // Globe Telecom
+        "ph.com.smart",                            // Smart Communications
+        "com.smart.services",                      // Smart Services / SIM Menu
+        "ph.dito.telecommunity",                   // DITO Telecommunity
+        "com.dito.services"                        // DITO Services
     ));
+
+    public static boolean isSimOrCarrierService(String pkg, String appLabel) {
+        return LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
+    }
+
+    public static boolean isSimOrCarrierService(String pkg) {
+        return LockAccessibilityService.isSimOrCarrierService(pkg, null);
+    }
 
     /**
      * Legitimate App Store and Package Installer packages allowed during lockdown
@@ -180,16 +269,6 @@ public final class AppClassifier {
             return false;
         }
 
-        // Tier 1b: Telephony & Emergency in-call UI
-        if (TELEPHONY_PACKAGES.contains(pkg)) {
-            return false;
-        }
-
-        // Tier 1c: System App Store & Package Installers are explicitly allowed
-        if (isInstallerOrStoreApp(pkg)) {
-            return false;
-        }
-
         String appLabel = null;
         if (context != null) {
             try {
@@ -200,6 +279,22 @@ public final class AppClassifier {
                     if (lbl != null) appLabel = lbl.toString();
                 }
             } catch (Exception ignore) {}
+        }
+
+        // Tier 1b: Telephony, Emergency in-call UI, SIM Toolkit (STK), MMS & Carrier Push
+        if (TELEPHONY_PACKAGES.contains(pkg) || isSimOrCarrierService(pkg, appLabel)) {
+            return false;
+        }
+
+        // Tier 1b-2: Standalone Universal Android Debloater (UAD-NG) System Allowlist
+        // (Emergency services, AOSP Screenshot Markup, IntentResolver/Chooser, Captive Portal, etc.)
+        if (SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)) {
+            return false;
+        }
+
+        // Tier 1c: System App Store & Package Installers are explicitly allowed
+        if (isInstallerOrStoreApp(pkg)) {
+            return false;
         }
 
         // Tier 1d: Hardcoded Distraction Blacklist & Hostile Signatures MUST take precedence!
@@ -386,6 +481,18 @@ public final class AppClassifier {
         // Promotes unknown or un-categorized apps if their label or package contains academic indicators
         if (hasPositiveAcademicSignals(lowerLabel, lowerPkg)) {
             Log.i(TAG, "Promoted & Allowed by academic keyword heuristics: " + pkg + " (" + appLabel + ")");
+            return false;
+        }
+
+        // ── Layer 4c: SIM Card Toolkit (STK), MMS & Carrier Services ──
+        if (isSimOrCarrierService(pkg, appLabel)) {
+            Log.d(TAG, "Allowed as SIM toolkit / Carrier / MMS service: " + pkg + " (" + appLabel + ")");
+            return false;
+        }
+
+        // ── Layer 4d: Standalone Universal Android Debloater (UAD-NG) System Allowlist ──
+        if (SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)) {
+            Log.d(TAG, "Allowed by UAD-NG System Allowlist: " + pkg + " (" + appLabel + ")");
             return false;
         }
 

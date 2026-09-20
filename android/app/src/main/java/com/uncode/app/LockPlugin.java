@@ -163,6 +163,7 @@ public class LockPlugin extends Plugin {
 
             // Always exempt document pickers and media providers
             whitelist.addAll(LockAccessibilityService.MEDIA_AND_FILE_EXEMPT);
+            whitelist.addAll(LockAccessibilityService.ALWAYS_EXEMPT);
 
             // Save whitelist and timestamp for AccessibilityService
             prefs.edit()
@@ -258,6 +259,7 @@ public class LockPlugin extends Plugin {
                 editor.putString("consequence_schedule_id", scheduleId);
             }
             if (whitelist != null && !whitelist.isEmpty()) {
+                whitelist.addAll(LockAccessibilityService.ALWAYS_EXEMPT);
                 editor.putStringSet("whitelist", whitelist);
             }
             editor.apply();
@@ -280,9 +282,15 @@ public class LockPlugin extends Plugin {
             long timeOffset = prefs.getLong("time_offset", 0L);
             long effectiveNow = System.currentTimeMillis() + timeOffset;
             boolean inOperatingHours = LockAccessibilityService.isInOperatingHours(context, effectiveNow);
-            String notifMsg = inOperatingHours
-                    ? "Distracting apps are restricted until homework is rescheduled and passed."
-                    : "Consequence active: Enforcement paused during daytime (resumes at 7:00 PM).";
+            boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+            String notifMsg;
+            if (isHardcore) {
+                notifMsg = "Distracting apps remain restricted 24/7 (Hardcore Mode) until homework is rescheduled and passed.";
+            } else {
+                notifMsg = inOperatingHours
+                        ? "Distracting apps are restricted until homework is rescheduled and passed."
+                        : "Consequence active: Enforcement paused during daytime (resumes at 7:00 PM).";
+            }
 
             AlarmReceiver.createNotificationChannels(context);
             AlarmReceiver.showNotificationStatic(
@@ -810,6 +818,8 @@ public class LockPlugin extends Plugin {
                         app.put("id", pkg);
                         app.put("name", appLabel);
 
+                        boolean isSimOrCarrier = LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
+
                         String iconName = "LayoutGrid";
                         if (isBrowser) iconName = "Globe";
                         else if (isMusic) iconName = "Music";
@@ -818,9 +828,10 @@ public class LockPlugin extends Plugin {
                         else if (isAi) iconName = "Sparkles";
                         else if (isNotes) iconName = "FileText";
                         else if (isStudentApp) iconName = "BookOpen";
+                        else if (isSimOrCarrier) iconName = "MessageSquare";
 
-                        boolean isAutoAllowed = isHardcoded || !AppClassifier.isPackageBlocked(getActivity(), pkg, null);
-                        if (!isHardcoded && isAutoAllowed && "LayoutGrid".equals(iconName)) {
+                        boolean isAutoAllowed = isHardcoded || isSimOrCarrier || !AppClassifier.isPackageBlocked(getActivity(), pkg, null);
+                        if (!isHardcoded && !isSimOrCarrier && isAutoAllowed && "LayoutGrid".equals(iconName)) {
                             iconName = "BookOpen";
                         }
 

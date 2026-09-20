@@ -15,11 +15,11 @@ interface SettingsOverlayProps {
   onSave: (updates: Partial<AppSettings>) => void;
   onClearLogs: () => void;
   onClose: () => void;
+  isLockActive?: boolean;
 }
 
-export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }: SettingsOverlayProps) {
-  const hasActiveSchedule = settings.schedules?.some(s => s.isActive) || false;
-  const isLockedOrConsequence = hasActiveSchedule || !!settings.consequenceActive;
+export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, isLockActive = false }: SettingsOverlayProps) {
+  const isLockedOrConsequence = isLockActive || !!settings.consequenceActive;
 
   const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'logs'>('general');
   const [apiKey, setApiKey] = useState(settings.apiKey || '');
@@ -207,14 +207,41 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose }
 
             // Synchronize with native SharedPreferences
             try {
-              const { endLockdown, setConsequenceActive, syncSchedules } = await import('../systemBridge');
-              if (!data.settings.consequenceActive) {
+              const { 
+                endLockdown, 
+                setConsequenceActive, 
+                syncSchedules,
+                setOperatingMode,
+                setWebProtectionMode,
+                setAllowYoutube,
+                setBlockWebGames,
+                syncTimeOffset
+              } = await import('../systemBridge');
+
+              if (data.timeOffset !== undefined) {
+                await syncTimeOffset(data.timeOffset);
+              }
+              if (data.settings.operatingMode) {
+                await setOperatingMode(data.settings.operatingMode);
+              }
+              if (data.settings.webProtectionMode) {
+                await setWebProtectionMode(data.settings.webProtectionMode);
+              }
+              if (data.settings.allowYoutube !== undefined) {
+                await setAllowYoutube(data.settings.allowYoutube);
+              }
+              await setBlockWebGames(true);
+
+              const safeAllowed = (data.settings.allowedApps || []).map((a: AllowedApp) => a.id);
+              if (data.settings.schedules) {
+                await syncSchedules(data.settings.schedules, safeAllowed);
+              }
+
+              if (data.settings.consequenceActive) {
+                await setConsequenceActive(true, data.settings.consequenceScheduleId, safeAllowed);
+              } else {
                 endLockdown();
                 await setConsequenceActive(false);
-              }
-              if (data.settings.schedules) {
-                const safeAllowed = (data.settings.allowedApps || []).map((a: AllowedApp) => a.id);
-                await syncSchedules(data.settings.schedules, safeAllowed);
               }
             } catch (nativeErr) {
               console.warn('Failed to sync native settings on import', nativeErr);

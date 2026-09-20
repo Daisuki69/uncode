@@ -375,52 +375,146 @@ public final class WebBlocklistConstants {
         "office.com", "onedrive.live.com", "onenote.com", "sharepoint.com"
     ));
 
+    private static final String[] ACADEMIC_KEYWORDS = {
+        "wikipedia", "wikimedia", "wiktionary", "wikibooks", "wikiversity", "wikidata",
+        "britannica", "worldbook", "merriam-webster", "dictionary.com", "thesaurus.com",
+        "canvaslms", "instructure", "blackboard", "schoology", "moodle", "classroom.google",
+        "powerschool", "infinitecampus", "collegeboard", "khanacademy", "brilliant.org",
+        "desmos", "geogebra", "wolfram", "symbolab", "mathway", "physicsclassroom",
+        "arxiv", "biorxiv", "medrxiv", "jstor", "researchgate", "nature.com", "sciencedirect",
+        "pubmed", "scholar.google", "semanticscholar", "nasa.gov", "cern.ch",
+        "coursera", "edx", "udemy", "quizlet", "brainly", "chegg", "coursehero",
+        "duolingo", "babbel", "memrise", "deepl", "translate.google",
+        "developer.mozilla", "w3schools", "geeksforgeeks", "stackoverflow", "stackexchange",
+        "github", "gitlab", "leetcode", "hackerrank", "freecodecamp",
+        "docs.oracle", "docs.python", "developer.android", "learn.microsoft",
+        "google.com/search"
+    };
+
     /**
      * Checks if a domain or URL is immune under the academic whitelist.
      * Enforces worldwide educational (.edu, .ac.*) and governmental (.gov, .mil) domain immunity.
      */
     public static boolean isAcademicExempt(String lowerUrl) {
         if (lowerUrl == null) return false;
-        for (String exempt : ACADEMIC_EXEMPT_DOMAINS) {
-            if (lowerUrl.contains(exempt)) return true;
+        String clean = lowerUrl.trim().toLowerCase(Locale.US);
+        if (clean.equals("about:blank") || clean.startsWith("about:") ||
+            clean.equals("chrome://newtab") || clean.equals("edge://newtab") ||
+            clean.startsWith("chrome-native://") || clean.equals("new tab")) {
+            return true;
         }
-        return lowerUrl.contains(".edu/") || lowerUrl.endsWith(".edu") ||
-               lowerUrl.contains(".edu.") || lowerUrl.contains(".ac.uk") ||
-               lowerUrl.contains(".ac.jp") || lowerUrl.contains(".ac.in") ||
-               lowerUrl.contains(".edu.au") || lowerUrl.contains(".edu.sg") ||
-               lowerUrl.contains(".edu.ph") || lowerUrl.contains(".edu.cn") ||
-               lowerUrl.contains(".edu.br") || lowerUrl.contains(".edu.mx") ||
-               lowerUrl.contains(".edu.ng") || lowerUrl.contains(".gov/") ||
-               lowerUrl.endsWith(".gov") || lowerUrl.contains(".gov.") ||
-               lowerUrl.contains(".gov.uk") || lowerUrl.contains(".gov.au") ||
-               lowerUrl.contains(".gov.ph") || lowerUrl.contains(".mil/") ||
-               lowerUrl.endsWith(".mil");
+        for (String kw : ACADEMIC_KEYWORDS) {
+            if (clean.contains(kw)) return true;
+        }
+        for (String exempt : ACADEMIC_EXEMPT_DOMAINS) {
+            if (clean.contains(exempt)) return true;
+        }
+        return clean.contains(".edu/") || clean.endsWith(".edu") ||
+               clean.contains(".edu.") || clean.contains(".ac.uk") ||
+               clean.contains(".ac.jp") || clean.contains(".ac.in") ||
+               clean.contains(".edu.au") || clean.contains(".edu.sg") ||
+               clean.contains(".edu.ph") || clean.contains(".edu.cn") ||
+               clean.contains(".edu.br") || clean.contains(".edu.mx") ||
+               clean.contains(".edu.ng") || clean.contains(".gov/") ||
+               clean.endsWith(".gov") || clean.contains(".gov.") ||
+               clean.contains(".gov.uk") || clean.contains(".gov.au") ||
+               clean.contains(".gov.ph") || clean.contains(".mil/") ||
+               clean.endsWith(".mil");
+    }
+
+    /**
+     * Extracts the canonical host from a domain string or full URL.
+     * Strips scheme, path, query parameters, hash, port, and leading 'www.'.
+     * E.g.:
+     *   "https://www.y8.com/tags/2_player?ref=1#top" -> "y8.com"
+     *   "y8.com/tags/2_player" -> "y8.com"
+     *   "sub.example.co.uk:8080/foo" -> "sub.example.co.uk"
+     *   "www.roblox.com" -> "roblox.com"
+     */
+    public static String extractHost(String raw) {
+        if (raw == null) return "";
+        String s = raw.toLowerCase(Locale.US).trim();
+        int schemeIdx = s.indexOf("://");
+        if (schemeIdx != -1) {
+            s = s.substring(schemeIdx + 3);
+        }
+        int slashIdx = s.indexOf('/');
+        if (slashIdx != -1) {
+            s = s.substring(0, slashIdx);
+        }
+        int qIdx = s.indexOf('?');
+        if (qIdx != -1) {
+            s = s.substring(0, qIdx);
+        }
+        int hIdx = s.indexOf('#');
+        if (hIdx != -1) {
+            s = s.substring(0, hIdx);
+        }
+        int colonIdx = s.indexOf(':');
+        if (colonIdx != -1) {
+            s = s.substring(0, colonIdx);
+        }
+        if (s.startsWith("www.")) {
+            s = s.substring(4);
+        }
+        while (s.endsWith(".")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s.trim();
+    }
+
+    /**
+     * Fast domain set matcher.
+     * Extracts canonical host, then tests exact match and iteratively strips subdomains.
+     * E.g. "game.y8.com" tests "game.y8.com", then "y8.com".
+     */
+    public static boolean matchesDomainSet(String domainOrUrl, Set<String> targetDomains) {
+        if (domainOrUrl == null || targetDomains == null || targetDomains.isEmpty()) {
+            return false;
+        }
+        String host = extractHost(domainOrUrl);
+        if (host.isEmpty()) return false;
+
+        String current = host;
+        while (!current.isEmpty()) {
+            if (targetDomains.contains(current)) {
+                return true;
+            }
+            int dotIndex = current.indexOf('.');
+            if (dotIndex == -1) {
+                break;
+            }
+            current = current.substring(dotIndex + 1);
+        }
+        return false;
     }
 
     /**
      * Checks if a domain matches blacklisted social media and feeds.
      */
-    public static boolean isBlacklistedDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String b : BLACKLISTED_WEB_DOMAINS) {
-            if (lowerDomain.equals(b) || lowerDomain.endsWith("." + b) || lowerDomain.contains("/" + b)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isBlacklistedDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, BLACKLISTED_WEB_DOMAINS);
+    }
+
+    /**
+     * Checks if a domain matches core YouTube domains.
+     */
+    public static boolean isYoutubeDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, YOUTUBE_DOMAINS);
     }
 
     /**
      * Checks if a domain is a DNS-over-HTTPS (DoH) canary or provider endpoint.
      * Returning NXDOMAIN forces Chromium/Chrome to disable internal DoH and fall back to system DNS.
      */
-    public static boolean isDohEndpointOrCanary(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        return lowerDomain.equals("use-application-dns.net") || lowerDomain.endsWith(".use-application-dns.net") ||
-               lowerDomain.equals("dns.google") || lowerDomain.endsWith(".dns.google") ||
-               lowerDomain.equals("cloudflare-dns.com") || lowerDomain.endsWith(".cloudflare-dns.com") ||
-               lowerDomain.equals("dns.quad9.net") || lowerDomain.endsWith(".dns.quad9.net") ||
-               lowerDomain.equals("dns.adguard-dns.com") || lowerDomain.endsWith(".dns.adguard-dns.com");
+    public static boolean isDohEndpointOrCanary(String domainOrUrl) {
+        if (domainOrUrl == null) return false;
+        String host = extractHost(domainOrUrl);
+        return host.equals("use-application-dns.net") || host.endsWith(".use-application-dns.net") ||
+               host.equals("dns.google") || host.endsWith(".dns.google") ||
+               host.equals("cloudflare-dns.com") || host.endsWith(".cloudflare-dns.com") ||
+               host.equals("dns.quad9.net") || host.endsWith(".dns.quad9.net") ||
+               host.equals("dns.adguard-dns.com") || host.endsWith(".dns.adguard-dns.com");
     }
 
     /**
@@ -436,17 +530,20 @@ public final class WebBlocklistConstants {
     /**
      * Checks if a domain or URL points to a web-based game.
      */
-    public static boolean isWebGameDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String g : WEB_GAMING_DOMAINS) {
-            if (lowerDomain.equals(g) || lowerDomain.endsWith("." + g) || lowerDomain.contains("/" + g)) {
-                return true;
-            }
-        }
-        if (lowerDomain.endsWith(".itch.zone") || lowerDomain.contains("poki-gdn.com")) {
+    public static boolean isWebGameDomain(String domainOrUrl) {
+        if (domainOrUrl == null) return false;
+        if (matchesDomainSet(domainOrUrl, WEB_GAMING_DOMAINS)) {
             return true;
         }
-        if (lowerDomain.contains("unblocked") && (lowerDomain.contains("game") || lowerDomain.contains("66") || lowerDomain.contains("76") || lowerDomain.contains("slope"))) {
+        String host = extractHost(domainOrUrl);
+        if (host.endsWith("itch.zone") || host.contains("poki-gdn.com")) {
+            return true;
+        }
+        if (host.contains("unblocked") && (host.contains("game") || host.contains("66") || host.contains("76") || host.contains("slope"))) {
+            return true;
+        }
+        String lower = domainOrUrl.toLowerCase(Locale.US);
+        if (lower.contains("unblocked") && (lower.contains("game") || lower.contains("66") || lower.contains("76") || lower.contains("slope"))) {
             return true;
         }
         return false;
@@ -455,92 +552,52 @@ public final class WebBlocklistConstants {
     /**
      * Checks if a domain or URL points to gambling/casinos/sportsbooks.
      */
-    public static boolean isGamblingDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String g : GAMBLING_DOMAINS) {
-            if (lowerDomain.equals(g) || lowerDomain.endsWith("." + g) || lowerDomain.contains("/" + g)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isGamblingDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, GAMBLING_DOMAINS);
     }
 
     /**
      * Checks if a domain or URL points to adult/explicit content.
      */
-    public static boolean isAdultDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String a : ADULT_DOMAINS) {
-            if (lowerDomain.equals(a) || lowerDomain.endsWith("." + a) || lowerDomain.contains("/" + a)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isAdultDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, ADULT_DOMAINS);
     }
 
     /**
      * Checks if a domain or URL points to web proxies or bypass unblockers.
      */
-    public static boolean isProxyDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String p : PROXY_DOMAINS) {
-            if (lowerDomain.equals(p) || lowerDomain.endsWith("." + p) || lowerDomain.contains("/" + p)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isProxyDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, PROXY_DOMAINS);
     }
 
     /**
      * Checks if a domain or URL points to piracy streaming, manga, or short dramas.
      */
-    public static boolean isPiracyOrMediaDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        if (lowerDomain.contains("kisskh") || lowerDomain.contains("kissasian")) return true;
-        for (String s : PIRACY_AND_MEDIA_DOMAINS) {
-            if (lowerDomain.equals(s) || lowerDomain.endsWith("." + s) || lowerDomain.contains("/" + s)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isPiracyOrMediaDomain(String domainOrUrl) {
+        if (domainOrUrl == null) return false;
+        String lower = domainOrUrl.toLowerCase(Locale.US);
+        if (lower.contains("kisskh") || lower.contains("kissasian")) return true;
+        return matchesDomainSet(domainOrUrl, PIRACY_AND_MEDIA_DOMAINS);
     }
 
     /**
      * Checks if a domain points to dating or random video cam chat.
      */
-    public static boolean isDatingDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String d : DATING_AND_CHAT_DOMAINS) {
-            if (lowerDomain.equals(d) || lowerDomain.endsWith("." + d) || lowerDomain.contains("/" + d)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isDatingDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, DATING_AND_CHAT_DOMAINS);
     }
 
     /**
      * Checks if a domain points to time-wasting viral gossip.
      */
-    public static boolean isTimeWasterDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String t : TIME_WASTER_DOMAINS) {
-            if (lowerDomain.equals(t) || lowerDomain.endsWith("." + t) || lowerDomain.contains("/" + t)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isTimeWasterDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, TIME_WASTER_DOMAINS);
     }
 
     /**
      * Checks if a domain points to crypto meme coin gambling/speculation.
      */
-    public static boolean isCryptoSpeculationDomain(String lowerDomain) {
-        if (lowerDomain == null) return false;
-        for (String c : CRYPTO_SPECULATION_DOMAINS) {
-            if (lowerDomain.equals(c) || lowerDomain.endsWith("." + c) || lowerDomain.contains("/" + c)) {
-                return true;
-            }
-        }
-        return false;
+    public static boolean isCryptoSpeculationDomain(String domainOrUrl) {
+        return matchesDomainSet(domainOrUrl, CRYPTO_SPECULATION_DOMAINS);
     }
 }

@@ -1,0 +1,875 @@
+{
+  "meta": {
+    "source": "Universal Android Debloater Next Generation (UAD-NG)",
+    "extracted_at": "2026-09-20T12:16:39.067Z",
+    "total_packages": 169,
+    "rationale": "Community-verified system packages required for life-safety, emergency calling, system UI prompts, screenshot editing/sharing, and campus network connectivity. Isolated from core application blocklists."
+  },
+  "brands": {
+    "aosp_and_google": {
+      "com.android.phone.product.res.overlay.no_imei_emergency_call": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Unsure but I would just leave it as you need to stay safe. Find out more by running: adb shell cmd overlay list, to see other packages"
+      },
+      "com.android.screenshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Default android screenshot tool"
+      },
+      "com.android.stk2": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "SIM toolkit\nSpecial package for dual-sim devices?\nEnables carriers to initiate\"value-added services\". Basically, some operators provide SIM-cards with applications installed on them.\nhttps://en.wikipedia.org/wiki/SIM_Application_Toolkit#cite_note-CellularZA-1\nHas been abused:\n- SimJacker: https://thehackernews.com/2019/09/simjacker-mobile-hacking.html\n- WIBattack: https://www.zdnet.com/article/new-sim-card-attack-disclosed-similar-to-simjacker/\nWARNING: do mind that disabling/uninstalling this package will break mobile identity management which could be used by apps (for example your Bank) to authenticate you. See https://en.wikipedia.org/wiki/Mobile_identity_management\nNOTE: removing this package removes the launcher icon. `com.android.stk2` relies on `com.android.stk` and vice-versa."
+      },
+      "com.android.stk": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "SIM toolkit\nEnables carriers to initiate\"value-added services\". Basically, some operators provide SIM-cards with applications installed on them.\nhttps://en.wikipedia.org/wiki/SIM_Application_Toolkit#cite_note-CellularZA-1\nHas been abused:\n- SimJacker: https://thehackernews.com/2019/09/simjacker-mobile-hacking.html\n- WIBattack: https://www.zdnet.com/article/new-sim-card-attack-disclosed-similar-to-simjacker/\nWARNING: do mind that disabling/uninstalling this package will break mobile identity management which could be used by apps (for example your Bank) to authenticate you. See https://en.wikipedia.org/wiki/Mobile_identity_management\nNOTE: removing this package removes the launcher icon. `com.android.stk` relies on `com.android.stk2` and vice-versa."
+      },
+      "com.android.captiveportallogin": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Advanced",
+        "description": "Support for captive portal: https://en.wikipedia.org/wiki/Captive_portal\nA captive portal login is a web page where users have to log in or accept terms of use. Common for public wifi networks."
+      },
+      "com.android.cellbroadcastreceiver": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Cell broadcast is designed to deliver messages to multiple users in an area.\nThis is notably used by ISPs to send Emergency/Government alerts.\nRuns at boot time and is also triggered after exiting airplane mode.\nhttps://en.wikipedia.org/wiki/Cell_Broadcast\nhttps://www.androidcentral.com/amber-alerts-and-android-what-you-need-know\nhttps://android.googlesource.com/platform/packages/apps/CellBroadcastReceiver/+/refs/heads/master/src/com/android/cellbroadcastreceiver"
+      },
+      "com.android.cellbroadcastreceiver.module": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Same as com.android.cellbroadcastreceiver.\nCell broadcasting used to send emergency alerts.\nhttps://en.wikipedia.org/wiki/Cell_Broadcast."
+      },
+      "com.android.emergency": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Emergency rescue\nShows emergency info on lockscreen and power menu. Safe to disable if you don't want it.\nLoads on device unlock/lockscreen and power menu, so it's basically always cached in RAM, but shouldn't use much/any battery, so the main thing gained from disabling this package is the ~9MB RAM it uses.\nRemoving this will break Safety and Emergency in Settings and you will miss SOS alerts."
+      },
+      "com.android.intentresolver": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Expert",
+        "description": "'Share' functionality will be disabled after uninstalling this package on Android 14 and up. Additionally, motion photos will become broken."
+      },
+      "com.android.printservice.recommendation": {
+        "category": "Print Spooler",
+        "removal": "Advanced",
+        "description": "Recommends 3rd-party print services apps in the PlayStore. Printing will probably still works without (by using the default print service)."
+      },
+      "com.android.printspooler": {
+        "category": "Print Spooler",
+        "removal": "Expert",
+        "description": "Print Spooler\nManages the printing process.\nRuns on boot, but not beyond that.\nWARNING: Disabling breaks the connection preferences submenu in the settings app on most devices, but other than that it only breaks printing functionality and is safe to disable."
+      },
+      "com.android.certinstaller": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Unsafe",
+        "description": "Certificate installer\nUsed for accepting and revoking Internet certificates.\nCertificates identify ownership of public keys, for use in secure communications.\nBreaks Wi-Fi if disabled."
+      },
+      "com.android.documentsui": {
+        "category": "Media Picker & Documents",
+        "removal": "Unsafe",
+        "description": "Occasionally runs in the background.\nFile selector for other apps.\nStorage Access Framework (SAF) will break if this is disabled."
+      },
+      "com.android.documentsui.a_overlay": {
+        "category": "Media Picker & Documents",
+        "removal": "Expert",
+        "description": "Some overlay for for\"Files\"?"
+      },
+      "com.android.keychain": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Unsafe",
+        "description": "Enables apps to use system wide credential KeyChain (shared credentials between apps)\nhttps://security.stackexchange.com/questions/216716/android-keychain-what-is-a-system-wide-credential"
+      },
+      "com.android.mtp": {
+        "category": "Core Hardware Prompts",
+        "removal": "Unsafe",
+        "description": "MTP Host\nHandles MTP(Media Transfer Protocol), a protocol for transfering files between the device and a connected PC."
+      },
+      "com.android.server.telecom": {
+        "category": "Telephony & Telecom",
+        "removal": "Unsafe",
+        "description": "Manages calls via your network provider or SIM and controls the phone modem?"
+      },
+      "com.android.server.telecom.a_overlay": {
+        "category": "Telephony & Telecom",
+        "removal": "Unsafe",
+        "description": "Overlay for com.android.server.telecom?"
+      },
+      "com.android.vpndialogs": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Expert",
+        "description": "Provide VPN support to Android\nhttps://en.wikipedia.org/wiki/Dialog_(software)\nSafe to remove if you don't plan to use a VPN."
+      },
+      "com.android.bluetooth.tempow": {
+        "category": "Core Hardware Prompts",
+        "removal": "Unsafe",
+        "description": "Implementation of a improved bluetooth protocol (developed by french company Tempow)\nhttps://www.tempow.com/tap\nNOTE: This is NOT an AOSP package. It is OEMs who choose to implement this procotol or not.\nFor now, only TCL has this."
+      },
+      "com.android.dialer": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "AOSP Dialer/Phone app\nDefault phone app on some older phones(like Oneplus 3). WARNING: Uninstalling it may break the entire phone app; emergency calls; SIM card detection, and the software update screen on Samsung."
+      },
+      "com.android.cellbroadcastreceiver.basiccolorblack.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Dark theme overlay for com.android.cellbroadcastreceiver"
+      },
+      "com.android.cellbroadcastreceiver.basiccolorwhite.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Light theme overlay for com.android.cellbroadcastreceiver"
+      },
+      "com.android.cellbroadcastreceiver.overlay.common": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "In code I found unused things: show_brazil_settings, show_cmas_settings, show_etws_settings.\nit's unavailable and useless."
+      },
+      "com.android.cellbroadcastservice": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "is designed to deliver messages to multiple users in an area.\nThis is notably used by ISPs to send Emergency/Government alerts.\nRuns in the background.\nhttps://en.wikipedia.org/wiki/Cell_Broadcast\nhttps://www.androidcentral.com/amber-alerts-and-android-what-you-need-know"
+      },
+      "com.android.emergency.basiccolorblack.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Dark theme for Emergency rescue?"
+      },
+      "com.android.emergency.basiccolorwhite.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Dark theme for Emergency rescue?"
+      },
+      "com.android.server.telecom.overlay.common": {
+        "category": "Telephony & Telecom",
+        "removal": "Unsafe",
+        "description": "Location and dialer things."
+      },
+      "com.google.android.cellbroadcastreceiver": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Wireless emergency alerts\nCell broadcast is designed to deliver messages to multiple users in an area.\nThis is notably used by ISP to send Emergency/Government alerts.\nRuns at boot and is also triggered after exiting airplane mode.\nhttps://en.wikipedia.org/wiki/Cell_Broadcast\nhttps://www.androidcentral.com/amber-alerts-and-android-what-you-need-know\nhttps://android.googlesource.com/platform/packages/apps/CellBroadcastReceiver/+/refs/heads/master/src/com/android/cellbroadcastreceiver"
+      },
+      "com.google.android.cellbroadcastreceiver.overlay.miui": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Disable opt out dialog to cellbroadcastreceiver? I never seen that. Unused."
+      },
+      "com.google.android.cellbroadcastservice.overlay.miui": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "cross sim duplicate detection disable? I never seen this. Unused."
+      },
+      "com.google.android.cellbroadcastservice": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Cell broadcast is designed to deliver messages to multiple users in an area.\nThis is notably used by ISP to send Emergency/Government alerts.\nhttps://en.wikipedia.org/wiki/Cell_Broadcast\nhttps://www.androidcentral.com/amber-alerts-and-android-what-you-need-know"
+      },
+      "com.google.android.overlay.modules.captiveportallogin.forframework": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Advanced",
+        "description": "Configs default captiveportallogin. (not needed)\nNo effects after remove."
+      },
+      "com.google.android.overlay.modules.cellbroadcastservice": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": ""
+      },
+      "com.google.android.overlay.modules.documentsui": {
+        "category": "Media Picker & Documents",
+        "removal": "Expert",
+        "description": "WARNING: Uninstalling it breaks the Scheduled power on/off page of the Settings app for Android 15, Blackview Tab 60 WiFi!"
+      },
+      "com.android.server.telecom.overlay.miui": {
+        "category": "Telephony & Telecom",
+        "removal": "Unsafe",
+        "description": "Manage calls\nit's used for manage calls ui.\nit's important overlay to calling."
+      },
+      "com.google.android.photopicker": {
+        "category": "Media Picker & Documents",
+        "removal": "Expert",
+        "description": "Photo picker\nProvides a browsable interface that presents the user with their media library, sorted by date from newest to oldest. Safe, built-in way for users to grant your app access to only selected images and videos, instead of their entire media library.\nhttps://developer.android.com/training/data-storage/shared/photopicker"
+      },
+      "com.android.cellbroadcastreceiver.overlay.base.s600ww": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Nokia theme overlay for com.android.cellbroadcastreceiver"
+      },
+      "com.android.providers.media.module": {
+        "category": "Media Picker & Documents",
+        "removal": "Expert",
+        "description": "Media picker module\nNot recommended to remove this as it can break apps that use the photo picker."
+      },
+      "com.google.android.wfcactivation": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Carrier Setup\nNeeded for IMS, WiFi calling and have emergency things."
+      },
+      "com.android.cellbroadcastreceiver.overlay.pixel": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Useless code to cellbroadcastreceiver"
+      },
+      "com.android.cellbroadcastservice.overlay.pixel": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Useless code to cellbroadcastservice"
+      },
+      "com.google.android.documentsui.theme.pixel": {
+        "category": "Media Picker & Documents",
+        "removal": "Recommended",
+        "description": "Useless code to documentsui."
+      },
+      "com.android.captiveportallogin.overlay": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Recommended",
+        "description": "it's overlay only to icon color."
+      },
+      "com.android.server.telecom.auto_generated_rro_product__": {
+        "category": "Telephony & Telecom",
+        "removal": "Unsafe",
+        "description": "Configs to server telecom auto generated but better keep."
+      },
+      "com.google.android.documentsui.icon_overlay": {
+        "category": "Media Picker & Documents",
+        "removal": "Recommended",
+        "description": "Another useless icon overlay."
+      },
+      "com.google.android.cellbroadcastreceiver.rro_common": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Useless overlay code for cellbroadcastreceiver"
+      },
+      "com.google.android.cellbroadcastservice.rro_common": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Useless overlay code for cellbroadcastservice"
+      },
+      "com.android.cellbroadcast.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Unused overlay without code. Only for Test message."
+      },
+      "com.android.cellbroadcastservice.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Unused overlay. Cross-SIM duplicate detection false."
+      },
+      "com.android.ztescreenshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "ScreenCapture\nNeeded for screenshots."
+      },
+      "com.google.android.cellbroadcastreceiver.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "CellBroadcastReceiver overlay.\nOverlays work by mapping resources defined in the overlay package to resources defined in the target package. When an app attempts to resolve the value of a resource in the target package, the value of the overlay resource the target resource is mapped to is returned instead.\nThe CellBroadcastReceiver app is a default system app that handles emergency and nonemergency alerts (such as amber and presidential alerts) and presents the information to end users based on carrier and regional regulations.\nhttps://source.android.com/docs/core/runtime/rros\nhttps://source.android.com/docs/core/ota/modular-system/cellbroadcast"
+      },
+      "com.google.android.cellbroadcastservice.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "CellBroadcastService overlay.\nOverlays work by mapping resources defined in the overlay package to resources defined in the target package. When an app attempts to resolve the value of a resource in the target package, the value of the overlay resource the target resource is mapped to is returned instead.\nThe CellBroadcastService service supports CellBroadcast SMS decoding, geofencing for wireless emergency alert (WEA) 3.0, message duplication checks, and broadcasting messages to apps. It's a one-to-many geotargeted and geofenced messaging service designed to deliver messages to multiple mobile phone users, in a defined area, at the same time. The service is defined by the [ETSI](https://www.etsi.org/about) GSM committee, [3GPP](https://www.3gpp.org/about-3gpp), and is a part of the telecommunication standards.\nhttps://source.android.com/docs/core/runtime/rros\nhttps://source.android.com/docs/core/ota/modular-system/cellbroadcast"
+      },
+      "com.google.android.configupdater": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Config Update\nIntents used to provide unbundled updates of system data. All require the UPDATE_CONFIG permission. Updates:\n- system wide certificate pins for TLS connections.\n- System wide Intent firewall.\n- List of permium SMS short codes.\n- List of carrier provisioning URLs.\n- Set of trusted logs used for Certificate Transparency support for TLS connections language detection model file\n- Smart selection model file\n- Conversation actions model file\n- Network watchlist config file\n- Intent action indicating that the updated carrier id config is available\n- The emergency number database into the devices\n- An integer to indicate the numeric version of the new data -- devices should only install if the update version is newer than the current one\n- Hash of the database, which is encoded by base-16 SHA512.\nhttps://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/os/ConfigUpdate.java"
+      },
+      "com.google.android.markup": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Google Markup app made for modifying pictures, shipped by default on every Pie+ device.\nRemoves the button to quickly edit screenshots once taken."
+      },
+      "com.google.android.marvin.talkback": {
+        "category": "Accessibility Services",
+        "removal": "Advanced",
+        "description": "Android Accessibility Suite (https://play.google.com/store/apps/details?id=com.google.android.marvin.talkback)\nHelps blind and visually impaired users.\nWARNING: Causes com.motorola.dynamicvolume to not display individual apps and their respective volumes when volume button pressed. Seems to revert to an older (maybe testing) version of the dynamicvolume pkg?"
+      },
+      "com.google.android.printservice.recommendation": {
+        "category": "Print Spooler",
+        "removal": "Advanced",
+        "description": "I think this has to do with recommending a printservice app you can get from the Play store.\nI think printing still works with this off."
+      },
+      "com.google.marvin.talkback": {
+        "category": "Accessibility Services",
+        "removal": "Recommended",
+        "description": "Android Accessibility Suite (https://play.google.com/store/apps/details?id=com.google.android.marvin.talkback)"
+      },
+      "com.google.android.dialer": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "Google Dialer (https://play.google.com/store/apps/details?id=com.google.android.dialer)\nDefault dialer on some phones.\nGoogle Analytics are embedded in the app, assume everything is datamined.\nhttps://www.virustotal.com/gui/file/a978d90f27d5947dca33ed59b73bd8efbac67253f9ef7a343beb9197c8913d1a/details"
+      },
+      "com.google.android.documentsui": {
+        "category": "Media Picker & Documents",
+        "removal": "Unsafe",
+        "description": "Occasionally runs in the background.\nFile selector for other apps.\nStorage Access Framework (SAF) will break if this is disabled."
+      },
+      "com.google.android.accessibility.soundamplifier": {
+        "category": "Accessibility Services",
+        "removal": "Recommended",
+        "description": "Accessibility sound amplifier (https://play.google.com/store/apps/details?id=com.google.android.accessibility.soundamplifier)"
+      },
+      "com.google.android.captiveportallogin": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Advanced",
+        "description": "it's the same as (com.android.captiveportallogin). Support for captive portal.\nA captive portal login is a web page where the users have to input their login information or accept the displayed terms of use.\nSome networks (typically public wifi network) use the captive portal login to block access until the user inputs\nsome necessary information\nNOTE : This package is a now a mandatory mainline module\nhttps://en.wikipedia.org/wiki/Captive_portal\nhttps://www.xda-developers.com/android-project-mainline-modules-explanation"
+      },
+      "com.android.bips": {
+        "category": "Print Spooler",
+        "removal": "Expert",
+        "description": "Disabling this can cause Settings app to crash and general device slowness. Tested on Sony Xperia X, Fairphone 4 and Lenovo Yoga tab. Default Print Service.\nGeneric printing service that should work with most printers.\nWill break printing functionality if disabled, but other replacement print services can be downloaded from the Play Store."
+      },
+      "com.google.android.overlay.modules.cellbroadcastreceiver": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Overlay (theme/notification) module for com.google.android.cellbroadcastreceiver"
+      },
+      "com.google.android.apps.safetyhub": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Personal Safety (https://play.google.com/store/apps/details?id=com.google.android.apps.safetyhub)\nPersonal Safety is a Pixel app that helps you prepare and react in an emergency by quickly calling emergency services (e.g if your phone detects that you've been in a car crash, it can call for help automatically, but only with a google account)\nMost features require a Google account to work except for medical information and emergency contacts. Emergency SOS (ie. pressing the power button 5 times to call emergency services) still works without this app.\n\nThis app has obviously a lot of dangerous permissions due to its operation.\n\nPithus analysis: https://beta.pithus.org/report/e207f7d0f59d9df268154b90fc10cd861d0483465e30bbac8f68a7b12340c67f"
+      },
+      "com.android.wifi.dialog": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Unsafe",
+        "description": "Needed for wifi dialogs.\nCan brick basic functionality android."
+      },
+      "com.android.overlay.gmstelecomm": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "Overlay app to 'com.google.android.dialer', 'com.android.incallui'."
+      },
+      "com.android.systemui.accessibility.accessibilitymenu": {
+        "category": "Accessibility Services",
+        "removal": "Recommended",
+        "description": "Hidden menu that only shows 2 buttons:\nLarge buttons - that increases size of accessibility menu buttons,\nand Help - that redirects to support google com site accessibility."
+      },
+      "com.android.bluetooth.oplus.overlay": {
+        "category": "Core Hardware Prompts",
+        "removal": "Unsafe",
+        "description": "Overlay to 'com.android.bluetooth'."
+      },
+      "com.android.qns": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Apn service, emergency calling, not sure how useful this app is."
+      },
+      "com.android.overlay.dialer": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "Overlay to 'com.android.dialer' png icons."
+      },
+      "com.android.overlay.emergency": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Overlay to 'com.android.emergency' icons png."
+      },
+      "com.android.overlay.stk": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "Overlay to 'com.android.stk' icons png."
+      },
+      "com.android.stk.overlay.miui": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "'SIM Toolkit' name app only found."
+      },
+      "com.google.android.accessibility.switchaccess": {
+        "category": "Accessibility Services",
+        "removal": "Recommended",
+        "description": "Switch Access\nhttps://play.google.com/store/apps/details?id=com.google.android.accessibility.switchaccess&hl=en_US"
+      },
+      "com.android.systemui.accessibility.accessibilitymenu.auto_generated_rro_product__": {
+        "category": "Accessibility Services",
+        "removal": "Advanced",
+        "description": "Product RRO for Accessibility menu."
+      },
+      "com.google.android.wifi.dialog": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Expert",
+        "description": "Wi-Fi dialog. App to launch user dialogs requested by the Wi-Fi service is stored here. Contains the Activity the dialogs are launched from.\nhttps://source.android.com/docs/core/ota/modular-system/wifi\nhttps://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/src/com/android/settings/wifi/WifiDialog.java\nhttps://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/src/com/android/settings/wifi/WifiDialog2.kt"
+      },
+      "com.android.sos": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Emergency SOS app for quick access to emergency services and contacts."
+      }
+    },
+    "samsung_oneui": {
+      "com.samsung.android.app.talkback": {
+        "category": "Accessibility Services",
+        "removal": "Recommended",
+        "description": "Voice assistant. Accessibility feature\nScreen Reader to provide audible feedback to assist blind and low-vision users."
+      },
+      "com.samsung.android.aware.service": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Advanced",
+        "description": "Samsung Quick Share Agent\nUse Wifi direct to share files between 2 Samsung Galaxy phones (it's only for Samsung Galaxy users)"
+      },
+      "com.samsung.android.app.sharelive": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Recommended",
+        "description": "Samsung Quick Share (from the Galaxy Store)\nBreaks Quick Share if you remove it."
+      },
+      "com.samsung.android.mdx.kit": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Recommended",
+        "description": "Quick Share Connectivity / MDE Service Framework\nMDX = Multi Devices Experience (https://www.samsung.com/levant/multi-device-experience/)\nFramework for IoT stuff.\nAsks for a LOT of dangerous permissions\nInteracts with\"com.samsung.android.mobileservice\" and\"com.osp.app.signin\""
+      },
+      "com.samsung.knox.keychain": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Unsafe",
+        "description": "Knox Key Chain\nAllows apps to sign data using system-wide private key/certificate pairs.\nSo, even though the Android Keystore provides per-app access to credentials, the Android KeyChain runs as a system user,\nand hence, credentials stored through the Android KeyChain are associated with the system ID instead of a user ID.\nhttps://docs.samsungknox.com/dev/knox-sdk/about-keystores.htm\nThis is only useful for apps using the TIMA Keystore. The big question I'm trying to answer is:\nWhich are using this except Samsung apps? Can an android dev help on this?"
+      },
+      "com.sec.android.app.safetyassurance": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Safety assurance is related to emergency features. It is especially used for SOS messages.\nhttps://www.samsung.com/nz/support/mobile-devices/samsung-sos-smart-phone-emergency-message-guide/\nHas obviously a huge amount of permissions.\n\nPithus analysis: https://beta.pithus.org/report/a06501fce61a39cb2b38df088eba4d0ce7ca3ed8fce3e8b672d8eb807538fb1f"
+      },
+      "com.sec.android.mimage.gear360editor": {
+        "category": "Screenshot & Markup",
+        "removal": "Recommended",
+        "description": "360 Photo Editor\nLets you edit the 360-degree photos you took."
+      },
+      "com.samsung.android.app.smartcapture": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Samsung Capture\nSamsung's implementation of screenshot. Show the bottom toolbar after taking a screenshot\nLets you group widgets on OneUI 4 (?)"
+      },
+      "com.samsung.android.app.smartwidget": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Samsung screenshot\nYou will still be able to take screenshots without this package."
+      },
+      "com.samsung.android.app.contacts": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Samsung Contacts\nSafe to debloat if you use another contacts app. NOTE: if you do, you will no longer be able to access Contacts from the Samsung dialer app.\nRemoving the contacts app will disable the user from being able to modify the Safety and emergency tab within the Samsung Android native settings app. Specifically the Medical info & Emergency contacts. This information is pulled on the lockscreen by first responders or in emergency sharing mode for emergency contacts."
+      },
+      "com.sec.android.emergencylauncher": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Samsung Launcher when in emergency(low battery) mode."
+      },
+      "com.sec.android.emergencymode.service": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Emergency mode enables you to extend your device’s standby time when in an emergency situation and want your device to conserve power for as long as possible. When activated, screen brightness will decrease, some of functionality will be limited and the home screen is changed to a black theme, all to reduce battery drain (OLED screens draw less power when showing black, cuz black = pixel off).\nNOT related to SOS messages/911.\nhttps://www.samsung.com/uk/support/mobile-devices/what-is-emergency-mode/"
+      },
+      "com.sec.android.mimage.photoretouching": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Samsung Photo Editor\nDisabling this will disable the inbuilt photo editor accessed via the stock gallery.\nSafe to remove if you don't use Samsung gallery."
+      },
+      "com.sec.android.provider.badge": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Provider for the notification badges (which are not very useful IMHO)\nProvides a way for apps to use notifications badges.\nhttps://www.samsung.com/au/support/mobile-devices/what-is-app-icon-badge/\nEmergency Power saving launcher does not start after removing."
+      },
+      "com.sec.android.provider.emergencymode": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Provider for emergency mode (com.sec.android.emergencylauncher)\nContent providers encapsulate data, providing centralized management of data shared between apps.\nFor example: the Settings provider. It stores all the settings from your Settings app in a database, which apps can query for info on whether you for example have Dark Mode turned on or off.\nhttps://developer.android.com/guide/topics/providers/content-providers.html"
+      },
+      "com.samsung.android.incallui": {
+        "category": "Telephony & Telecom",
+        "removal": "Unsafe",
+        "description": "UI when\"being called/in call\". It's basically the screen that shows you who is calling, lets you answer and hang up, switch to speaker, etc"
+      },
+      "com.samsung.android.dialer": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "Stock Samsung Phone dialer"
+      },
+      "com.sec.android.autodoodle.service": {
+        "category": "Screenshot & Markup",
+        "removal": "Recommended",
+        "description": "Samsung Auto Doodle for Photo Editor\nhttps://galaxystore.samsung.com/prepost/000005425352"
+      },
+      "com.samsung.android.accessibility.talkback": {
+        "category": "Accessibility Services",
+        "removal": "Advanced",
+        "description": "Samsung TalkBack in accessibility.\nhttps://galaxystore.samsung.com/prepost/000005296612?appId=com.samsung.android.accessibility.talkback"
+      },
+      "com.samsung.android.watch.watchface.emergency": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Watchface in the emergency launcher."
+      },
+      "com.samsung.android.watch.screencapture": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Provides the ability to take screenshots from the smart watch."
+      },
+      "com.samsung.emergencyreporthelper": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Only for KOREA emergency report.\nAlso no activities, only warn."
+      },
+      "com.samsung.android.emergency": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Emergency SOS\nHas a lot of permissions, lets you send SOS messages and calls."
+      },
+      "com.samsung.android.mtp": {
+        "category": "Core Hardware Prompts",
+        "removal": "Unsafe",
+        "description": "MTP application\nIt doesn't cause a bootloop, but its highly not recommended to remove it.\nThis app is needed for transfer files to PC/Phone."
+      },
+      "com.sec.android.app.wallpaperchooser": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Advanced",
+        "description": "This app provides the functionality to select and manage wallpapers on Samsung devices, including Samsung-specific wallpaper options."
+      },
+      "com.samsung.android.app.scrollcapture": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Samsung's app for taking screenshots."
+      },
+      "com.sec.android.app.SmartClipService": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Default image editor on older Samsung devices."
+      },
+      "com.sec.android.directshare": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Recommended",
+        "description": "Part of Samsung's SBeam service. SBeam has known security vulnerabilities (https://labs.withsecure.com/advisories/samsung-s5-arbitary-file-retrieval-during-sbeam-transfer), so you should really uninstall this."
+      }
+    },
+    "xiaomi_miui_hyperos": {
+      "com.miui.gallery": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "MIUI Gallery app.\nNote: Removing the Gallery will break the send screenshot feature (swipe 3 fingers to show the screenshot preview).\nIt has several trackers and sometimes connects to micloud, even if the account is not added."
+      },
+      "com.miui.screenshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "MIUI Screenshot\nScreenshots will not work."
+      },
+      "com.miui.mishare.connectivity": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Advanced",
+        "description": "Mi Share\nUnified file sharing service between Xiaomi, Oppo, Realme and Vivo devices using Wifi-direct\nSettings -> Connection & sharing -> Mi Share\nFYI : Wifi direct allows 2 devices to establish a direct Wi-Fi connection without requiring a wireless router."
+      },
+      "com.miui.mediaeditor": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Xiaomi Gallery Editor\nExtension for MIUI Gallery that's used to edit photos and videos."
+      }
+    },
+    "oppo_oneplus_realme_coloros": {
+      "com.oneplus.android.cellbroadcast.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Wireless emergency alerts Theme pack\nGuessing it's a pack of themes for the emergency alert UI, based on the name."
+      },
+      "com.oneplus.screenshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Needed for Power + Volume Down screenshot."
+      },
+      "com.oneplus.commonoverlay.com.google.android.networkstack": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Expert",
+        "description": "Needed for DHCP hostname?, captive portal HTTP URLs?"
+      },
+      "com.oneplus.commonoverlay.com.google.android.networkstack.cn": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Expert",
+        "description": "Needed for DHCP hostname?, captive portal HTTP URLs? Generate_204 Chinese Google?"
+      },
+      "com.oneplus.commonoverlay.com.android.networkstack.inprocess": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Expert",
+        "description": "Needed for DHCP hostname?, captive portal HTTP URLs?"
+      },
+      "com.oneplus.commonoverlay.com.android.networkstack.inprocess.cn": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Expert",
+        "description": "Needed for DHCP hostname?, captive portal HTTP URLs? Generate_204 Chinese Google?"
+      },
+      "com.coloros.screenshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Screenshot\nNeeded for screenshots. Very useful app."
+      },
+      "com.oplus.android.overlay.modules.documentsui": {
+        "category": "Media Picker & Documents",
+        "removal": "Recommended",
+        "description": "Useless overlay to documentsui bools.xml: is_launcher_enabled true"
+      },
+      "com.coloros.oshare": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Oppo Share\nFile sharing app to transfer data from/to Oppo devices only. Seems to use weak crypto (AES ECB mode) and has weird permissions (such as `READ_CONTACTS`).\nWARNING: removing this app will break the functionality to share photos directly from ColorOS Photos app and break the 'share with' prompt after taking a screenshot.\n\nPithus analysis: https://beta.pithus.org/report/170f4a14be24a2e2135cd956a038aae9e2f78c845f3161b84c5545dbec03fad9"
+      },
+      "com.oplus.sos": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Emergency Alert service by clicking power button 5 times. It will automatically call contacts (and/or send a SMS) you designated as emergency contacts"
+      },
+      "com.oppo.sos": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Emergency Alert service by clicking power button 5 times. It will automatically call contacts (and/or send a SMS) you designated as emergency contacts"
+      },
+      "com.oplus.exsystemservice": {
+        "category": "Screenshot & Markup",
+        "removal": "Unsafe",
+        "description": "Has a lot of permissions. The screenshot function will stop working when the app is disabled.\nCan cause bootloop on some phones\nhttps://gist.github.com/zxdawn/21771f89f0e6ee01bcb0bb740058e2a0\nhttps://xdaforums.com/t/extreme-debloat-op12.4688984/\nhttps://www.apkmirror.com/apk/oneplus-ltd/system-service-2/system-service-2-1-1-5-release/system-service-1-1-5-2-android-apk-download/"
+      },
+      "com.oneplus.dialer": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "OnePlus Dialer used in OxygenOS 11 and lower.\nNote: don't forget to download another phone dialer app before removing this package."
+      },
+      "com.oplus.screenshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Screenshot\nNeeded for screenshots. Very useful app."
+      }
+    },
+    "vivo_iqoo_funtouch": {
+      "com.vivo.easyshare": {
+        "category": "Share Sheet & Intent Resolver",
+        "removal": "Recommended",
+        "description": "Easy share\nSharing apps to another phone.\nhttps://play.google.com/store/apps/details?id=com.vivo.easyshare"
+      },
+      "com.vivo.smartshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "S-capture\nUsed for screenshots?"
+      }
+    },
+    "motorola_myux": {
+      "com.motorola.screenshoteditor": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Screenshot Editor\nEdit and share your screenshots right away, or take screenshots longer than your screen such as full web pages or articles. Useful app.\nhttps://play.google.com/store/apps/details?id=com.motorola.screenshoteditor"
+      },
+      "com.motorola.photoeditor": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Photo Editor\nMoto Photo Editor."
+      }
+    },
+    "huawei_honor_emui_magicos": {
+      "com.huawei.HwMultiScreenShot": {
+        "category": "Screenshot & Markup",
+        "removal": "Recommended",
+        "description": "Scrolling screenshot feature"
+      },
+      "com.huawei.printservice": {
+        "category": "Print Spooler",
+        "removal": "Advanced",
+        "description": "Print service"
+      },
+      "com.huawei.desktop.systemui": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Huawei desktop mode switching\nIt has also Take Screenshot Service.\nRequire HMS, has a lot tracking."
+      },
+      "com.huawei.sos": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "SOS\nEmergency things."
+      },
+      "com.huawei.lbs": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Location Based Services\nLocation-based services (LBS) are applications or services that utilize location data from a user's device, such as a smartphone or GPS, to provide relevant information, directions, or recommendations tailored to their specific location. These services rely on a combination of technologies, including Global Positioning System (GPS), Wi-Fi, cellular networks, and sensors, to determine a user's position accurately.\nNOTE: Can cause bootloops on some devices.\nThe primary goal of LBS is to offer personalized and context-aware experiences based on a user's geographical location. This can include services like:\n1. Navigation and Mapping, 2. Location-Based Advertising, 3. Social Networking, 4. Emergency Services, 5. IoT Asset Tracking\nhttps://forum.huawei.com/enterprise/en/location-based-services/thread/703168442200375296-667213855346012160"
+      },
+      "com.huawei.smartshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Smart screenshots\nNeeded for screenshots."
+      },
+      "com.hihonor.keychain": {
+        "category": "Captive Portal & System Dialogs",
+        "removal": "Unsafe",
+        "description": "Face recognition and fingerprint authentication. Probably a bad idea to remove."
+      },
+      "com.hihonor.HnMultiScreenShot": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Scrolling screenshot feature"
+      },
+      "com.hihonor.smartshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Smart screenshots\nNeeded for screenshots."
+      },
+      "com.hihonor.printservice": {
+        "category": "Print Spooler",
+        "removal": "Advanced",
+        "description": "Print service"
+      },
+      "com.hihonor.lbs": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "Location Based Services\nLocation-based services (LBS) are applications or services that utilize location data from a user's device, such as a smartphone or GPS, to provide relevant information, directions, or recommendations tailored to their specific location. These services rely on a combination of technologies, including Global Positioning System (GPS), Wi-Fi, cellular networks, and sensors, to determine a user's position accurately.\nNOTE: Can cause bootloops on some devices.\nThe primary goal of LBS is to offer personalized and context-aware experiences based on a user's geographical location. This can include services like:\n1. Navigation and Mapping, 2. Location-Based Advertising, 3. Social Networking, 4. Emergency Services, 5. IoT Asset Tracking\nhttps://forum.huawei.com/enterprise/en/location-based-services/thread/703168442200375296-667213855346012160"
+      }
+    },
+    "transsion_infinix_tecno_xos": {
+      "com.transsion.screencapture": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Needed for screenshots."
+      }
+    },
+    "sony_asus_tcl_others": {
+      "com.sonyericsson.mtp.extension.factoryreset": {
+        "category": "Core Hardware Prompts",
+        "removal": "Unsafe",
+        "description": "Sony phone says 'lock screen settings'. Removing it can cause bootloop"
+      },
+      "com.sonyericsson.photoeditor": {
+        "category": "Screenshot & Markup",
+        "removal": "Recommended",
+        "description": "Sony's photo editor: https://www.apkmirror.com/apk/sony-mobile-communications/photo-editor"
+      },
+      "com.sonymobile.cellbroadcast.notification": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Cell information\nCell broadcast is designed to deliver messages to multiple users in an area.\nThis is notably used by ISP to send Emergency/Government alerts.\nhttps://en.wikipedia.org/wiki/Cell_Broadcast\nhttps://www.androidcentral.com/amber-alerts-and-android-what-you-need-know\nI think this package only handles notifications for broadcasts, not the implementation.\nIt seems like broadcast SMS use normal notifications so there is a chance this package provides special notification for Sony SMS app?"
+      },
+      "com.tcl.screenshotex": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": ""
+      },
+      "com.tcl.sos": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": ""
+      },
+      "com.asus.dialer": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "ASUS Dialer\nContains Google trackers."
+      },
+      "com.asus.cellbroadcastreceiver.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "useless overlay for cellbroadcast"
+      },
+      "com.asus.cellbroadcastservice.overlay": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "useless overlay for cellbroadcast"
+      },
+      "com.lge.icecontacts": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Emergency and video calling things."
+      },
+      "com.lge.cmas": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "Emergency Alerts\nit's only for alerts so it's safe to remove."
+      },
+      "com.lge.nextcapture": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Needed for screenshots?"
+      },
+      "cn.nubia.photoeditor": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Photo Editor\nPhoto Editor. It has Baidu location so better turn off network for this app."
+      },
+      "cn.nubia.supersnap": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Super Snap Shot, Screenshot"
+      }
+    },
+    "universal_core_framework": {
+      "com.orange.mysosh": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "My Sosh (https://play.google.com/store/apps/details?id=com.orange.mysosh)\nLets you access to your Sosh account"
+      },
+      "com.sec.app.samsungprintservice": {
+        "category": "Print Spooler",
+        "removal": "Recommended",
+        "description": "Samsung Print Service Plugin.\nPublished by HP, see:\nhttps://play.google.com/store/apps/details?id=com.sec.app.samsungprintservice"
+      },
+      "com.qualcomm.qti.xrcb": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "Receive xrcb network signals for radio side.\nit's about emergency alerts, weather alerts, public announcements, and other information."
+      },
+      "com.mediatek.cellbroadcastuiresoverlay": {
+        "category": "Emergency & Safety",
+        "removal": "Advanced",
+        "description": "This app have something to emergency."
+      },
+      "asusims.overlay.aosp.documentsui": {
+        "category": "Media Picker & Documents",
+        "removal": "Advanced",
+        "description": "Not needed overlay for hide documentsui icon. No effects after remove."
+      },
+      "asusims.overlay.documentsui": {
+        "category": "Media Picker & Documents",
+        "removal": "Advanced",
+        "description": "Not needed overlay for hide documentsui icon. No effects after remove."
+      },
+      "com.realme.movieshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Combine captions\nIt's for partial screenshot, SaveLongshot."
+      },
+      "com.tct.dialer": {
+        "category": "Telephony & Telecom",
+        "removal": "Advanced",
+        "description": "Phone\nStock Phone app"
+      },
+      "com.tct.screenshotex": {
+        "category": "Screenshot & Markup",
+        "removal": "Expert",
+        "description": "Screenshot\nit's used for screenshots and editing them."
+      },
+      "com.qeexo.smartshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Recommended",
+        "description": "Smart Screenshots\nSmart Screenshots? Disable it doesnt affecting normal screenshots."
+      },
+      "com.agui.newsos": {
+        "category": "Emergency & Safety",
+        "removal": "Recommended",
+        "description": "SOS\nNotify emergency contacts. When triggered, will also put the phone in a low comsumption mode"
+      },
+      "com.agui.screenshot": {
+        "category": "Screenshot & Markup",
+        "removal": "Advanced",
+        "description": "Screenshot\nScreenshot utility triggered when double tapping the Red Button"
+      },
+      "com.spreadtrum.csvt": {
+        "category": "Emergency & Safety",
+        "removal": "Expert",
+        "description": "potentially riskware, (sends information to another infamously hacked apk com.redstone.ota.ui).\n However it seems to work for handling 3G mobile data(and all broadcasts over 3G)\n It should not be removed if your provider/government works over 3G, any emergency message might fail.\n it is also a SOC, so removing ought to be careful."
+      },
+      "com.epson.mobilephone.samsungprintservice": {
+        "category": "Print Spooler",
+        "removal": "Recommended",
+        "description": "Completely empty package. Useless."
+      },
+      "com.hp.android.printservice": {
+        "category": "Print Spooler",
+        "removal": "Recommended",
+        "description": "Print to your HP printer using your Android phone. Most reviews on Google Play say it doesn't work very well. https://play.google.com/store/apps/details?id=com.hp.android.printservice"
+      },
+      "com.siso.app.genericprintservice": {
+        "category": "Print Spooler",
+        "removal": "Recommended",
+        "description": "Completely empty package. Useless."
+      }
+    }
+  }
+}

@@ -208,12 +208,20 @@ public class AlarmReceiver extends BroadcastReceiver {
             nm.cancel(NOTIF_ID_STATUS);
         }
 
+        boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+        String notifTitle = isHardcore
+                ? "⚠️ Homework Expired — Consequence Active (Hardcore)"
+                : "⚠️ Homework Expired — Consequence Active";
+        String notifMsg = isHardcore
+                ? "Study session expired without passing. Distracting apps remain restricted 24/7 (Hardcore Mode) until rescheduled and passed."
+                : "Study session expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed.";
+
         showNotification(
                 context,
                 NOTIF_ID_COMPLETED,
                 CHANNEL_ID_ALERTS,
-                "⚠️ Homework Expired — Consequence Active",
-                "Study session expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed.",
+                notifTitle,
+                notifMsg,
                 Notification.PRIORITY_HIGH,
                 false
         );

@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.provider.MediaStore;
 import android.provider.Settings;
+import android.provider.Browser;
 import android.net.Uri;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
@@ -20,6 +21,7 @@ import android.view.inputmethod.InputMethodInfo;
 import android.app.Notification;
 import android.widget.Toast;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import java.lang.reflect.Method;
@@ -39,19 +41,104 @@ public class LockAccessibilityService extends AccessibilityService {
 
     /**
      * Packages that are always exempt from blocking.
+     * Core OS, Telephony, In-Call UI, SIM Card Toolkit (STK), Carrier Services, MMS & Emergency Broadcasts.
      * NOTE: com.android.settings is intentionally NOT here — it should be blockable.
      * The launcher/home is also exempt because we actively send users there on block.
      */
-    private static final Set<String> ALWAYS_EXEMPT = new HashSet<>(Arrays.asList(
-        "android",                   // Core OS framework
-        "com.android.systemui",      // Status bar, nav bar, recents UI
-        "com.android.phone",         // Core telephony
-        "com.android.server.telecom",// Core telecom
-        "com.android.incallui",      // In-call UI (incoming phone calls)
-        "com.google.android.dialer", // Google Phone app
-        "com.samsung.android.dialer",// Samsung Phone app
-        "com.samsung.android.incallui" // Samsung In-call UI
+    public static final Set<String> ALWAYS_EXEMPT = new HashSet<>(Arrays.asList(
+        // Core OS framework & System UI
+        "android",
+        "com.android.systemui",
+
+        // Core Telephony, In-Call UI & Telecom
+        "com.android.phone",
+        "com.android.server.telecom",
+        "com.android.incallui",
+        "com.google.android.dialer",
+        "com.samsung.android.dialer",
+        "com.samsung.android.incallui",
+        "com.samsung.android.app.telephonyui",
+        "com.sec.android.app.servicemodeapp",
+        "com.miui.telephonyui",
+        "com.oppo.telephonyui",
+        "com.coloros.telephonyui",
+        "com.vivo.telephonyui",
+        "com.asus.telephonyui",
+
+        // SIM Card Toolkit (STK) & SIM Application Services (AOSP, Samsung, MTK, Transsion, Qualcomm, etc.)
+        "com.android.stk",                         // AOSP SIM Toolkit
+        "com.android.stk2",                        // AOSP Dual-SIM STK slot 2
+        "com.google.android.stk",                  // Google SIM Toolkit
+        "com.sec.android.app.simappdialog",        // Samsung STK dialog & Flash SMS popup (Critical for Globe/Smart)
+        "com.sec.android.app.simsetting",          // Samsung SIM card manager
+        "com.sec.android.app.simsettings",         // Samsung SIM settings variant
+        "com.mediatek.stk",                        // MediaTek SIM Toolkit (Infinix, Tecno, etc.)
+        "com.mediatek.stk2",                       // MediaTek SIM Toolkit slot 2
+        "com.mediatek.simprocessor",               // MediaTek SIM Processor
+        "com.mediatek.engineermode",               // MediaTek Engineer Mode
+        "com.transsion.simtoolkit",                // Transsion SIM Toolkit (Infinix, Tecno, Itel)
+        "com.transsion.stk",                       // Transsion STK
+        "com.qualcomm.qti.simcontacts",            // Qualcomm SIM Contacts
+        "com.qualcomm.qti.uim",                    // Qualcomm User Identity Module
+        "com.qualcomm.qti.modemtestmode",          // Qualcomm Modem test
+        "com.vivo.stk",                            // Vivo SIM Toolkit
+        "com.coloros.simsettings",                 // Oppo / Realme SIM Settings
+        "com.oppo.stk",                            // Oppo STK
+        "com.coloros.stk",                         // ColorOS STK
+        "com.huawei.stk",                          // Huawei SIM Toolkit
+        "com.motorola.stk",                        // Motorola STK
+        "com.zte.stk",                             // ZTE STK
+        "com.oneplus.stk",                         // OnePlus STK
+
+        // MMS & Native Carrier Messaging Services
+        "com.android.mms",                         // AOSP Messaging / MMS
+        "com.android.mms.service",                 // AOSP MMS Service
+        "com.google.android.apps.messaging",       // Google Messages / RCS / Class 0 Flash SMS (Default on Infinix/Pixel/Samsung)
+        "com.samsung.android.messaging",           // Samsung Messages / MMS
+        "com.transsion.mms",                       // Transsion MMS / SMS
+        "com.coloros.mms",                         // ColorOS / Oppo MMS
+        "com.vivo.mms",                            // Vivo MMS
+        "com.huawei.message",                      // Huawei Messaging
+        "com.motorola.messaging",                  // Motorola Messaging
+        "com.asus.message",                        // ASUS Messaging
+        "com.zte.mms",                             // ZTE MMS
+
+        // Cell Broadcast, Wireless Emergency Alerts (WEA) & Flash Alerts
+        "com.android.cellbroadcastreceiver",       // AOSP Cell Broadcast
+        "com.android.cellbroadcastreceiver.module",// Android Mainline Cell Broadcast Module
+        "com.android.cellbroadcastservice",        // AOSP Cell Broadcast Service
+        "com.google.android.cellbroadcastreceiver",// Google Emergency Alerts
+        "com.google.android.cellbroadcastservice", // Google Cell Broadcast Service
+        "com.mediatek.cellbroadcastreceiver",      // MediaTek Cell Broadcast
+        "com.transsion.cellbroadcastreceiver",     // Transsion Cell Broadcast
+        "com.oplus.cellbroadcastreceiver",         // Oppo / Realme Cell Broadcast
+        "com.qualcomm.qti.cellbroadcastreceiver",  // Qualcomm Cell Broadcast
+        "com.sec.android.app.wlantest",            // Samsung carrier wireless test
+        "com.sec.android.app.safetyinformation",   // Samsung Safety / Emergency Information
+
+        // Carrier Default Apps, Carrier Configuration & RCS/IMS
+        "com.android.carrierdefaultapp",           // Android Carrier Default App
+        "com.android.carrierconfig",               // Carrier Config
+        "com.google.android.carrierconfig",        // Google Carrier Config
+        "com.google.android.ims",                  // Google Carrier Services / RCS
+        "com.samsung.android.ims",                 // Samsung IMS
+        "com.sec.android.carrier.carrierwifi",     // Samsung Carrier Wi-Fi
+        "com.shannon.imsservice",                  // Samsung Exynos IMS Service
+        "com.mediatek.ims",                        // MediaTek IMS
+
+        // Philippine Carrier Ecosystem (Globe Telecom, Smart Communications, DITO)
+        "ph.com.globe",                            // Globe Telecom Carrier Services
+        "ph.com.globe.globeathome",                // Globe at Home
+        "ph.com.globe.globeonesuperapp",           // GlobeOne
+        "com.globe.services",                      // Globe Services / SIM Menu
+        "com.globe.telecom",                       // Globe Telecom
+        "ph.com.smart",                            // Smart Communications
+        "com.smart.services",                      // Smart Services / SIM Menu
+        "ph.dito.telecommunity",                   // DITO Telecommunity
+        "com.dito.services"                        // DITO Services
     ));
+
+    public static final Set<String> TELEPHONY_AND_SIM_EXEMPT = ALWAYS_EXEMPT;
 
     /**
      * Known launcher packages. These are always allowed so the user can freely use
@@ -297,6 +384,77 @@ public class LockAccessibilityService extends AccessibilityService {
     public static boolean isInstallerOrStoreApp(String pkg) {
         if (pkg == null) return false;
         return KNOWN_INSTALLER_AND_STORE_PACKAGES.contains(pkg) || pkg.toLowerCase(Locale.US).contains("packageinstaller");
+    }
+
+    /**
+     * Dynamically identifies SIM Card Toolkit (STK), MMS, Carrier Notifications (e.g. Globe Telecom, Smart, DITO),
+     * USSD, Flash SMS (Class 0), and Cell Broadcast alerts across various Android OEMs and carriers.
+     */
+    public static boolean isSimOrCarrierService(String pkg, String appLabel) {
+        if (pkg == null) return false;
+        if (ALWAYS_EXEMPT.contains(pkg)) return true;
+
+        String lowerPkg = pkg.toLowerCase(Locale.US);
+
+        // SIM Toolkit (STK) package patterns
+        if (lowerPkg.equals("com.android.stk") || lowerPkg.equals("com.android.stk2") ||
+            lowerPkg.contains(".stk") || lowerPkg.endsWith(".stk") ||
+            lowerPkg.contains("simtoolkit") || lowerPkg.contains("simapp") ||
+            lowerPkg.contains("simsetting") || lowerPkg.contains("simprocessor") ||
+            lowerPkg.contains("simcard") || lowerPkg.contains("simcontacts") ||
+            lowerPkg.contains(".uim")) {
+            return true;
+        }
+
+        // MMS & native messaging services
+        if (lowerPkg.equals("com.android.mms") || lowerPkg.contains(".mms") || lowerPkg.endsWith(".mms") ||
+            lowerPkg.contains("mms.service") || lowerPkg.equals("com.google.android.apps.messaging") ||
+            lowerPkg.equals("com.samsung.android.messaging") || lowerPkg.contains("messaging")) {
+            // Guard: ensure it is not a third-party social messenger (e.g. Facebook Messenger)
+            if (!lowerPkg.contains("facebook") && !lowerPkg.contains("orca") && !lowerPkg.contains("telegram") && !lowerPkg.contains("whatsapp")) {
+                return true;
+            }
+        }
+
+        // Cell Broadcast & Emergency alerts
+        if (lowerPkg.contains("cellbroadcast") || lowerPkg.contains("emergencyalert") || lowerPkg.contains(".cbr")) {
+            return true;
+        }
+
+        // Carrier default apps and configurations (including Globe, Smart, DITO)
+        if (lowerPkg.contains("carrierdefaultapp") || lowerPkg.contains("carrierconfig") ||
+            lowerPkg.contains("telephonyui") || lowerPkg.contains(".ims") || lowerPkg.contains("imsservice")) {
+            return true;
+        }
+
+        // Philippine carriers (Globe, Smart, DITO)
+        if (lowerPkg.startsWith("ph.com.globe") || lowerPkg.startsWith("com.globe") ||
+            lowerPkg.startsWith("ph.com.smart") || lowerPkg.startsWith("com.smart") ||
+            lowerPkg.startsWith("ph.dito") || lowerPkg.startsWith("com.dito") ||
+            (lowerPkg.contains("globe") && (lowerPkg.contains("sim") || lowerPkg.contains("service") || lowerPkg.contains("carrier")))) {
+            return true;
+        }
+
+        // Application Label inspection (catches OEM-customized STK and carrier dialogs)
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.US);
+            if (lowerLabel.equals("sim toolkit") || lowerLabel.equals("sim card toolkit") ||
+                lowerLabel.equals("sim menu") || lowerLabel.equals("menu ng sim") ||
+                lowerLabel.equals("stk") || lowerLabel.startsWith("stk ") ||
+                lowerLabel.contains("globe services") || lowerLabel.contains("smart menu") ||
+                lowerLabel.contains("dito menu") || lowerLabel.contains("cell broadcast") ||
+                lowerLabel.contains("emergency alert") || lowerLabel.contains("wireless alerts") ||
+                lowerLabel.contains("wireless emergency alerts") || lowerLabel.equals("mms service") ||
+                lowerLabel.equals("carrier default app") || lowerLabel.contains("carrier services")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean isSimOrCarrierService(String pkg) {
+        return isSimOrCarrierService(pkg, null);
     }
 
     public static volatile LockAccessibilityService instance = null;
@@ -687,12 +845,19 @@ public class LockAccessibilityService extends AccessibilityService {
                     .apply();
             AlarmReceiver.cancelLockEndAlarm(this);
             AlarmReceiver.createNotificationChannels(this);
+            boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+            String notifTitle = isHardcore
+                    ? "⚠️ Homework Expired — Consequence Active (Hardcore)"
+                    : "⚠️ Homework Expired — Consequence Active";
+            String notifMsg = isHardcore
+                    ? "Study timer expired without passing. Distracting apps remain restricted 24/7 (Hardcore Mode) until rescheduled and passed."
+                    : "Study timer expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed.";
             AlarmReceiver.showNotificationStatic(
                     this,
                     AlarmReceiver.NOTIF_ID_COMPLETED,
                     AlarmReceiver.CHANNEL_ID_ALERTS,
-                    "⚠️ Homework Expired — Consequence Active",
-                    "Study timer expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed.",
+                    notifTitle,
+                    notifMsg,
                     Notification.PRIORITY_HIGH,
                     false
             );
@@ -819,7 +984,13 @@ public class LockAccessibilityService extends AccessibilityService {
         }
     }
 
+    private static final long BROWSER_REMEDIATION_COOLDOWN_MS = 2200L;
+    private static final long BROWSER_REMEDIATION_TIMEOUT_MS = 6500L;
+    private static final long BROWSER_TOAST_COOLDOWN_MS = 3000L;
+
     private long lastBrowserToastTime = 0L;
+    private long lastBrowserRemediationTime = 0L;
+    private String lastRemediatedUrl = null;
 
     private static final Set<String> KNOWN_BROWSER_PACKAGES = new HashSet<>(Arrays.asList(
         "com.android.chrome",
@@ -851,7 +1022,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private boolean isSystemOrLauncher(String pkg) {
         if (pkg == null) return false;
-        return pkg.equals("com.android.systemui") || KNOWN_LAUNCHERS.contains(pkg);
+        return pkg.equals("com.android.systemui") || KNOWN_LAUNCHERS.contains(pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg);
     }
 
     /**
@@ -890,29 +1061,25 @@ public class LockAccessibilityService extends AccessibilityService {
      * Progressive Web App (PWA) / WebAPK / TWA / CustomTab rather than normal browser tab navigation.
      */
     private boolean isStandalonePwa(String pkg, String eventClass, String windowTitle, AccessibilityNodeInfo root) {
+        if (pkg == null) return false;
+        // Known general web browsers are NEVER standalone PWAs during standard web browsing
+        if (isBrowserPackage(pkg)) {
+            if (eventClass != null) {
+                String lowerClass = eventClass.toLowerCase(Locale.US);
+                if (lowerClass.contains("webappactivity") || 
+                    lowerClass.contains("sametaskwebapkactivity") || 
+                    lowerClass.contains("webapplauncheractivity")) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        // Non-browser packages running custom tabs or WebAPKs
         if (eventClass != null) {
             String lowerClass = eventClass.toLowerCase(Locale.US);
-            if (lowerClass.contains("webappactivity") || 
-                lowerClass.contains("sametaskwebapkactivity") || 
-                lowerClass.contains("webapplauncheractivity") || 
-                lowerClass.contains("customtab") ||
-                lowerClass.contains("customtabs") ||
-                lowerClass.contains("webapk")) {
+            if (lowerClass.contains("customtab") || lowerClass.contains("webapk") || lowerClass.contains("webapp")) {
                 return true;
             }
-        }
-        if (windowTitle != null && !windowTitle.trim().isEmpty()) {
-            String lowerTitle = windowTitle.toLowerCase(Locale.US).trim();
-            if (!lowerTitle.equals("chrome") && !lowerTitle.equals("google chrome") && 
-                !lowerTitle.equals("samsung internet") && !lowerTitle.equals("internet") &&
-                !lowerTitle.equals("firefox") && !lowerTitle.equals("brave") &&
-                !lowerTitle.equals("opera") && !lowerTitle.equals("edge")) {
-                return true;
-            }
-        }
-        if (root != null && extractUrlFromBrowser(root, pkg) == null) {
-            // Any browser window without an address bar represents a standalone PWA, TWA, or embedded webapp
-            return true;
         }
         return false;
     }
@@ -923,16 +1090,27 @@ public class LockAccessibilityService extends AccessibilityService {
     private void inspectBrowserForBlockedPwaOrContent(AccessibilityNodeInfo root, String pkg) {
         if (root == null || pkg == null) return;
         String windowTitle = resolveActiveWindowTitle(root);
-        if (windowTitle != null && BlacklistConstants.isBlacklisted("", windowTitle)) {
-            Log.w(TAG, "Ticker caught blocked PWA window title: " + windowTitle + " (pkg=" + pkg + ")");
-            enforceBlock(pkg);
-            return;
+        if (windowTitle != null) {
+            if (WebBlocklistConstants.isAcademicExempt(windowTitle)) {
+                resetBrowserRemediationState();
+                return; // Academic window is unconditionally immune
+            }
+            if (!isBrowserPackage(pkg) && BlacklistConstants.isBlacklisted("", windowTitle)) {
+                Log.w(TAG, "Ticker caught blocked PWA window title: " + windowTitle + " (pkg=" + pkg + ")");
+                enforceBlock(pkg);
+                return;
+            }
         }
 
         String url = extractUrlFromBrowser(root, pkg);
         boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
 
         if (url == null) {
+            // General browsers with hidden/scrolled address bars or typing in progress
+            // are NEVER standalone PWAs. Never scan DOM and never evict!
+            if (isBrowserPackage(pkg)) {
+                return;
+            }
             WebClassifier.ClassificationResult res = WebClassifier.classifyStandalonePwa(windowTitle, root, allowYoutube);
             if (res.isBlocked) {
                 Log.w(TAG, "Ticker caught blocked standalone PWA content: " + (windowTitle != null ? windowTitle : "DOM") + " (" + res.reason + ")");
@@ -942,14 +1120,14 @@ public class LockAccessibilityService extends AccessibilityService {
             WebClassifier.ClassificationResult res = WebClassifier.classify(url, root, allowYoutube);
             if (res.isBlocked) {
                 Log.w(TAG, "Ticker caught blocked browser URL: " + url + " (" + res.reason + ")");
-                enforceBlock(pkg);
+                remediateBlockedBrowserTab(pkg, url, res.reason, root);
+            } else {
+                resetBrowserRemediationState();
             }
         }
     }
 
     private void handleBrowserUrlInspection(AccessibilityEvent event, String pkg) {
-        // Milestone 18/20: WebClassifier on-device semantic evaluation is always active
-        // as the baseline protective layer across all operating modes and consequence mode.
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
 
@@ -959,8 +1137,19 @@ public class LockAccessibilityService extends AccessibilityService {
             String eventClass = event != null && event.getClassName() != null ? event.getClassName().toString() : null;
             String windowTitle = resolveActiveWindowTitle(root);
 
+            if (windowTitle != null && WebBlocklistConstants.isAcademicExempt(windowTitle)) {
+                resetBrowserRemediationState();
+                return; // Academic window title is unconditionally safe
+            }
+
             if (url == null) {
-                // Standalone PWA / WebAPK / TWA / CustomTab evaluation
+                // If this is a general browser, url == null indicates that the address bar is hidden,
+                // scrolled, being typed into, or animating. Normal browser tab usage must NEVER be evicted.
+                if (isBrowserPackage(pkg)) {
+                    return;
+                }
+
+                // Standalone PWA / WebAPK / TWA / CustomTab evaluation (non-browser packages only)
                 if (windowTitle != null && BlacklistConstants.isBlacklisted("", windowTitle)) {
                     Log.w(TAG, "Blocked standalone PWA by window title: " + windowTitle + " (pkg=" + pkg + ")");
                     enforceBlock(pkg);
@@ -981,19 +1170,180 @@ public class LockAccessibilityService extends AccessibilityService {
 
             if (result.isBlocked) {
                 Log.w(TAG, "WebClassifier blocked browser content: " + (url != null ? url : "DOM Content") + " (" + result.reason + ")");
-                enforceBlock(pkg);
-
-                long now = System.currentTimeMillis();
-                if (now - lastBrowserToastTime > 2500L) {
-                    lastBrowserToastTime = now;
-                    final String finalReason = result.reason;
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        Toast.makeText(getApplicationContext(), "⚠️ " + finalReason, Toast.LENGTH_SHORT).show();
-                    });
-                }
+                remediateBlockedBrowserTab(pkg, url, result.reason, root);
+            } else {
+                resetBrowserRemediationState();
             }
         } finally {
             root.recycle();
+        }
+    }
+
+    private int consecutiveBlockedUrlHits = 0;
+
+    private static String extractHost(String rawUrl) {
+        if (rawUrl == null) return "";
+        String clean = rawUrl.trim().toLowerCase(Locale.US);
+        if (clean.startsWith("https://")) clean = clean.substring(8);
+        else if (clean.startsWith("http://")) clean = clean.substring(7);
+        int slash = clean.indexOf('/');
+        if (slash != -1) clean = clean.substring(0, slash);
+        int colon = clean.indexOf(':');
+        if (colon != -1) clean = clean.substring(0, colon);
+        if (clean.startsWith("www.")) clean = clean.substring(4);
+        return clean;
+    }
+
+    private boolean isSameWebTarget(String url1, String url2) {
+        if (url1 == null || url2 == null) return false;
+        if (url1.equals(url2)) return true;
+        String host1 = extractHost(url1);
+        String host2 = extractHost(url2);
+        return !host1.isEmpty() && host1.equals(host2);
+    }
+
+    private void resetBrowserRemediationState() {
+        if (consecutiveBlockedUrlHits > 0 || lastRemediatedUrl != null) {
+            consecutiveBlockedUrlHits = 0;
+            lastRemediatedUrl = null;
+        }
+    }
+
+    /**
+     * Remediates a blocked web page inside a general web browser without locking the user out indefinitely
+     * and without tab accumulation ("blowing up tabs").
+     * Strategy (Smart Back with Safety Bailout):
+     * 1. Primary (Auto-Back, Hits 1-2): Invoke performGlobalAction(GLOBAL_ACTION_BACK) with a 2.2s cooldown.
+     *    If student navigated to the blocked URL from an academic/safe page (e.g. GitHub or Wikipedia) or a chain
+     *    of pages, the browser smoothly reverses through history to that safe page in the same tab without stutter.
+     * 2. Secondary (Home Button Reset, Hit 3): If the blocked URL persists after 2 back attempts (e.g. fresh tab
+     *    with 0 history stack, or JS back-button traps), click the native browser Home button (id/home_button)
+     *    to cleanly reset the tab in-place to the New Tab Page without tab accumulation or closing Chrome.
+     * 3. Tertiary (Safe Tab Intent Fallback): If accessibility toolbar nodes cannot be found, dispatch explicit Intent
+     *    with EXTRA_APPLICATION_ID = getPackageName() ("com.uncode.app") and EXTRA_CREATE_NEW_TAB = false to reuse at most 1 tab.
+     */
+    private void remediateBlockedBrowserTab(String pkg, String url, String reason, AccessibilityNodeInfo root) {
+        long now = System.currentTimeMillis();
+
+        // 1. Debounce: If a remediation action (Auto-Back or Home button) was triggered recently (< 2200ms)
+        // for this exact same target origin, allow the browser transition to finish smoothly without interruption.
+        if (now - lastBrowserRemediationTime < BROWSER_REMEDIATION_COOLDOWN_MS && isSameWebTarget(url, lastRemediatedUrl)) {
+            return;
+        }
+
+        // 2. Escalation counter: If the browser is STILL on the same blocked origin after the cooldown window
+        // (between 2200ms and 6500ms), advance to next hit. Otherwise reset to 1.
+        if (isSameWebTarget(url, lastRemediatedUrl) && (now - lastBrowserRemediationTime < BROWSER_REMEDIATION_TIMEOUT_MS)) {
+            consecutiveBlockedUrlHits++;
+        } else {
+            consecutiveBlockedUrlHits = 1;
+        }
+
+        lastBrowserRemediationTime = now;
+        lastRemediatedUrl = url;
+
+        Log.w(TAG, "remediateBlockedBrowserTab on " + pkg + " for " + url + " (" + reason + ") hits=" + consecutiveBlockedUrlHits);
+
+        // 1. Display educational Toast notification informing student
+        if (now - lastBrowserToastTime > BROWSER_TOAST_COOLDOWN_MS) {
+            lastBrowserToastTime = now;
+            final String finalReason = reason != null ? reason : "Distracting website";
+            new Handler(Looper.getMainLooper()).post(() -> {
+                Toast.makeText(getApplicationContext(), "⚠️ " + finalReason + ". Returning to safe page.", Toast.LENGTH_SHORT).show();
+            });
+        }
+
+        // 2. Primary Remediation: Auto-Back (Hits 1 and 2)
+        // Reverses browser history to the prior safe page (e.g. GitHub, Wikipedia, Google, New Tab Page).
+        // With 2200ms cooldown, Chrome has sufficient time to complete the back navigation without stutter.
+        if (consecutiveBlockedUrlHits <= 2) {
+            boolean backed = performGlobalAction(GLOBAL_ACTION_BACK);
+            Log.i(TAG, "remediateBlockedBrowserTab: executed auto-back (hit " + consecutiveBlockedUrlHits + ") -> " + backed);
+            return;
+        }
+
+        // 3. Secondary Remediation: Repeat hit after multiple backs means no back history in this tab or JS trap — reset tab in-place via Home button
+        Log.i(TAG, "remediateBlockedBrowserTab: repeat hit detected after auto-back, resetting tab in-place via home button");
+        boolean homeClicked = clickBrowserHomeButton(root, pkg);
+        if (homeClicked) {
+            Log.i(TAG, "remediateBlockedBrowserTab: active tab neutralized in-place via home button (0 new tabs created)");
+            return;
+        }
+
+        // 4. Tertiary Remediation: Reusable safe tab via Intent
+        Log.w(TAG, "remediateBlockedBrowserTab: home button unavailable, falling back to reused safe tab intent");
+        navigateBrowserToSafeBlank(pkg);
+        consecutiveBlockedUrlHits = 0;
+    }
+
+    private boolean clickBrowserHomeButton(AccessibilityNodeInfo passedRoot, String pkg) {
+        AccessibilityNodeInfo root = passedRoot;
+        boolean shouldRecycleRoot = false;
+        if (root == null) {
+            try {
+                root = getRootInActiveWindow();
+                shouldRecycleRoot = true;
+            } catch (Exception ignore) {}
+        }
+        if (root == null) return false;
+
+        try {
+            String[] homeButtonIds = {
+                "com.android.chrome:id/home_button",
+                "com.sec.android.app.sbrowser:id/location_bar_home_button",
+                "org.chromium.chrome:id/home_button",
+                "com.microsoft.emmx:id/home_button"
+            };
+
+            for (String homeId : homeButtonIds) {
+                List<AccessibilityNodeInfo> homeNodes = root.findAccessibilityNodeInfosByViewId(homeId);
+                if (homeNodes != null && !homeNodes.isEmpty()) {
+                    for (AccessibilityNodeInfo homeNode : homeNodes) {
+                        if (homeNode != null) {
+                            try {
+                                if (homeNode.isClickable()) {
+                                    boolean clicked = homeNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                                    Log.i(TAG, "clickBrowserHomeButton: ACTION_CLICK on " + homeId + " -> " + clicked);
+                                    if (clicked) {
+                                        return true;
+                                    }
+                                }
+                            } catch (Exception e) {
+                                Log.e(TAG, "Failed home button click on " + homeId + ": " + e.getMessage());
+                            } finally {
+                                homeNode.recycle();
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "clickBrowserHomeButton error: " + e.getMessage());
+        } finally {
+            if (shouldRecycleRoot && root != null) {
+                root.recycle();
+            }
+        }
+        return false;
+    }
+
+    private void navigateBrowserToSafeBlank(String pkg) {
+        try {
+            Intent safeIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("about:blank"));
+            safeIntent.setPackage(pkg);
+            // CRITICAL: DO NOT pass 'pkg' ("com.android.chrome") as EXTRA_APPLICATION_ID!
+            // Passing Chrome's own package name triggers Chromium's DONT_CLOBBER_TABS_WITH_CHROME_APP_ID,
+            // which returns TabOpenType.OPEN_NEW_TAB on every call and blows up open tabs.
+            // Instead, passing getPackageName() ("com.uncode.app") triggers TabOpenType.REUSE_APP_ID_MATCHING_TAB_ELSE_NEW_TAB,
+            // ensuring Chrome reuses at most ONE single safety tab rather than accumulating tabs.
+            safeIntent.putExtra(Browser.EXTRA_APPLICATION_ID, getPackageName());
+            safeIntent.putExtra("com.android.browser.application_id", getPackageName());
+            safeIntent.putExtra(Browser.EXTRA_CREATE_NEW_TAB, false);
+            safeIntent.putExtra("create_new_tab", false);
+            safeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(safeIntent);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to navigate browser to safe tab: " + e.getMessage());
         }
     }
 
@@ -1140,20 +1490,15 @@ public class LockAccessibilityService extends AccessibilityService {
         if (resId != null) {
             String lowerResId = resId.toLowerCase(Locale.US);
             if (lowerResId.contains("url_bar") || lowerResId.contains("location_bar") || 
-                lowerResId.contains("address_bar") ||
-                lowerResId.contains("toolbar") || lowerResId.contains("search_box")) {
+                lowerResId.contains("address_bar") || lowerResId.contains("omnibar") ||
+                lowerResId.contains("url_field")) {
                 isAddressOrInput = true;
             }
         }
 
-        CharSequence className = node.getClassName();
-        if (className != null && className.toString().toLowerCase(Locale.US).contains("edittext")) {
-            isAddressOrInput = true;
-        }
-        if (node.isEditable()) {
-            isAddressOrInput = true;
-        }
-
+        // Native address bars must have a valid identifier.
+        // We explicitly do NOT match anonymous EditText or editable nodes without a toolbar/url resource ID,
+        // because those represent in-page HTML form fields (such as Wikipedia search, login forms, etc.).
         if (isAddressOrInput) {
             if (node.isFocused()) {
                 return null; // Active typing or autocomplete in progress
@@ -1171,6 +1516,16 @@ public class LockAccessibilityService extends AccessibilityService {
                 if (d.contains(".") || d.startsWith("http://") || d.startsWith("https://") || d.contains("/")) {
                     return d;
                 }
+            }
+        }
+
+        // Do not descend into web page render views (WebView / WebContents) looking for address bars.
+        // The address bar is native browser chrome and will never be inside web content.
+        CharSequence className = node.getClassName();
+        if (className != null) {
+            String lowerClass = className.toString().toLowerCase(Locale.US);
+            if (lowerClass.contains("webview") || lowerClass.contains("render") || lowerClass.contains("contentview")) {
+                return null;
             }
         }
 
@@ -1204,6 +1559,13 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         } catch (Exception ignore) {}
 
+        // SIM Toolkit (STK), MMS, Carrier notifications (Globe, Smart, DITO, etc.) are always allowed
+        if (isSimOrCarrierService(pkg, appLabel)) return false;
+
+        // Standalone Universal Android Debloater (UAD-NG) System Allowlist
+        // (Emergency services, AOSP Screenshot Markup, IntentResolver/Chooser, Captive Portal, etc.)
+        if (SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)) return false;
+
         // Hardcoded Distraction Blacklist Check (Strictly Takes Precedence over all categories)
         if (BlacklistConstants.isBlacklisted(pkg, appLabel)) return true;
 
@@ -1211,9 +1573,14 @@ public class LockAccessibilityService extends AccessibilityService {
         try {
             if (isBrowserPackage(pkg)) {
                 String winTitle = resolveActiveWindowTitle(null);
-                if (winTitle != null && BlacklistConstants.isBlacklisted("", winTitle)) {
-                    Log.w(TAG, "isPackageBlocked: identified blocked PWA window title: " + winTitle + " under " + pkg);
-                    return true;
+                if (winTitle != null) {
+                    if (WebBlocklistConstants.isAcademicExempt(winTitle)) {
+                        return false; // Academic window is unconditionally immune
+                    }
+                    if (BlacklistConstants.isBlacklisted("", winTitle)) {
+                        Log.w(TAG, "isPackageBlocked: identified blocked PWA window title: " + winTitle + " under " + pkg);
+                        return true;
+                    }
                 }
             }
         } catch (Exception ignore) {}
@@ -1257,12 +1624,19 @@ public class LockAccessibilityService extends AccessibilityService {
                     .apply();
             AlarmReceiver.cancelLockEndAlarm(this);
             AlarmReceiver.createNotificationChannels(this);
+            boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+            String notifTitle = isHardcore
+                    ? "⚠️ Homework Expired — Consequence Active (Hardcore)"
+                    : "⚠️ Homework Expired — Consequence Active";
+            String notifMsg = isHardcore
+                    ? "Study timer expired without passing. Distracting apps remain restricted 24/7 (Hardcore Mode) until rescheduled and passed."
+                    : "Study timer expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed.";
             AlarmReceiver.showNotificationStatic(
                     this,
                     AlarmReceiver.NOTIF_ID_COMPLETED,
                     AlarmReceiver.CHANNEL_ID_ALERTS,
-                    "⚠️ Homework Expired — Consequence Active",
-                    "Study timer expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed.",
+                    notifTitle,
+                    notifMsg,
                     Notification.PRIORITY_HIGH,
                     false
             );

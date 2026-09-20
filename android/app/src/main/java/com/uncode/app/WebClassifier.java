@@ -1,6 +1,8 @@
 package com.uncode.app;
 
+import android.os.Build;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.util.Log;
 
 import java.util.Arrays;
@@ -324,6 +326,15 @@ public final class WebClassifier {
         }
 
         if (root != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                try {
+                    android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
+                    if (win != null && win.getTitle() != null && WebBlocklistConstants.isAcademicExempt(win.getTitle().toString())) {
+                        return ClassificationResult.allowed();
+                    }
+                } catch (Exception ignore) {}
+            }
+
             DomScanStats stats = new DomScanStats();
             ClassificationResult domRes = inspectDom(root, 0, stats);
             if (domRes.isBlocked) {
@@ -362,6 +373,17 @@ public final class WebClassifier {
             ClassificationResult res = ClassificationResult.allowed();
             decisionCache.put(cleanUrl, res);
             return res;
+        }
+
+        if (root != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
+                if (win != null && win.getTitle() != null && WebBlocklistConstants.isAcademicExempt(win.getTitle().toString())) {
+                    ClassificationResult res = ClassificationResult.allowed();
+                    decisionCache.put(cleanUrl, res);
+                    return res;
+                }
+            } catch (Exception ignore) {}
         }
 
         // ── LAYER 2: Protocol Schemes & Dedicated Arcade Links ──
@@ -439,12 +461,10 @@ public final class WebClassifier {
 
         // YouTube handling
         if (!allowYoutube) {
-            for (String yt : WebBlocklistConstants.YOUTUBE_DOMAINS) {
-                if (lower.equals(yt) || lower.endsWith("." + yt)) {
-                    ClassificationResult res = ClassificationResult.blocked("YouTube is blocked during focus mode");
-                    decisionCache.put(lower, res);
-                    return res;
-                }
+            if (WebBlocklistConstants.isYoutubeDomain(lower)) {
+                ClassificationResult res = ClassificationResult.blocked("YouTube is blocked during focus mode");
+                decisionCache.put(lower, res);
+                return res;
             }
         }
 
@@ -676,18 +696,24 @@ public final class WebClassifier {
         for (String val : values) {
             if (val == null || val.length() < 2) continue;
 
-            // Direct web game domain match in title/content
-            if (WebBlocklistConstants.isWebGameDomain(val)) {
+            // Academic immunity check on node text/description
+            if (WebBlocklistConstants.isAcademicExempt(val)) {
+                stats.academicScore++;
+                continue;
+            }
+
+            // Direct web game domain match in title/content (only on non-academic pages)
+            if (stats.academicScore == 0 && WebBlocklistConstants.isWebGameDomain(val)) {
                 return ClassificationResult.blocked("Web-based game detected: " + val);
             }
 
-            // Direct piracy / media domain check
-            if (WebBlocklistConstants.isPiracyOrMediaDomain(val)) {
+            // Direct piracy / media domain check (only on non-academic pages)
+            if (stats.academicScore == 0 && WebBlocklistConstants.isPiracyOrMediaDomain(val)) {
                 return ClassificationResult.blocked("Piracy / media streaming portal detected: " + val);
             }
 
             // Hardcoded distraction blacklist match (e.g. KissKH, DramaBox, Loklok, etc.)
-            if (BlacklistConstants.isBlacklisted("", val)) {
+            if (stats.academicScore == 0 && BlacklistConstants.isBlacklisted("", val)) {
                 return ClassificationResult.blocked("Distracting web app signature detected: " + val);
             }
 
