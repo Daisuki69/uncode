@@ -1941,42 +1941,81 @@ This section details every major engineering revision, architectural refinement,
 
 ---
 
-### Patch 24: Consolidated 3-Stage Inverted Architecture & Universal System Partition Protocol
+### Patch 24: Unified App Classifier Architecture & Universal System Partition Protocol
 
-- **Why It Was Mandated (The Paradigm Shift)**:
-  - **The Positive Whitelist Treadmill**: In Patch 23, we manually extracted and partitioned 191 packages from Universal Android Debloater (UAD-NG). However, Android's ecosystem is fragmented across thousands of device models. Every minor OEM OTA update (One UI 7, HyperOS 2, OxygenOS 15) invents new proprietary sub-APK package names for camera document scanners, S-Pen tools, live Bokeh, and screenshot crop handlers. Attempting to maintain an ever-growing positive whitelist of package names is an endless, fragile treadmill where students on unlisted devices get unexpectedly evicted to the lock screen.
-  - **The "Do We Need UAD-NG in the First Place?" Breakthrough**:
+- **Why It Was Mandated (The Paradigm Shift & Allowlist Unification)**:
+  - **The Positive Whitelist Treadmill**: In Patch 23, we manually extracted and partitioned 191 packages from Universal Android Debloater (UAD-NG). However, Android's ecosystem is fragmented across thousands of device models. Every minor OEM OTA update (One UI 7, HyperOS 2, OxygenOS 15) invents new proprietary sub-APK package names for camera document scanners, S-Pen tools, live Bokeh, and screenshot crop handlers. Attempting to maintain an ever-growing positive whitelist of package names was an endless, fragile treadmill where students on unlisted devices got unexpectedly evicted to the lock screen.
+  - **The "Do We Need UAD-NG & Hardcoded Blacklists in the First Place?" Breakthrough**:
     - UAD-NG is **not useless**—its purpose was simply inverted. Instead of attempting to use UAD-NG as an incomplete positive whitelist of "good" packages, UAD-NG provides the **authoritative ground truth for what system bloat, Game Turbo daemons, and instant game stores to VETO in Stage 1**.
-    - By leveraging UAD-NG to build an airtight **Master Veto Gate**, we can safely open the **System Partition Gateway** to all clean OEM hardware sub-APKs (`FLAG_SYSTEM`) **universally, permanently, and with zero future maintenance**.
+    - Furthermore, previously putting the System Gateway *before* the App Classifier caused a trap: because YouTube is pre-installed in `/system` on Pixel and Samsung, a general system gateway would have passed YouTube, forcing us to maintain a rigid, hardcoded blacklist of consumer app package IDs (`com.google.android.youtube`, `com.zhiliaoapp.musically`, etc.).
+    - **The Solution**: By swapping the order and placing the **App Classifier (Stage 2) BEFORE the System Gateway (Stage 3)**:
+      1. The App Classifier evaluates the nature of the application *first* (`CATEGORY_GAME`, `CATEGORY_SOCIAL`, `CATEGORY_VIDEO`).
+      2. YouTube, TikTok, Netflix, and mobile games are identified as Distractions right here—regardless of whether they were pre-installed by the OEM or downloaded by the user!
+      3. All consumer entertainment and streaming packages were **completely retired from hardcoded blacklist constants**, allowing clean, unified whitelist control (e.g. for forks, teachers, or custom lecture permissions).
+      4. The System & Hardware Gateway in Stage 3 only receives what was *not* flagged as a distraction: genuine OEM camera document scanners, S-Pen tools, live Bokeh processors, screenshot crop/markup, and freeform window managers.
 
-- **The Consolidated 3-Stage Architecture**:
-  Collapsed fragmented evaluation gates into 3 razor-sharp, consolidated stages:
+- **The Consolidated 3-Stage Architecture (The Execution Flow)**:
+
+```mermaid
+flowchart TB
+    START(["📱 App / Window Event<br><b>Package: pkg</b>"]) --> S1{"<b>STAGE 1 — MASTER VETO GATE</b><br>• Anti-Tamper / Settings Shield<br>• UAD-NG-derived Bloat Signatures<br>  Joyose · GameCenter · PalmStore · Glance"}
+    S1 -- ❌ ANY NEGATIVE SIGNAL --> BLOCK["🚫 <b>BLOCK / EVICT</b>"]
+    
+    S1 -- ✅ NO VETO MATCH --> S2{"<b>STAGE 2 — APP CLASSIFIER GATE</b><br>• Distraction Categories (GAME, SOCIAL, VIDEO)<br>• Educational & Notes Promotion<br>• Unified Whitelist"}
+    
+    S2 -- 🌐 Browser --> WEB["🌐 <b>WEB CLASSIFIER</b><br>Inspect URL / DOM / Omnibox<br>• Block distracting web content<br>• Allow academic content"]
+    
+    S2 -- 🚫 Distraction Category (Game / Social / Video) --> BLOCK
+    S2 -- ✅ Safe / Whitelisted --> USERALLOW["✅ <b>ALLOWED (Normal Access)</b><br>Can be modified in whitelist add/remove"]
+    
+    S2 -- ❓ Clean Undefined App (Not a Distraction) --> S3{"<b>STAGE 3 — SYSTEM & HARDWARE GATEWAY</b>"}
+    
+    S3 -- "Is System Partition? (FLAG_SYSTEM)" --> SYSALLOW["✅ <b>UNIVERSAL SYSTEM GATEWAY</b><br>Allow legitimate OEM infrastructure<br>• Camera & scanners<br>• Screenshot / markup / share<br>• S-Pen / stylus tools<br>• Freeform window manager<br>• Telephony / SIM / emergency"]
+    
+    S3 -- "Not System (User-Installed App)" --> FALLBACK["⚠️ <b>LAYER 5 — CONSERVATIVE FALLBACK</b><br>Unknown third-party app"] --> BLOCK
+
+    classDef start fill:#e8f4ff,stroke:#2672c9,stroke-width:2px;
+    classDef stage fill:#fff3cd,stroke:#d39e00,stroke-width:2px;
+    classDef block fill:#f8d7da,stroke:#b02a37,stroke-width:2px;
+    classDef allow fill:#d1e7dd,stroke:#198754,stroke-width:2px;
+    classDef web fill:#dff2ff,stroke:#087990,stroke-width:2px;
+    classDef fallback fill:#fff3cd,stroke:#d39e00,stroke-width:2px;
+
+    class START start;
+    class S1,S2,S3 stage;
+    class BLOCK block;
+    class USERALLOW,SYSALLOW allow;
+    class WEB web;
+    class FALLBACK fallback;
+```
+
   1. **Stage 1: Master Veto Gate (Supreme Negative Filter)**:
-     - **Hardcoded Distraction Blacklist**: YouTube, TikTok, Netflix, Instagram, KissKH (vetoed regardless of whether they are preloaded in `/system`).
      - **Anti-Tamper Shield (`isSettingsOrDeviceManager`)**: Android Settings (`com.android.settings`), MIUI Security Center (`com.miui.securitycenter`), ColorOS Phone Manager (`com.coloros.safecenter`), Samsung Device Care (`com.samsung.android.lool`), Transsion Phone Master, Vivo iManager, and any package/label containing *"Settings"*, *"Phone Manager"*, *"Device Care"*, *"Security Center"*, *"Cleaner"*, or *"Battery Saver"*. Students cannot open system management hubs to force-stop QIEZKA or revoke Accessibility.
-     - **Negative Categories & UAD Bloatware Signatures**:
-       - `CATEGORY_GAME`, `CATEGORY_SOCIAL`, `CATEGORY_VIDEO`, `FLAG_IS_GAME`.
-       - Container/sandbox signatures (`.clone.`, `.dual.`, `.secondspace.`, `.vault.`).
-       - UAD-NG bloat/game signatures: `"joyose"`, `"gamecenter"`, `"gamebooster"`, `"gamemode"`, `"gamehome"`, `"gamespace"`, `"shortvideo"`, `"mipicks"` (GetApps), `"palmstore"`, `"glance"`.
-       - Fake calculator vaults (disguised calculators requesting Camera/Storage).
-  2. **Stage 2: Universal System & Hardware Gateway**:
-     - **Web Browser Interception**: Browsers (Chrome, Samsung Internet, Firefox) are intercepted *before* the system partition check and routed directly to `WebClassifier` (they never receive unmonitored free passes; gaming sites trigger auto-back remediation).
-     - **System Partition Gateway (`FLAG_SYSTEM` / `FLAG_UPDATED_SYSTEM_APP`)**:
-       - Any pre-installed OEM package that passed Stage 1's Master Veto is **clean hardware/OS infrastructure $\rightarrow$ INSTANTLY ALLOWED**.
-       - **What is guaranteed**: Camera document scanners (`com.xiaomi.scanner`, `com.samsung.android.app.vex.scanner`), Bokeh/portrait depth (`com.miui.extraphoto`, `com.samsung.android.app.siofviewer`), S-Pen Air Command, screenshot markup/crop, split-screen window managers (`com.miui.freeform`, `com.oplus.pscanvas`), and on-device AI engines (`com.xiaomi.aiservice`, `com.samsung.android.scs`) work out-of-the-box on **any Android device in the world**.
-  3. **Stage 3: Third-Party User App Filter (`FLAG_SYSTEM == 0`)**:
-     - Any app reaching Stage 3 is guaranteed to be a user-downloaded app from the Play Store or web.
-     - Only allowed if on the explicit user whitelist (AppSettings), verified notes apps (Keep, OneNote, Notion, Mi Canvas), or recognized academic tools (Anki, Desmos, Photomath).
-     - Unknown third-party apps drop into **Layer 5 Conservative Fallback $\rightarrow$ BLOCKED**.
+     - **UAD-NG Hardware Bloatware & Game Boosters (`isStage1Bloat`)**:
+       - `"joyose"`, `"gamecenter"`, `"gamebooster"`, `"gamemode"`, `"gamehome"`, `"gamespace"`, `"shortvideo"`, `"mipicks"` (GetApps), `"palmstore"`, `"glance"`.
+       - Matches here are immediately terminated with zero exceptions.
+  2. **Stage 2: App Classifier Gate (Categorical Evaluation & Whitelist)**:
+     - **Web Browser Interception**: Browsers (Chrome, Samsung Internet, Firefox) are intercepted and routed directly to `WebClassifier` (real-time DOM & Omnibox URL inspection; gaming sites trigger auto-back remediation).
+     - **Category Distraction Veto**:
+       - `CATEGORY_GAME` $\rightarrow$ BLOCKED (Cannot be whitelisted).
+       - `CATEGORY_SOCIAL` $\rightarrow$ BLOCKED (Cannot be whitelisted).
+       - `CATEGORY_VIDEO` $\rightarrow$ BLOCKED by default (Catches YouTube, Netflix, TikTok, Bilibili; but can be explicitly whitelisted by user/forks).
+       - Negative distraction heuristics (`.casino.`, `.bet.`, `.dating.`, `.clone.`, `.vault.`, etc.) $\rightarrow$ BLOCKED.
+     - **Safe Study Promotion**: Recognized notes apps (Keep, OneNote, Notion, Mi Canvas), student tools (Anki, Desmos, Photomath), AI assistants (ChatGPT, Claude, Gemini), and positive academic signals $\rightarrow$ ALLOWED.
+     - **Unified User Whitelist**: Non-game, non-social apps explicitly selected in AppSettings $\rightarrow$ ALLOWED.
+  3. **Stage 3: Universal System & Hardware Gateway**:
+     - Whatever non-distracting app is left (`CATEGORY_UNDEFINED = -1` without academic keywords) is checked for `FLAG_SYSTEM` / `FLAG_UPDATED_SYSTEM_APP`.
+     - **If System Partition App**: ALLOWED as legitimate OEM hardware infrastructure (`com.xiaomi.scanner`, `com.google.android.markup`, `com.android.intentresolver`, `com.samsung.android.app.vex.scanner`, `com.miui.freeform`, S-Pen Air Command, laser focus, printing).
+  4. **Layer 5: Conservative Fallback**:
+     - If `FLAG_SYSTEM == 0` (user-downloaded app with no safe signals and not whitelisted) $\rightarrow$ **BLOCKED**.
 
 - **Architectural Enhancements Implemented**:
-  - **AppClassifier.java**:
-    - Centralized bloatware signatures (`joyose`, `gamecenter`, `mipicks`, `palmstore`, `glance`) into `NEGATIVE_PKG_SUBSTRINGS`.
-    - Added `isSettingsOrDeviceManager(pkg, appLabel)` with package and semantic label heuristics.
-    - Wired Stage 2 Universal System Partition Gateway into `evaluatePackage`.
-  - **LockAccessibilityService.java**:
-    - Added `isSettingsOrDeviceManager` check to `isPackageBlocked` directly below `BlacklistConstants`.
-    - Enhanced `isSystemOrLauncher(pkg)` to recognize clean system partition apps, preventing transient system overlays and screenshot previews from triggering illegal foreground app switch alerts.
+  - **AppClassifier.java**: Reordered pipeline so Stage 2 Category Evaluation occurs prior to Stage 3 System Gateway. Added `isStage1Bloat` and `isSettingsOrDeviceManager`.
+  - **BlacklistConstants.java**: Retired all consumer app package strings; retained Stage 1 Anti-Tamper and web window title substring detection (`hasHostileSubstring`).
+  - **blacklistedApps.ts**: Updated frontend package lists to focus exclusively on Anti-Tamper, allowing unified app whitelisting.
+  - **LockAccessibilityService.java**: Integrated Stage 1 Anti-Tamper and Bloatware veto directly into `isPackageBlocked`, delegating unified category evaluation to `AppClassifier`.
+  - **LockPlugin.java**: Replaced hardcoded blacklist vetoes with `isSettingsOrDeviceManager` and `isForbiddenDistraction`.
+  - **PunishmentManager.java**: Updated punishment app selection to target `AppClassifier.isForbiddenDistraction`.
 
 ---
 

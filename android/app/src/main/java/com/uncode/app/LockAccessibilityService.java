@@ -1584,11 +1584,11 @@ public class LockAccessibilityService extends AccessibilityService {
         // (Emergency services, AOSP Screenshot Markup, IntentResolver/Chooser, Captive Portal, etc.)
         if (SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)) return false;
 
-        // Hardcoded Distraction Blacklist Check (Strictly Takes Precedence over all categories)
-        if (BlacklistConstants.isBlacklisted(pkg, appLabel)) return true;
-
-        // Stage 1 Anti-Tamper Shield: Android Settings, MIUI Security, and OEM Phone Managers
+        // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield (Android Settings, MIUI Security, OEM Phone Managers)
         if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel)) return true;
+
+        // STAGE 1 — MASTER VETO GATE: Hardware Bloatware & Game Boosters (Joyose, GameCenter, PalmStore, Glance)
+        if (AppClassifier.isStage1Bloat(pkg, appLabel)) return true;
 
         // Also inspect active window title if this package is currently in front (e.g. KissKH running under Chrome)
         try {
@@ -1617,9 +1617,8 @@ public class LockAccessibilityService extends AccessibilityService {
         if (MEDIA_AND_FILE_EXEMPT.contains(pkg) || dynamicExemptPackages.contains(pkg) || KNOWN_MUSIC_APPS.contains(pkg)) return false;
 
         Set<String> whitelist = prefs.getStringSet("whitelist", new HashSet<>());
-        if (whitelist.contains(pkg)) return false;
 
-        // ── Tier 3: On-Device Local App Classifier (Metadata, Categories & Heuristics) ──
+        // ── STAGE 2: On-Device Local App Classifier (Metadata, Categories & Unified Whitelist) ──
         return AppClassifier.isPackageBlocked(this, pkg, whitelist);
     }
 

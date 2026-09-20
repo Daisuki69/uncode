@@ -155,7 +155,7 @@ public class LockPlugin extends Plugin {
             if (allowedAppIds != null) {
                 for (int i = 0; i < allowedAppIds.length(); i++) {
                     String appId = allowedAppIds.getString(i);
-                    if (appId != null && !BlacklistConstants.isBlacklisted(appId)) {
+                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null)) {
                         whitelist.add(appId);
                     }
                 }
@@ -572,7 +572,7 @@ public class LockPlugin extends Plugin {
             if (allowedAppIds != null) {
                 for (int i = 0; i < allowedAppIds.length(); i++) {
                     String appId = allowedAppIds.getString(i);
-                    if (appId != null && !BlacklistConstants.isBlacklisted(appId)) {
+                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null)) {
                         whitelist.add(appId);
                     }
                 }
@@ -788,8 +788,8 @@ public class LockPlugin extends Plugin {
                     if (pkg == null || pkg.equals(myPkg) || addedPackages.contains(pkg)) {
                         continue;
                     }
-                    if (BlacklistConstants.isBlacklisted(pkg) || AppClassifier.isForbiddenDistraction(getActivity(), pkg)) {
-                        continue; // Strictly omit blacklisted distracting apps, games, and social media from candidate selection
+                    if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || AppClassifier.isStage1Bloat(pkg, null) || AppClassifier.isForbiddenDistraction(getActivity(), pkg)) {
+                        continue; // Strictly omit anti-tamper, bloatware, games, and social media from candidate selection
                     }
                     if (keyboardPackages.contains(pkg) || isKeyboardAppKeywords(pkg)) {
                         continue; // Keyboards are silently exempted in lockdown, hidden from whitelist UI
