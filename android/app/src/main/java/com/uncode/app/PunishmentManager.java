@@ -196,7 +196,7 @@ public class PunishmentManager {
                     String pkg = ri.activityInfo.packageName;
                     if (exempt.contains(pkg) || selected.contains(pkg) || SETTINGS_PACKAGE.equals(pkg)) continue;
 
-                    if (BlacklistConstants.isBlacklisted(pkg)) {
+                    if (AppClassifier.isForbiddenDistraction(context, pkg)) {
                         blacklistApps.add(pkg);
                     } else {
                         try {

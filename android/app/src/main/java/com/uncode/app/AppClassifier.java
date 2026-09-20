@@ -300,23 +300,23 @@ public final class AppClassifier {
             return false;
         }
 
-        // Tier 1d: Hardcoded Distraction Blacklist & Hostile Signatures MUST take precedence!
-        // YouTube native app, TikTok, games, KissKH PWA, and social media can NEVER be allowed.
-        if (BlacklistConstants.isBlacklisted(pkg, appLabel)) {
-            return true;
-        }
-
-        // Tier 1d-2: Anti-Tamper Shield (Android Settings, MIUI Security Center, OEM Phone Managers)
+        // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield (Android Settings, MIUI Security Center, OEM Phone Managers)
         if (isSettingsOrDeviceManager(pkg, appLabel)) {
             return true;
         }
 
-        // Tier 1e: Category Game, Category Social & Negative Distraction Heuristics can NEVER be whitelisted!
+        // STAGE 1 — MASTER VETO GATE: Hardware Bloatware & Game Boosters (Joyose, GameCenter, PalmStore, Glance)
+        if (isStage1Bloat(pkg, appLabel)) {
+            return true;
+        }
+
+        // STAGE 2 — APP CLASSIFIER GATE: Category Game, Category Social & Negative Distraction Heuristics can NEVER be whitelisted!
         if (isForbiddenDistraction(context, pkg)) {
             return true;
         }
 
-        // Tier 1f: Explicit User Whitelist from AppSettings (valid only for non-game, non-social tools)
+        // STAGE 2b: Explicit User Whitelist from AppSettings (Unified Whitelist)
+        // (Allows user/forks to whitelist tools, audio, or video apps like YouTube if explicitly selected!)
         if (userWhitelist != null && userWhitelist.contains(pkg)) {
             return false;
         }
@@ -337,13 +337,8 @@ public final class AppClassifier {
      * Internal multi-layer heuristic evaluation.
      */
     private static boolean evaluatePackage(Context context, String pkg) {
-        // Tier 2a: System Settings is strictly blocked to prevent tampering
-        if (pkg.equals("com.android.settings")) {
-            return true;
-        }
-
-        // Tier 2b: Hardcoded Distraction Blacklist & Hostile Signatures
-        if (BlacklistConstants.isBlacklisted(pkg)) {
+        // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield & Bloatware
+        if (isSettingsOrDeviceManager(pkg, null) || isStage1Bloat(pkg, null)) {
             return true;
         }
 
@@ -375,18 +370,14 @@ public final class AppClassifier {
         String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
         String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
 
-        // Tier 2b: Hardcoded Distraction Blacklist & Hostile Signatures (Checks both package name and app label)
-        if (BlacklistConstants.isBlacklisted(pkg, appLabel)) {
-            Log.i(TAG, "Blocked by BlacklistConstants: " + pkg + " (" + appLabel + ")");
+        // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield (Checks both package name and app label)
+        if (isSettingsOrDeviceManager(pkg, appLabel) || isStage1Bloat(pkg, appLabel)) {
+            Log.i(TAG, "Blocked by Stage 1 Master Veto: " + pkg + " (" + appLabel + ")");
             return true;
         }
 
         // Milestone 20: WebAPK & PWA Deep Metadata Inspection
         if (pkg.startsWith("org.chromium.webapk") || pkg.contains("webapk")) {
-            if (BlacklistConstants.isBlacklisted(pkg, appLabel)) {
-                Log.w(TAG, "Blocked WebAPK by app label signature: " + pkg + " (" + appLabel + ")");
-                return true;
-            }
             if (hasNegativeDistractionSignals(lowerLabel, lowerPkg)) {
                 Log.w(TAG, "Blocked WebAPK by negative signals: " + pkg + " (" + appLabel + ")");
                 return true;
@@ -551,6 +542,30 @@ public final class AppClassifier {
                 lowerLabel.contains("device care") || lowerLabel.contains("security center") ||
                 lowerLabel.contains("app manager") || lowerLabel.contains("cleaner") ||
                 lowerLabel.contains("battery saver") || lowerLabel.contains("system manager")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Identifies UAD-NG-derived hardware-level bloatware, Game Turbo daemons,
+     * and instant game portal stores.
+     */
+    public static boolean isStage1Bloat(String pkg, String appLabel) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT);
+        if (lowerPkg.contains("joyose") || lowerPkg.contains("gamecenter") ||
+            lowerPkg.contains("gamebooster") || lowerPkg.contains("gamemode") ||
+            lowerPkg.contains("gamehome") || lowerPkg.contains("gamespace") ||
+            lowerPkg.contains("mipicks") || lowerPkg.contains("palmstore") ||
+            lowerPkg.contains("glance")) {
+            return true;
+        }
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.ROOT);
+            if (lowerLabel.contains("game center") || lowerLabel.contains("game booster") ||
+                lowerLabel.contains("palm store") || lowerLabel.contains("getapps")) {
                 return true;
             }
         }
