@@ -1953,6 +1953,9 @@ This section details every major engineering revision, architectural refinement,
       2. YouTube, TikTok, Netflix, and mobile games are identified as Distractions right here—regardless of whether they were pre-installed by the OEM or downloaded by the user!
       3. All consumer entertainment and streaming packages were **completely retired from hardcoded blacklist constants**, allowing clean, unified whitelist control (e.g. for forks, teachers, or custom lecture permissions).
       4. The System & Hardware Gateway in Stage 3 only receives what was *not* flagged as a distraction: genuine OEM camera document scanners, S-Pen tools, live Bokeh processors, screenshot crop/markup, and freeform window managers.
+  - **Effectively Unified Allowlist for Developers & Forks**:
+    - **The Developer / Fork Problem Solved**: Previously, if another developer or organization wanted to fork QIEZKA—for example, to build a dedicated school tablet distribution, an enterprise kiosk, or an educational study app where specific video lectures (e.g. YouTube or custom educational streaming) were permitted—they were trapped. They would have to hunt down and comment out package IDs across fragmented hardcoded blacklists in both Java (`BlacklistConstants.java`) and TypeScript (`blacklistedApps.ts`), risking broken builds or accidental bypasses.
+    - **Single-Source Unified Whitelist**: With this architecture, the allowlist is **effectively and completely unified**. Consumer applications are no longer hardcoded into rigid blacklist sets. Instead, Stage 2's category gate blocks distractions by default, but any app explicitly selected by the user (or pre-configured by a developer's fork in AppSettings) cleanly passes through Stage 2b. Developers creating their own fork can now configure their allowed apps in a single place without hacking or fighting the underlying security engine.
 
 - **The Consolidated 3-Stage Architecture (The Execution Flow)**:
 
