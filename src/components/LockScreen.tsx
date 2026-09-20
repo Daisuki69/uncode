@@ -6,7 +6,19 @@ import { parseResource } from '../api/parseResource';
 import { generateAnswer } from '../api/generateAnswer';
 import { endLockdown } from '../systemBridge';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
-import { DEFAULT_HARDCODED_APPS, isHardcodedApp, isBrowserPackage, isMusicPackage, isCameraPackage, isAuthenticatorPackage, isMessagingPackage, isKeyboardPackage, isHiddenSystemExemptApp, isNotesPackage, isStudentPackage, isAiPackage } from '../constants/allowedApps';
+import { 
+  DEFAULT_HARDCODED_APPS, 
+  isHardcodedApp, 
+  isHiddenSystemExemptApp,
+  isBrowserPackage,
+  isMusicPackage,
+  isCameraPackage,
+  isAuthenticatorPackage,
+  isAiPackage,
+  isNotesPackage,
+  isStudentPackage,
+  isMessagingPackage
+} from '../constants/allowedApps';
 
 interface LockScreenProps {
   schedule: ScheduleData;

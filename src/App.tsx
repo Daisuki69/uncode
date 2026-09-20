@@ -284,7 +284,7 @@ export default function App() {
 
       // Check cached installed apps for initial messaging app auto-population if needed
       if (!loadedSettings.allowedAppsInitialized && installedApps.length > 0) {
-        const messagingApps = installedApps.filter(a => isMessagingPackage(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        const messagingApps = installedApps.filter(a => isMessagingPackage(a.id, a.name) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
         if (messagingApps.length > 0) {
           loadedSettings.allowedApps = messagingApps;
         }
@@ -366,7 +366,7 @@ export default function App() {
             );
 
             if (!prev.allowedAppsInitialized) {
-              const messagingApps = installed.filter(a => isMessagingPackage(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+              const messagingApps = installed.filter(a => isMessagingPackage(a.id, a.name) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
               const combined = [...(prev.allowedApps || [])];
               for (const a of [...messagingApps, ...autoAllowedCustom]) {
                 if (!combined.some(c => c.id === a.id)) combined.push(a);

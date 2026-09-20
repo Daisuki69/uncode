@@ -1,9 +1,6 @@
-package com.uncode.app;
+package com.uncode.app
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Locale;
-import java.util.Set;
+import java.util.Locale
 
 /**
  * WebBlocklistConstants:
@@ -25,12 +22,11 @@ import java.util.Set;
  * Shared between LocalDnsVpnService (DNS socket layer) and
  * LockAccessibilityService (real-time DOM & address bar layer).
  */
-public final class WebBlocklistConstants {
-
-    private WebBlocklistConstants() {}
+object WebBlocklistConstants {
 
     // ── Distracting Social Media, Video Loops & Algorithmic Feeds ──
-    public static final Set<String> BLACKLISTED_WEB_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val BLACKLISTED_WEB_DOMAINS: Set<String> = hashSetOf(
         "tiktok.com", "byteoversea.com", "ibytedtos.com", "musical.ly",
         "douyin.com", "iesdouyin.com", "kuaishou.com", "kwai.com",
         "instagram.com", "cdninstagram.com",
@@ -52,15 +48,17 @@ public final class WebBlocklistConstants {
         "zhihu.com", "tieba.baidu.com", "douban.com",
         "vk.com", "ok.ru", "taringa.net", "funnyordie.com", "clubhouse.com",
         "vimeo.com", "dailymotion.com", "rumble.com", "odysee.com"
-    ));
+    )
 
     // ── YouTube Core Domains ──
-    public static final Set<String> YOUTUBE_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val YOUTUBE_DOMAINS: Set<String> = hashSetOf(
         "youtube.com", "youtu.be", "ytimg.com", "googlevideo.com", "youtube-nocookie.com"
-    ));
+    )
 
     // ── Massive Web-Based Gaming Database (400+ Domains) ──
-    public static final Set<String> WEB_GAMING_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val WEB_GAMING_DOMAINS: Set<String> = hashSetOf(
         // A. Mega Portals & Aggregators
         "poki.com", "poki-gdn.com", "poki.cz", "poki.nl", "poki.com.br", "poki.games", "poki-games.com", "unblocked-poki.com",
         "crazygames.com", "crazygames.co.uk", "crazygames.fr", "crazygames.io", "crazy-games.com",
@@ -170,10 +168,11 @@ public final class WebBlocklistConstants {
         "sporcle.com", "jetpunk.com", "tetr.io", "jstris.jezevec10.com",
         "roblox.com", "rbxcdn.com", "steamcommunity.com", "store.steampowered.com",
         "epicgames.com", "riotgames.com", "battle.net"
-    ));
+    )
 
     // ── Online Gambling, Sportsbooks & Skin Betting Domains (100+ Domains) ──
-    public static final Set<String> GAMBLING_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val GAMBLING_DOMAINS: Set<String> = hashSetOf(
         "stake.com", "stake.us", "stake.bet", "stake.games", "stake.bz", "stake.ceo",
         "roobet.com", "roobet.fun", "roobet.gg",
         "bet365.com", "bet365.es", "bet365.gr", "bovada.lv", "betonline.ag",
@@ -200,10 +199,11 @@ public final class WebBlocklistConstants {
         "pinnacle.com", "vave.com", "trustdice.win", "metaspins.com", "jackbit.com",
         "wild.io", "gamblezen.com", "bitcasino.io", "sportsbet.io",
         "csgoclicker.com", "dmarket.com", "skinsmonkey.com", "skinport.com"
-    ));
+    )
 
     // ── Adult, Explicit & NSFW Domains (100+ Domains) ──
-    public static final Set<String> ADULT_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val ADULT_DOMAINS: Set<String> = hashSetOf(
         "pornhub.com", "xvideos.com", "xvideos2.com", "xnxx.com", "xnxx2.com",
         "xhamster.com", "xhamster.desi", "xhamster1.desi", "redtube.com", "redtube.net",
         "youporn.com", "spankbang.com", "spankbang.party", "tube8.com", "tube8.es",
@@ -226,10 +226,11 @@ public final class WebBlocklistConstants {
         "porndig.com", "fuq.com", "javhd.com", "javfree.me", "missav.com", "jable.tv", "netflav.com",
         "mofos.com", "twistys.com", "rk.com", "sweeties.com",
         "porntube.com", "slutload.com", "keezmovies.com", "sunporno.com", "pornhat.com"
-    ));
+    )
 
     // ── Web Proxies & Firewall Bypass Tunnels (50+ Domains) ──
-    public static final Set<String> PROXY_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val PROXY_DOMAINS: Set<String> = hashSetOf(
         "croxyproxy.com", "croxy.network", "croxy.org", "proxysite.com", "proxysite.cloud",
         "4everproxy.com", "kproxy.com", "hide.me", "blockaway.net", "blockaway.site",
         "rammerhead.org", "ultraviolet.host", "womginx.com", "incognitoweb.app",
@@ -242,10 +243,11 @@ public final class WebBlocklistConstants {
         "astroid.wtf", "nebula-proxy.io", "shuttle-proxy.herokuapp.com", "metallic.space",
         "mercury-proxy.github.io", "artclass.site", "math-study.xyz", "algebrahelp.space",
         "history-class.net", "scramjet.org", "megaproxy.com", "hidemyass.com"
-    ));
+    )
 
     // ── Piracy Streaming, Manga & Short Dramas (100+ Domains) ──
-    public static final Set<String> PIRACY_AND_MEDIA_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val PIRACY_AND_MEDIA_DOMAINS: Set<String> = hashSetOf(
         // Free Video & Asian Drama Streaming (KissKH, KissAsian)
         "kisskh.co", "kisskh.me", "kisskh.ovh", "kisskh.tv", "kisskh.id",
         "kissasian.cam", "kissasian.lu", "kissasian.sh", "kissasian.li", "kissasian.video",
@@ -281,10 +283,11 @@ public final class WebBlocklistConstants {
         "fitgirl-repacks.site", "dodi-repacks.site", "steamrip.com", "oceanofgames.com",
         "skidrowreloaded.com", "rutracker.org", "nyaa.si", "limetorrents.lol", "limetorrents.pro",
         "magnetdl.com", "rarbg.to", "torrentday.com", "iptorrents.com"
-    ));
+    )
 
     // ── Dating & Random Video Cam Chat (50+ Domains) ──
-    public static final Set<String> DATING_AND_CHAT_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val DATING_AND_CHAT_DOMAINS: Set<String> = hashSetOf(
         "tinder.com", "bumble.com", "badoo.com", "hinge.co", "okcupid.com",
         "match.com", "pof.com", "coffeemeetsbagel.com", "zoosk.com", "happn.com",
         "grindr.com", "scruff.com", "feeld.co", "ashleymadison.com", "adultfriendfinder.com",
@@ -294,25 +297,28 @@ public final class WebBlocklistConstants {
         "omegle.com", "ometv.chat", "chatroulette.com", "emeraldchat.com",
         "monkey.app", "camsurf.com", "coomeet.com", "shagle.com", "joingy.com",
         "tinychat.com", "chathub.cam", "bazoocam.org"
-    ));
+    )
 
     // ── Gossip & Viral Boredom Time-Wasters (30+ Domains) ──
-    public static final Set<String> TIME_WASTER_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val TIME_WASTER_DOMAINS: Set<String> = hashSetOf(
         "buzzfeed.com", "boredpanda.com", "thechive.com", "dailymail.co.uk", "tmz.com",
         "hollywoodlife.com", "eonline.com", "cracked.com", "ranker.com", "listverse.com",
         "knowyourmeme.com", "cheezburger.com", "failblog.org", "distractify.com", "upworthy.com",
         "diply.com", "scoopwhoop.com", "wonderwall.com", "usmagazine.com", "people.com",
         "perezhilton.com", "radaronline.com", "instyle.com", "cosmopolitan.com"
-    ));
+    )
 
     // ── Crypto Speculation & Meme Coin Casinos ──
-    public static final Set<String> CRYPTO_SPECULATION_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val CRYPTO_SPECULATION_DOMAINS: Set<String> = hashSetOf(
         "pump.fun", "dexscreener.com", "birdeye.so", "raydium.io", "pancakeswap.finance",
         "uniswap.org", "sushiswap.com", "jupiter.ag", "dextools.io", "coingecko.com", "coinmarketcap.com"
-    ));
+    )
 
     // ── Vast Academic, Research & Developer Safe-List (Tier 1 Absolute Immunity - 100+ Domains) ──
-    public static final Set<String> ACADEMIC_EXEMPT_DOMAINS = new HashSet<>(Arrays.asList(
+    @JvmField
+    val ACADEMIC_EXEMPT_DOMAINS: Set<String> = hashSetOf(
         // General Reference, Dictionaries & Encyclopedias
         "wikipedia.org", "wikimedia.org", "wiktionary.org", "wikibooks.org", "wikisource.org",
         "wikiversity.org", "wikidata.org", "britannica.com", "worldbook.com",
@@ -373,9 +379,9 @@ public final class WebBlocklistConstants {
         "notion.so", "notion.site", "obsidian.md", "trello.com", "miro.com", "figma.com", "canva.com",
         "lucidchart.com", "coggle.it", "draw.io", "diagrams.net",
         "office.com", "onedrive.live.com", "onenote.com", "sharepoint.com"
-    ));
+    )
 
-    private static final String[] ACADEMIC_KEYWORDS = {
+    private val ACADEMIC_KEYWORDS: Array<String> = arrayOf(
         "wikipedia", "wikimedia", "wiktionary", "wikibooks", "wikiversity", "wikidata",
         "britannica", "worldbook", "merriam-webster", "dictionary.com", "thesaurus.com",
         "canvaslms", "instructure", "blackboard", "schoology", "moodle", "classroom.google",
@@ -389,25 +395,26 @@ public final class WebBlocklistConstants {
         "github", "gitlab", "leetcode", "hackerrank", "freecodecamp",
         "docs.oracle", "docs.python", "developer.android", "learn.microsoft",
         "google.com/search"
-    };
+    )
 
     /**
      * Checks if a domain or URL is immune under the academic whitelist.
      * Enforces worldwide educational (.edu, .ac.*) and governmental (.gov, .mil) domain immunity.
      */
-    public static boolean isAcademicExempt(String lowerUrl) {
-        if (lowerUrl == null) return false;
-        String clean = lowerUrl.trim().toLowerCase(Locale.US);
-        if (clean.equals("about:blank") || clean.startsWith("about:") ||
-            clean.equals("chrome://newtab") || clean.equals("edge://newtab") ||
-            clean.startsWith("chrome-native://") || clean.equals("new tab")) {
-            return true;
+        @JvmStatic
+    fun isAcademicExempt(lowerUrl: String?): Boolean {
+        if (lowerUrl == null) return false
+        val clean = lowerUrl.trim().lowercase(Locale.US)
+        if (clean == "about:blank" || clean.startsWith("about:") ||
+            clean == "chrome://newtab" || clean == "edge://newtab" ||
+            clean.startsWith("chrome-native://") || clean == "new tab") {
+            return true
         }
-        for (String kw : ACADEMIC_KEYWORDS) {
-            if (clean.contains(kw)) return true;
+        for (kw in ACADEMIC_KEYWORDS) {
+            if (clean.contains(kw)) return true
         }
-        for (String exempt : ACADEMIC_EXEMPT_DOMAINS) {
-            if (clean.contains(exempt)) return true;
+        for (exempt in ACADEMIC_EXEMPT_DOMAINS) {
+            if (clean.contains(exempt)) return true
         }
         return clean.contains(".edu/") || clean.endsWith(".edu") ||
                clean.contains(".edu.") || clean.contains(".ac.uk") ||
@@ -419,7 +426,7 @@ public final class WebBlocklistConstants {
                clean.endsWith(".gov") || clean.contains(".gov.") ||
                clean.contains(".gov.uk") || clean.contains(".gov.au") ||
                clean.contains(".gov.ph") || clean.contains(".mil/") ||
-               clean.endsWith(".mil");
+               clean.endsWith(".mil")
     }
 
     /**
@@ -431,36 +438,37 @@ public final class WebBlocklistConstants {
      *   "sub.example.co.uk:8080/foo" -> "sub.example.co.uk"
      *   "www.roblox.com" -> "roblox.com"
      */
-    public static String extractHost(String raw) {
-        if (raw == null) return "";
-        String s = raw.toLowerCase(Locale.US).trim();
-        int schemeIdx = s.indexOf("://");
+        @JvmStatic
+    fun extractHost(raw: String?): String {
+        if (raw == null) return ""
+        var s = raw.lowercase(Locale.US).trim()
+        val schemeIdx = s.indexOf("://")
         if (schemeIdx != -1) {
-            s = s.substring(schemeIdx + 3);
+            s = s.substring(schemeIdx + 3)
         }
-        int slashIdx = s.indexOf('/');
+        val slashIdx = s.indexOf('/')
         if (slashIdx != -1) {
-            s = s.substring(0, slashIdx);
+            s = s.substring(0, slashIdx)
         }
-        int qIdx = s.indexOf('?');
+        val qIdx = s.indexOf('?')
         if (qIdx != -1) {
-            s = s.substring(0, qIdx);
+            s = s.substring(0, qIdx)
         }
-        int hIdx = s.indexOf('#');
+        val hIdx = s.indexOf('#')
         if (hIdx != -1) {
-            s = s.substring(0, hIdx);
+            s = s.substring(0, hIdx)
         }
-        int colonIdx = s.indexOf(':');
+        val colonIdx = s.indexOf(':')
         if (colonIdx != -1) {
-            s = s.substring(0, colonIdx);
+            s = s.substring(0, colonIdx)
         }
         if (s.startsWith("www.")) {
-            s = s.substring(4);
+            s = s.substring(4)
         }
         while (s.endsWith(".")) {
-            s = s.substring(0, s.length() - 1);
+            s = s.substring(0, s.length - 1)
         }
-        return s.trim();
+        return s.trim()
     }
 
     /**
@@ -468,136 +476,149 @@ public final class WebBlocklistConstants {
      * Extracts canonical host, then tests exact match and iteratively strips subdomains.
      * E.g. "game.y8.com" tests "game.y8.com", then "y8.com".
      */
-    public static boolean matchesDomainSet(String domainOrUrl, Set<String> targetDomains) {
+        @JvmStatic
+    fun matchesDomainSet(domainOrUrl: String?, targetDomains: Set<String>?): Boolean {
         if (domainOrUrl == null || targetDomains == null || targetDomains.isEmpty()) {
-            return false;
+            return false
         }
-        String host = extractHost(domainOrUrl);
-        if (host.isEmpty()) return false;
+        val host = extractHost(domainOrUrl)
+        if (host.isEmpty()) return false
 
-        String current = host;
-        while (!current.isEmpty()) {
+        var current = host
+        while (current.isNotEmpty()) {
             if (targetDomains.contains(current)) {
-                return true;
+                return true
             }
-            int dotIndex = current.indexOf('.');
+            val dotIndex = current.indexOf('.')
             if (dotIndex == -1) {
-                break;
+                break
             }
-            current = current.substring(dotIndex + 1);
+            current = current.substring(dotIndex + 1)
         }
-        return false;
+        return false
     }
 
     /**
      * Checks if a domain matches blacklisted social media and feeds.
      */
-    public static boolean isBlacklistedDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, BLACKLISTED_WEB_DOMAINS);
+    @JvmStatic
+    fun isBlacklistedDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, BLACKLISTED_WEB_DOMAINS)
     }
 
     /**
      * Checks if a domain matches core YouTube domains.
      */
-    public static boolean isYoutubeDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, YOUTUBE_DOMAINS);
+    @JvmStatic
+    fun isYoutubeDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, YOUTUBE_DOMAINS)
     }
 
     /**
      * Checks if a domain is a DNS-over-HTTPS (DoH) canary or provider endpoint.
      * Returning NXDOMAIN forces Chromium/Chrome to disable internal DoH and fall back to system DNS.
      */
-    public static boolean isDohEndpointOrCanary(String domainOrUrl) {
-        if (domainOrUrl == null) return false;
-        String host = extractHost(domainOrUrl);
-        return host.equals("use-application-dns.net") || host.endsWith(".use-application-dns.net") ||
-               host.equals("dns.google") || host.endsWith(".dns.google") ||
-               host.equals("cloudflare-dns.com") || host.endsWith(".cloudflare-dns.com") ||
-               host.equals("dns.quad9.net") || host.endsWith(".dns.quad9.net") ||
-               host.equals("dns.adguard-dns.com") || host.endsWith(".dns.adguard-dns.com");
+    @JvmStatic
+    fun isDohEndpointOrCanary(domainOrUrl: String?): Boolean {
+        if (domainOrUrl == null) return false
+        val host = extractHost(domainOrUrl)
+        return host == "use-application-dns.net" || host.endsWith(".use-application-dns.net") ||
+               host == "dns.google" || host.endsWith(".dns.google") ||
+               host == "cloudflare-dns.com" || host.endsWith(".cloudflare-dns.com") ||
+               host == "dns.quad9.net" || host.endsWith(".dns.quad9.net") ||
+               host == "dns.adguard-dns.com" || host.endsWith(".dns.adguard-dns.com")
     }
 
     /**
      * Checks if a URL represents a dedicated Google arcade doodle link (e.g. snake_arcade).
      */
-    public static boolean isDedicatedArcadeLink(String url) {
-        if (url == null) return false;
-        String lower = url.toLowerCase(Locale.US).trim();
+    @JvmStatic
+    fun isDedicatedArcadeLink(url: String?): Boolean {
+        if (url == null) return false
+        val lower = url.lowercase(Locale.US).trim()
         return lower.contains("/fbx?fbx=") || lower.contains("snake_arcade") ||
-               lower.contains("fbx=snake_arcade") || lower.contains("/logos/") || lower.contains("/doodles/");
+               lower.contains("fbx=snake_arcade") || lower.contains("/logos/") || lower.contains("/doodles/")
     }
 
     /**
      * Checks if a domain or URL points to a web-based game.
      */
-    public static boolean isWebGameDomain(String domainOrUrl) {
-        if (domainOrUrl == null) return false;
+    @JvmStatic
+    fun isWebGameDomain(domainOrUrl: String?): Boolean {
+        if (domainOrUrl == null) return false
         if (matchesDomainSet(domainOrUrl, WEB_GAMING_DOMAINS)) {
-            return true;
+            return true
         }
-        String host = extractHost(domainOrUrl);
+        val host = extractHost(domainOrUrl)
         if (host.endsWith("itch.zone") || host.contains("poki-gdn.com")) {
-            return true;
+            return true
         }
         if (host.contains("unblocked") && (host.contains("game") || host.contains("66") || host.contains("76") || host.contains("slope"))) {
-            return true;
+            return true
         }
-        String lower = domainOrUrl.toLowerCase(Locale.US);
+        val lower = domainOrUrl.lowercase(Locale.US)
         if (lower.contains("unblocked") && (lower.contains("game") || lower.contains("66") || lower.contains("76") || lower.contains("slope"))) {
-            return true;
+            return true
         }
-        return false;
+        return false
     }
 
     /**
      * Checks if a domain or URL points to gambling/casinos/sportsbooks.
      */
-    public static boolean isGamblingDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, GAMBLING_DOMAINS);
+    @JvmStatic
+    fun isGamblingDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, GAMBLING_DOMAINS)
     }
 
     /**
      * Checks if a domain or URL points to adult/explicit content.
      */
-    public static boolean isAdultDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, ADULT_DOMAINS);
+    @JvmStatic
+    fun isAdultDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, ADULT_DOMAINS)
     }
 
     /**
      * Checks if a domain or URL points to web proxies or bypass unblockers.
      */
-    public static boolean isProxyDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, PROXY_DOMAINS);
+    @JvmStatic
+    fun isProxyDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, PROXY_DOMAINS)
     }
 
     /**
      * Checks if a domain or URL points to piracy streaming, manga, or short dramas.
      */
-    public static boolean isPiracyOrMediaDomain(String domainOrUrl) {
-        if (domainOrUrl == null) return false;
-        String lower = domainOrUrl.toLowerCase(Locale.US);
-        if (lower.contains("kisskh") || lower.contains("kissasian")) return true;
-        return matchesDomainSet(domainOrUrl, PIRACY_AND_MEDIA_DOMAINS);
+    @JvmStatic
+    fun isPiracyOrMediaDomain(domainOrUrl: String?): Boolean {
+        if (domainOrUrl == null) return false
+        val lower = domainOrUrl.lowercase(Locale.US)
+        if (lower.contains("kisskh") || lower.contains("kissasian")) return true
+        return matchesDomainSet(domainOrUrl, PIRACY_AND_MEDIA_DOMAINS)
     }
 
     /**
      * Checks if a domain points to dating or random video cam chat.
      */
-    public static boolean isDatingDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, DATING_AND_CHAT_DOMAINS);
+    @JvmStatic
+    fun isDatingDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, DATING_AND_CHAT_DOMAINS)
     }
 
     /**
      * Checks if a domain points to time-wasting viral gossip.
      */
-    public static boolean isTimeWasterDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, TIME_WASTER_DOMAINS);
+    @JvmStatic
+    fun isTimeWasterDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, TIME_WASTER_DOMAINS)
     }
 
     /**
      * Checks if a domain points to crypto meme coin gambling/speculation.
      */
-    public static boolean isCryptoSpeculationDomain(String domainOrUrl) {
-        return matchesDomainSet(domainOrUrl, CRYPTO_SPECULATION_DOMAINS);
+    @JvmStatic
+    fun isCryptoSpeculationDomain(domainOrUrl: String?): Boolean {
+        return matchesDomainSet(domainOrUrl, CRYPTO_SPECULATION_DOMAINS)
     }
 }
