@@ -660,108 +660,6 @@ public class LockPlugin extends Plugin {
                     }
                 } catch (Exception ignore) {}
 
-                Set<String> authenticatorPackages = new HashSet<>(Arrays.asList(
-                    "com.google.android.apps.authenticator2",
-                    "com.azure.authenticator",
-                    "com.duosecurity.duomobile",
-                    "com.authy.authy",
-                    "com.twofasapp",
-                    "com.beemdevelopment.aegis",
-                    "com.bitwarden.authenticator",
-                    "com.lastpass.authenticator",
-                    "org.fedorahosted.freeotp",
-                    "com.yubico.yubioath"
-                ));
-
-                Set<String> notesPackages = new HashSet<>(Arrays.asList(
-                    "com.google.android.keep",
-                    "com.samsung.android.app.notes",
-                    "com.microsoft.office.onenote",
-                    "notion.id",
-                    "md.obsidian",
-                    "com.evernote",
-                    "com.socialnmobile.dictapps.notepad.color.note",
-                    "com.zoho.notebook",
-                    "com.automattic.simplenote",
-                    "com.steadfastinnovation.android.furret",
-                    "com.nebula.notes",
-                    "com.colornote.notepad",
-                    "com.acadoid.lecturenotes"
-                ));
-
-                Set<String> studentPackages = new HashSet<>(Arrays.asList(
-                    "com.google.android.apps.classroom",
-                    "com.google.android.apps.docs",
-                    "com.google.android.apps.docs.editors.docs",
-                    "com.google.android.apps.docs.editors.sheets",
-                    "com.google.android.apps.docs.editors.slides",
-                    "com.google.android.apps.pdfviewer",
-                    "com.instructure.cstudent",
-                    "com.instructure.cancan",
-                    "com.blackboard.android.bbstudent",
-                    "com.schoology.app",
-                    "com.quizlet.quizletandroid",
-                    "com.ichi2.anki",
-                    "co.brainly",
-                    "com.photomath.android",
-                    "com.desmos.calculator",
-                    "org.geogebra.android",
-                    "com.wolfram.android.alpha",
-                    "com.microsoft.office.officehubrow",
-                    "com.microsoft.office.word",
-                    "com.microsoft.office.excel",
-                    "com.microsoft.office.powerpoint",
-
-                    // Document Scanners & PDF Worksheets
-                    "com.adobe.reader",
-                    "com.adobe.scan.android",
-                    "com.intsig.camscanner",
-                    "cn.wps.moffice_eng",
-                    "com.microsoft.office.officelens",
-                    "org.readera",
-                    "com.xodo.pdf.reader",
-                    "com.foxit.mobile.pdf.lite",
-
-                    // Translation & Language Learning
-                    "com.google.android.apps.translate",
-                    "com.deepl.mobiletranslator",
-                    "com.duolingo",
-                    "com.merriamwebster",
-                    "com.mobisystems.msdict.embedded.wireless.oxford.dictionaryofenglish",
-                    "org.cambridge.cclae",
-
-                    // STEM Homework Solvers & Learning Hubs
-                    "org.khanacademy.android",
-                    "com.devsense.symbolab",
-                    "com.bagatrix.mathway.android",
-                    "com.chegg",
-                    "org.brilliant.android",
-                    "mendeleev.redlime",
-                    "com.cymath.cymath",
-
-                    // Cloud Storage & Sync
-                    "com.microsoft.skydrive",
-                    "com.dropbox.android",
-                    "net.box.android",
-
-                    // CS & Coding Environments
-                    "com.termux",
-                    "com.foxdebug.acode",
-                    "ru.iiec.pydroid3",
-                    "com.github.android"
-                ));
-
-                Set<String> aiPackages = new HashSet<>(Arrays.asList(
-                    "com.google.android.apps.bard",
-                    "com.openai.chatgpt",
-                    "com.anthropic.claude",
-                    "com.microsoft.copilot",
-                    "ai.perplexity.app.android",
-                    "com.deepseek.chat",
-                    "com.quora.poe.android",
-                    "ai.inflection.pi"
-                ));
-
                 // 2. Query user-launchable apps directly to avoid iterating hundreds of hidden system daemons
                 Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
                 launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
@@ -776,10 +674,6 @@ public class LockPlugin extends Plugin {
                 candidatePackages.addAll(browserPackages);
                 candidatePackages.addAll(musicPackages);
                 candidatePackages.addAll(cameraPackages);
-                candidatePackages.addAll(authenticatorPackages);
-                candidatePackages.addAll(notesPackages);
-                candidatePackages.addAll(studentPackages);
-                candidatePackages.addAll(aiPackages);
 
                 JSArray apps = new JSArray();
                 Set<String> addedPackages = new HashSet<>();
@@ -806,11 +700,12 @@ public class LockPlugin extends Plugin {
                         boolean isBrowser = browserPackages.contains(pkg) || isBrowserAppKeywords(pkg);
                         boolean isMusic = musicPackages.contains(pkg) || isMusicAppKeywords(pkg);
                         boolean isCamera = cameraPackages.contains(pkg) || isCameraAppKeywords(pkg);
-                        boolean isAuthenticator = authenticatorPackages.contains(pkg) || isAuthenticatorAppKeywords(pkg, appLabel);
-                        boolean isNotes = notesPackages.contains(pkg) || isNotesAppKeywords(pkg, appLabel);
-                        boolean isStudentApp = studentPackages.contains(pkg) || isStudentAppKeywords(pkg, appLabel);
-                        boolean isAi = aiPackages.contains(pkg) || isAiAppKeywords(pkg, appLabel);
-                        boolean isHardcoded = isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp || isAi;
+                        boolean isAuthenticator = isAuthenticatorAppKeywords(pkg, appLabel);
+                        boolean isNotes = isNotesAppKeywords(pkg, appLabel);
+                        boolean isStudentApp = isStudentAppKeywords(pkg, appLabel);
+                        boolean isAi = isAiAppKeywords(pkg, appLabel);
+                        boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
+                        boolean isHardcoded = isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp || isAi || isMessaging;
 
                         addedPackages.add(pkg);
 
@@ -828,7 +723,7 @@ public class LockPlugin extends Plugin {
                         else if (isAi) iconName = "Sparkles";
                         else if (isNotes) iconName = "FileText";
                         else if (isStudentApp) iconName = "BookOpen";
-                        else if (isSimOrCarrier) iconName = "MessageSquare";
+                        else if (isMessaging || isSimOrCarrier) iconName = "MessageSquare";
 
                         boolean isAutoAllowed = isHardcoded || isSimOrCarrier || !AppClassifier.isPackageBlocked(getActivity(), pkg, null);
                         if (!isHardcoded && !isSimOrCarrier && isAutoAllowed && "LayoutGrid".equals(iconName)) {
@@ -838,6 +733,7 @@ public class LockPlugin extends Plugin {
                         app.put("iconName", iconName);
                         app.put("isHardcoded", isHardcoded);
                         app.put("isAutoAllowed", isAutoAllowed);
+                        app.put("isMessaging", isMessaging);
                         app.put("isBrowser", isBrowser);
                         app.put("isMusic", isMusic);
                         app.put("isCamera", isCamera);

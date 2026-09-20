@@ -917,6 +917,11 @@ public class LockAccessibilityService extends AccessibilityService {
         // Never inspect or block QIEZKA itself
         if (pkg.equals(getPackageName())) return;
 
+        // ── Anti-Uninstall Shield (Secondary Defense when Device Admin is not granted) ──
+        if (interceptUninstallAttempt(event, pkg)) {
+            return;
+        }
+
         // ── SystemUI handling ──
         if (pkg.equals("com.android.systemui")) {
             handleSystemUiEvent(event);
@@ -1777,6 +1782,9 @@ public class LockAccessibilityService extends AccessibilityService {
                     CharSequence p = activeRoot.getPackageName();
                     if (p != null) {
                         String rootPkg = p.toString();
+                        if (interceptUninstallAttempt(null, rootPkg)) {
+                            return;
+                        }
                         if (!isSystemOrLauncher(rootPkg) && !rootPkg.equals(getPackageName())) {
                             if (isPackageBlocked(rootPkg)) {
                                 enforceBlock(rootPkg);
@@ -2161,6 +2169,134 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         } catch (Exception e) {
             Log.e(TAG, "checkAndAutoStartScheduledLock error: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Intercepts uninstallation popups and dialogs targeting QIEZKA,
+     * providing a secondary anti-tamper layer when Device Admin privileges are not granted.
+     */
+    private boolean interceptUninstallAttempt(AccessibilityEvent event, String pkg) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.US);
+
+        // Check if package is a package installer, settings, or home launcher
+        boolean isPotentialUninstallHost = lowerPkg.contains("packageinstaller") || 
+                                           lowerPkg.contains("settings") ||
+                                           KNOWN_LAUNCHERS.contains(pkg);
+
+        if (!isPotentialUninstallHost) return false;
+
+        // Check event class name
+        String classStr = "";
+        if (event != null && event.getClassName() != null) {
+            classStr = event.getClassName().toString().toLowerCase(Locale.US);
+        }
+        boolean isUninstallClass = classStr.contains("uninstall") || classStr.contains("uninstaller");
+
+        AccessibilityNodeInfo root = null;
+        try {
+            root = getRootInActiveWindow();
+            if (root == null && event != null) {
+                root = event.getSource();
+            }
+            if (root == null) return false;
+
+            boolean mentionsQiezka = false;
+            boolean mentionsUninstall = isUninstallClass;
+            AccessibilityNodeInfo cancelButton = null;
+
+            // 1. Search for app label or name "QIEZKA" / "com.uncode.app"
+            List<AccessibilityNodeInfo> labelNodes = root.findAccessibilityNodeInfosByViewId("com.android.packageinstaller:id/app_label");
+            if (labelNodes != null && !labelNodes.isEmpty()) {
+                for (AccessibilityNodeInfo node : labelNodes) {
+                    CharSequence text = node.getText();
+                    if (text != null && text.toString().toLowerCase(Locale.US).contains("qiezka")) {
+                        mentionsQiezka = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!mentionsQiezka) {
+                List<AccessibilityNodeInfo> textNodes = root.findAccessibilityNodeInfosByText("QIEZKA");
+                if (textNodes != null && !textNodes.isEmpty()) {
+                    mentionsQiezka = true;
+                }
+            }
+
+            if (!mentionsQiezka) {
+                List<AccessibilityNodeInfo> idNodes = root.findAccessibilityNodeInfosByText(getPackageName());
+                if (idNodes != null && !idNodes.isEmpty()) {
+                    mentionsQiezka = true;
+                }
+            }
+
+            // 2. Search for uninstall terms or title
+            List<AccessibilityNodeInfo> titleNodes = root.findAccessibilityNodeInfosByViewId("com.android.packageinstaller:id/alertTitle");
+            if (titleNodes != null && !titleNodes.isEmpty()) {
+                for (AccessibilityNodeInfo node : titleNodes) {
+                    CharSequence text = node.getText();
+                    if (text != null) {
+                        String t = text.toString().toLowerCase(Locale.US);
+                        if (t.contains("uninstall") || t.contains("delete") || t.contains("remove")) {
+                            mentionsUninstall = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!mentionsUninstall) {
+                List<AccessibilityNodeInfo> uninstallTextNodes = root.findAccessibilityNodeInfosByText("Uninstall");
+                if (uninstallTextNodes != null && !uninstallTextNodes.isEmpty()) {
+                    mentionsUninstall = true;
+                }
+            }
+
+            // 3. Find Cancel button to auto-dismiss
+            List<AccessibilityNodeInfo> cancelButtons = root.findAccessibilityNodeInfosByViewId("android:id/button2");
+            if (cancelButtons != null && !cancelButtons.isEmpty()) {
+                cancelButton = cancelButtons.get(0);
+            } else {
+                List<AccessibilityNodeInfo> cancelTextNodes = root.findAccessibilityNodeInfosByText("Cancel");
+                if (cancelTextNodes != null && !cancelTextNodes.isEmpty()) {
+                    cancelButton = cancelTextNodes.get(0);
+                }
+            }
+
+            if (mentionsQiezka && mentionsUninstall) {
+                Log.w(TAG, "🛡️ INTERCEPTED UNINSTALL ATTEMPT TARGETING QIEZKA! Auto-cancelling...");
+
+                // Step 1: Click "Cancel" if available
+                if (cancelButton != null && cancelButton.isClickable()) {
+                    cancelButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                }
+
+                // Step 2: Perform global Back action
+                performGlobalAction(GLOBAL_ACTION_BACK);
+
+                // Step 3: Bring QIEZKA back to foreground immediately
+                launchLockOverlay();
+
+                // Step 4: Show anti-tamper warning Toast
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    Toast.makeText(getApplicationContext(),
+                        "🛡️ QIEZKA Anti-Tamper Shield: App cannot be uninstalled while active!",
+                        Toast.LENGTH_LONG).show();
+                });
+
+                return true;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in interceptUninstallAttempt: " + e.getMessage());
+        } finally {
+            if (root != null && (event == null || root != event.getSource())) {
+                try {
+                    root.recycle();
+                } catch (Exception ignore) {}
+            }
         }
         return false;
     }

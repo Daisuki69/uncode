@@ -63,5 +63,22 @@ export function isAppBlacklisted(packageId?: string | null): boolean {
          lower.includes('vmos') ||
          lower.includes('f1vm') ||
          lower.includes('vphonegaga') ||
-         lower.includes('x8zs');
+         lower.includes('x8zs') ||
+         lower.includes('teamviewer') ||
+         lower.includes('anydesk') ||
+         lower.includes('rustdesk') ||
+         lower.includes('remotedesktop') ||
+         lower.includes('screenshare') ||
+         lower.includes('screenmirror') ||
+         lower.includes('screenstream') ||
+         lower.includes('airdroid') ||
+         lower.includes('splashtop') ||
+         lower.includes('nethunter') ||
+         lower.includes('droidvnc') ||
+         lower.includes('nhkex') ||
+         lower.includes('tiktok') ||
+         lower.includes('musically') ||
+         lower.includes('trill') ||
+         (lower.includes('youtube') && !lower.includes('music')) ||
+         lower.includes('reddit');
 }

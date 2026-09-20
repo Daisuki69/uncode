@@ -4,7 +4,19 @@ import { Clock, BookOpen, Trash2, Plus, Sparkles, Pencil, Upload, Loader2, Setti
 import { AppSettings, SavedResource, ScheduleData, AllowedApp } from '../types';
 import { getInstalledApps } from '../systemBridge';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
-import { HARDCODED_SYSTEM_ALLOWED, DEFAULT_HARDCODED_APPS, isHardcodedApp, isBrowserPackage, isMusicPackage, isCameraPackage, isAuthenticatorPackage, isMessagingPackage, isKeyboardPackage, isHiddenSystemExemptApp, isNotesPackage, isStudentPackage, isAiPackage } from '../constants/allowedApps';
+import { 
+  DEFAULT_HARDCODED_APPS, 
+  isHardcodedApp, 
+  isHiddenSystemExemptApp,
+  isBrowserPackage,
+  isMusicPackage,
+  isCameraPackage,
+  isAuthenticatorPackage,
+  isAiPackage,
+  isNotesPackage,
+  isStudentPackage,
+  isMessagingPackage
+} from '../constants/allowedApps';
 
 interface DashboardProps {
   settings: AppSettings;

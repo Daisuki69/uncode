@@ -6,7 +6,6 @@ import { refinePrompt } from '../api/refinePrompt';
 import { loadData, saveData } from '../storage';
 import { exportBackup } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { isHardcodedApp, isHiddenSystemExemptApp } from '../constants/allowedApps';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
 
 interface SettingsOverlayProps {
@@ -56,6 +55,8 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
     // Daytime is between 03:01 (181 mins) and 18:59 (1139 mins)
     return totalMins >= 180 && totalMins < 1140;
   });
+
+  const hasActiveSchedule = isLockedOrConsequence || (settings.schedules || []).some(s => s.isActive);
 
   const handleSelectMode = (mode: 'safemode' | 'hardcore') => {
     setModeError(null);

@@ -166,6 +166,136 @@ public final class AppClassifier {
     }
 
     /**
+     * Recognized Direct Messaging & Communication applications.
+     * Unlike social media feeds, messaging apps can be whitelisted by users in Allowed Apps.
+     */
+    public static final Set<String> KNOWN_MESSAGING_PACKAGES = new HashSet<>(Arrays.asList(
+        "org.telegram.messenger",
+        "org.telegram.plus",
+        "org.thunderdog.challegram",
+        "nekox.messenger",
+        "org.forkgram.messenger",
+        "org.telegram.BApplication",
+        "com.facebook.orca",
+        "com.facebook.mlite",
+        "com.whatsapp",
+        "com.whatsapp.w4b",
+        "org.thoughtcrime.securesms",
+        "com.viber.voip",
+        "jp.naver.line.android",
+        "com.tencent.mm",
+        "com.discord",
+        "com.Slack",
+        "com.google.android.apps.messaging",
+        "com.samsung.android.messaging",
+        "com.android.mms"
+    ));
+
+    public static boolean isMessagingApp(String pkg, String appLabel) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
+        if (KNOWN_MESSAGING_PACKAGES.contains(lowerPkg)) {
+            return true;
+        }
+        // Exclude social network feeds explicitly
+        if (lowerPkg.contains("facebook.katana") || lowerPkg.contains("facebook.lite") ||
+            lowerPkg.contains("instagram") || lowerPkg.contains("twitter") ||
+            lowerPkg.contains("reddit") || lowerPkg.contains("tiktok") ||
+            lowerPkg.contains("musically")) {
+            return false;
+        }
+        if (lowerPkg.contains("telegram") || lowerPkg.contains("challegram") ||
+            lowerPkg.contains("nekogram") || lowerPkg.contains("forkgram") ||
+            lowerPkg.contains("bgram") || lowerPkg.contains("messenger") ||
+            lowerPkg.contains("whatsapp") || lowerPkg.contains(".signal") ||
+            lowerPkg.contains("viber") || lowerPkg.contains("wechat") ||
+            lowerPkg.contains(".line") || lowerPkg.contains("orca")) {
+            return true;
+        }
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
+            if (lowerLabel.contains("facebook") || lowerLabel.contains("instagram") ||
+                lowerLabel.contains("twitter") || lowerLabel.contains("reddit") ||
+                lowerLabel.contains("tiktok")) {
+                return false;
+            }
+            if (lowerLabel.contains("telegram") || lowerLabel.contains("messenger") ||
+                lowerLabel.contains("whatsapp") || lowerLabel.contains("signal") ||
+                lowerLabel.contains("viber") || lowerLabel.contains("wechat") ||
+                lowerLabel.contains("challegram") || lowerLabel.contains("nekogram")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Remote Desktop, Screen Sharing, and Screen Mirroring packages.
+     * Intercepted to prevent using desktop streaming or Kali NetHunter VNC/KeX as a bypass workaround.
+     */
+    public static final Set<String> REMOTE_DESKTOP_PACKAGES = new HashSet<>(Arrays.asList(
+        "com.teamviewer.teamviewer.market.mobile",
+        "com.teamviewer.quicksupport.market",
+        "com.teamviewer.host.market",
+        "com.anydesk.anydeskandroid",
+        "com.anydesk.adcontrol.ad1",
+        "com.carriez.rustdesk",
+        "com.google.chromeremotedesktop",
+        "com.microsoft.rdc.android",
+        "com.splashtop.remote.pad.v2",
+        "com.splashtop.remote",
+        "com.realvnc.viewer.android",
+        "tv.parsec.client",
+        "com.limelight",
+        "com.valvesoftware.steamlink",
+        "com.sand.airdroid",
+        "com.sand.airmirror",
+        "com.apowersoft.mirror",
+        "com.koushikdutta.vysor",
+        "info.dvkr.screenstream",
+        // Kali NetHunter & Magisk Screen Share / VNC
+        "com.offsec.nethunter",
+        "com.offsec.nethunter.kex",
+        "com.offsec.nhkex",
+        "net.christianbeier.droidvnc_ng",
+        "com.termux.x11"
+    ));
+
+    public static boolean isRemoteDesktopOrScreenShare(String pkg, String appLabel) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
+        if (REMOTE_DESKTOP_PACKAGES.contains(lowerPkg)) {
+            return true;
+        }
+        if (lowerPkg.contains("teamviewer") || lowerPkg.contains("anydesk") ||
+            lowerPkg.contains("rustdesk") || lowerPkg.contains("remotedesktop") ||
+            lowerPkg.contains("screenmirror") || lowerPkg.contains("screenshare") ||
+            lowerPkg.contains("screenstream") || lowerPkg.contains("splashtop") ||
+            lowerPkg.contains(".parsec.") || lowerPkg.contains("airdroid") ||
+            lowerPkg.contains("airmirror") || lowerPkg.contains("apowermirror") ||
+            lowerPkg.contains("nethunter") || lowerPkg.contains("nhkex") ||
+            lowerPkg.contains("droidvnc") || lowerPkg.contains("vncviewer") ||
+            lowerPkg.contains(".vnc.")) {
+            return true;
+        }
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
+            if (lowerLabel.contains("teamviewer") || lowerLabel.contains("anydesk") ||
+                lowerLabel.contains("rustdesk") || lowerLabel.contains("remote desktop") ||
+                lowerLabel.contains("screen share") || lowerLabel.contains("screen mirror") ||
+                lowerLabel.contains("screen stream") || lowerLabel.contains("splashtop") ||
+                lowerLabel.contains("parsec") || lowerLabel.contains("moonlight") ||
+                lowerLabel.contains("steam link") || lowerLabel.contains("vysor") ||
+                lowerLabel.contains("airdroid") || lowerLabel.contains("nethunter") ||
+                lowerLabel.contains("kex") || lowerLabel.contains("droidvnc") ||
+                lowerLabel.contains("vnc viewer")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Negative Distraction Keywords (Milestone 17: Widened Recognition Engine).
      * If an app's label contains any of these terms, it is strictly BLOCKED,
      * even if the APK falsely declares itself as CATEGORY_PRODUCTIVITY.
@@ -178,6 +308,11 @@ public final class AppClassifier {
         "hypercasual", "survivor", "arena", "runner", "crafting", "tower defense", "mahjong", "bingo",
         "gacha", "otome", "visual novel", "tamagotchi", "virtual pet", "block craft", "zombie", "shooter",
         "sniper", "defense", "multiplayer", "board game", "card game", "minigame",
+
+        // Remote Desktop, Screen Share & VNC Workarounds
+        "teamviewer", "anydesk", "rustdesk", "remote desktop", "screen share", "screen mirror",
+        "screen stream", "splashtop", "parsec", "moonlight", "steam link", "vysor", "airdroid",
+        "airmirror", "apowermirror", "nethunter", "kex", "droidvnc", "vnc viewer",
 
         // Parallel Space, Virtual Containers & App Cloners (Milestone 17)
         "parallel space", "dual space", "dual app", "multi space", "multiple accounts", "2accounts",
@@ -196,19 +331,28 @@ public final class AppClassifier {
         "short drama", "shortmax", "reelshort", "dramabox", "goodshort", "snackshort", "moboreels",
         "netshort", "webtoon", "manga", "manhwa", "manhua", "comic", "comics", "anime", "webnovel",
         "light novel", "fanfiction", "wattpad", "wuxia", "livestream", "live stream", "broadcast",
-        "kisskh", "kissasian", "bilibili", "loklok", "cloudstream", "stremio", "onstream"
+        "kisskh", "kissasian", "bilibili", "loklok", "cloudstream", "stremio", "onstream",
+
+        // Social Feeds, Video & Forum Distractions
+        "tiktok", "tik tok", "douyin", "reddit"
     };
 
     private static final String[] NEGATIVE_PKG_SUBSTRINGS = {
         ".game.", ".games.", ".gaming.", ".casino.", ".poker.", ".slots.", ".bet.",
         ".arcade.", ".simulator.", ".tycoon.", ".dating.", ".hookup.", ".cheat.",
         ".cloner.", ".dualspace.", ".parallel.", ".vmos.", ".virtual.",
+        // Remote Desktop, Screen Share & VNC Workarounds
+        ".teamviewer.", ".anydesk.", ".rustdesk.", ".remotedesktop.", ".screenshare.",
+        ".screenmirror.", ".screenstream.", ".splashtop.", ".parsec.", ".airdroid.",
+        ".nethunter.", ".kex.", ".droidvnc.",
         // Milestone 17: Container & Sandbox Signatures
         ".clone.", ".dual.", ".double.", ".secondspace.", ".appcloner.", ".island.",
         ".shelter.", ".vphonegaga.", ".f1player.", ".gspace.", ".vault.", ".gallerylock.",
         ".multispace.", ".superclone.", ".2accounts.", ".x8zs.", ".shortdrama.", ".dramabox.",
         ".reelshort.", ".shortmax.", ".goodshort.", ".webtoon.", ".manga.", ".manhwa.", ".comic.",
         ".webnovel.", ".wattpad.", ".gacha.", ".rpg.", ".brawl.",
+        // Short video & social signatures
+        ".musically.", ".trill.", ".aweme.",
         // Stage 1 Bloatware & Game Booster Signatures (UAD-NG Ground Truth)
         "joyose", "gamecenter", "gamebooster", "gamemode", "gamehome", "gamespace",
         "shortvideo", "mipicks", "palmstore", "glance"
@@ -467,7 +611,11 @@ public final class AppClassifier {
                 return false;
 
             case CATEGORY_PRODUCTIVITY:
-                // Safe productivity / cloud / study app
+                // Safe productivity / cloud / study app (unless it is a remote desktop or screen share bypass)
+                if (isRemoteDesktopOrScreenShare(lowerPkg, lowerLabel)) {
+                    Log.i(TAG, "Blocked remote desktop / screen share claiming CATEGORY_PRODUCTIVITY: " + pkg + " (" + appLabel + ")");
+                    return true;
+                }
                 Log.d(TAG, "Allowed by CATEGORY_PRODUCTIVITY: " + pkg + " (" + appLabel + ")");
                 return false;
 
@@ -575,27 +723,85 @@ public final class AppClassifier {
     public static boolean isForbiddenDistraction(Context context, String pkg) {
         if (pkg == null || context == null) return false;
         if (pkg.equals("com.android.settings") || isSettingsOrDeviceManager(pkg, null)) return true;
+        if (isStage1Bloat(pkg, null)) return true;
         try {
             PackageManager pm = context.getPackageManager();
             if (pm == null) return false;
             ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
             CharSequence labelChar = pm.getApplicationLabel(appInfo);
-            String appLabel = labelChar != null ? labelChar.toString().toLowerCase(Locale.ROOT) : "";
+            String appLabel = labelChar != null ? labelChar.toString() : "";
+            String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
+            String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
+
+            // 1. Remote Desktop, Screen Sharing & Kali NetHunter KeX/VNC Workarounds
+            if (isRemoteDesktopOrScreenShare(lowerPkg, lowerLabel)) {
+                return true;
+            }
+
+            // 2. BlacklistConstants check
             if (BlacklistConstants.isBlacklisted(pkg, appLabel)) return true;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                if (appInfo.category == ApplicationInfo.CATEGORY_GAME ||
-                    appInfo.category == ApplicationInfo.CATEGORY_SOCIAL) {
+
+            // 3. Short video & TikTok variants (both global musically, trill, and aweme)
+            if (lowerPkg.contains("musically") || lowerPkg.contains(".trill") || lowerPkg.contains(".aweme") ||
+                lowerLabel.contains("tiktok") || lowerLabel.contains("tik tok") || lowerLabel.contains("douyin")) {
+                return true;
+            }
+
+            // 4. Video Streaming & Entertainment (YouTube, Netflix, Twitch, Bilibili, Stremio, ReVanced)
+            if (lowerPkg.contains("youtube") || lowerPkg.contains("netflix") || lowerPkg.contains("twitch") ||
+                lowerPkg.contains("bilibili") || lowerPkg.contains("danmaku.bili") || lowerPkg.contains("stremio") ||
+                lowerPkg.contains("revanced") || lowerPkg.contains("newpipe") ||
+                lowerLabel.contains("youtube") || lowerLabel.contains("netflix") || lowerLabel.contains("twitch") ||
+                lowerLabel.contains("bilibili") || lowerLabel.contains("stremio")) {
+                // Ensure safe audio (like YouTube Music) is not blocked as a video distraction
+                if (!lowerPkg.contains("music") && !lowerLabel.contains("music")) {
                     return true;
+                }
+            }
+
+            // 5. Social Media Feeds & Forums (Instagram, Twitter/X, Facebook Feed, Reddit, Threads, Pinterest)
+            if (lowerPkg.contains("instagram") || lowerPkg.contains("twitter") ||
+                lowerPkg.equals("com.facebook.katana") || lowerPkg.equals("com.facebook.lite") ||
+                lowerPkg.contains("reddit") || lowerPkg.contains("pinterest") || lowerPkg.contains("threads") ||
+                lowerLabel.contains("instagram") || lowerLabel.contains("twitter") ||
+                lowerLabel.equals("facebook") || lowerLabel.contains("reddit") || lowerLabel.contains("pinterest")) {
+                return true;
+            }
+
+            // 6. Category evaluation
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (appInfo.category == ApplicationInfo.CATEGORY_GAME) {
+                    return true;
+                }
+                if (appInfo.category == ApplicationInfo.CATEGORY_VIDEO) {
+                    if (!lowerPkg.contains("music") && !lowerLabel.contains("music")) {
+                        return true;
+                    }
+                }
+                if (appInfo.category == ApplicationInfo.CATEGORY_NEWS) {
+                    if (lowerPkg.contains("reddit") || lowerLabel.contains("reddit")) {
+                        return true;
+                    }
+                }
+                if (appInfo.category == ApplicationInfo.CATEGORY_SOCIAL) {
+                    // DIRECT MESSAGING APPS (Telegram, Messenger, WhatsApp, Signal) ARE NOT FORBIDDEN DISTRACTIONS!
+                    // They can be whitelisted by the user in Allowed Apps.
+                    if (!isMessagingApp(lowerPkg, lowerLabel)) {
+                        return true;
+                    }
                 }
             }
             if ((appInfo.flags & ApplicationInfo.FLAG_IS_GAME) != 0) {
                 return true;
             }
-            String lowerPkg = pkg.toLowerCase(Locale.ROOT);
-            if (isFakeCalculatorVault(pm, pkg, appLabel, lowerPkg)) {
+
+            // 7. Fake Calculator Vaults
+            if (isFakeCalculatorVault(pm, pkg, lowerLabel, lowerPkg)) {
                 return true;
             }
-            if (hasNegativeDistractionSignals(appLabel, lowerPkg)) {
+
+            // 8. Negative Distraction Heuristics (Games, Gambling, Modding, Adult, Comics)
+            if (hasNegativeDistractionSignals(lowerLabel, lowerPkg)) {
                 return true;
             }
         } catch (Exception ignore) {}

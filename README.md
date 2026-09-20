@@ -2022,6 +2022,70 @@ flowchart TB
 
 ---
 
+### Patch 25: 3-Stage Security Pipeline Decoupling, Screen-Share Bypass Closure & Dynamic Allowlist Streamlining
+
+- **Why Patch 24 Was Amended (Root Cause Analysis & Forensic Breakdown)**:
+  1. **Telegram & Facebook Messenger Evictions**:
+     - *The Flaw*: In Android, direct messaging applications (Telegram, Messenger, WhatsApp, Signal) are classified by the OS and Play Store under `CATEGORY_SOCIAL`. Android has no distinct `CATEGORY_MESSAGING`.
+     - In Patch 24, `AppClassifier.isForbiddenDistraction()` unconditionally treated all `CATEGORY_SOCIAL` apps as unforgivable distractions *before* evaluating `userWhitelist.contains(pkg)`.
+     - *Result*: Even when Telegram (`org.telegram.messenger`) and Messenger (`com.facebook.orca`) were selected in Allowed Apps, they were hard-blocked and forwarded the user back to QIEZKA.
+     - *Remedy*: Implemented `isMessagingApp(pkg, appLabel)` to decouple direct messaging apps and forks from infinite-scroll social media feeds (`katana`, `instagram`, `twitter`, `tiktok`, `reddit`). Whitelisted messaging apps now cleanly pass Stage 2.
+  2. **Consumer Distractions (TikTok, YouTube, Reddit) in Allowed Apps**:
+     - *The Flaw*: TikTok (`com.zhiliaoapp.musically` and `com.ss.android.ugc.trill`) declared `CATEGORY_UNDEFINED (-1)` in its manifest; YouTube declared `CATEGORY_VIDEO`, and Reddit declared `CATEGORY_NEWS`.
+     - In Patch 24, `isForbiddenDistraction()` did not evaluate `CATEGORY_VIDEO` or `CATEGORY_NEWS`, nor did it match TikTok's package IDs.
+     - *Result*: Because `LockPlugin.java` populated candidate apps using `isForbiddenDistraction()`, TikTok, YouTube, and Reddit slipped into the Allowed Apps modal. Once selected, TikTok was added to `userWhitelist` and bypassed lockdown.
+     - *Remedy*: Added explicit package, category, and keyword checks for TikTok, YouTube (including ReVanced/NewPipe), Reddit, and mobile games to `isForbiddenDistraction()`. They are completely stripped from `getInstalledApps()` so students cannot select them, and Stage 2 intercepts them even if whitelisted.
+  3. **Remote Desktop & Screen-Share Bypass Loophole (TeamViewer, AnyDesk, Kali NetHunter KeX)**:
+     - *The Flaw*: TeamViewer (`com.teamviewer.teamviewer.market.mobile`) declares `CATEGORY_PRODUCTIVITY` in its Android manifest.
+     - In Patch 24, Stage 2 auto-allowed any app claiming `CATEGORY_PRODUCTIVITY`. Students could use TeamViewer, AnyDesk, or Kali NetHunter KeX (desktop VNC / screen share module `com.offsec.nethunter.kex`) to remotely control or stream a PC/Linux desktop, accessing games, Discord, and social media during lockdown.
+     - *Remedy*: Implemented `isRemoteDesktopOrScreenShare(pkg, appLabel)` covering TeamViewer, AnyDesk, RustDesk, Chrome Remote Desktop, Splashtop, VNC viewers, AirDroid, Vysor, and **Kali NetHunter KeX / DroidVNC-NG / Termux:X11**. Intercepted and blocked in Stage 2 before productivity promotion.
+  4. **The "Legacy Allowlist Relics" Insight (Dynamic Classification Over Static Arrays)**:
+     - *The Flaw*: Both `allowedApps.ts` and `LockPlugin.java` contained hundreds of lines of legacy hardcoded package IDs (50+ student packages, 15 note packages, 13 camera packages, 10 authenticator packages, etc.).
+     - These static arrays were remnants from early QIEZKA versions before `AppClassifier` had 3-stage dynamic classification.
+     - *Remedy*: Streamlined the codebase to rely on **dynamic `AppClassifier.isPackageBlocked` and semantic substring heuristics**. Preserved only direct messaging package/fork signatures (`KNOWN_MESSAGING_PACKAGES`), minimal UI mock fallbacks (`DEFAULT_HARDCODED_APPS`), and silent infrastructure guards (keyboards & document pickers).
+
+- **The Amended 3-Stage Security Pipeline (Execution Flow)**:
+
+```mermaid
+flowchart TB
+    START(["📱 App / Window Event<br><b>Target: pkg, label</b>"]) --> S1{"<b>STAGE 1 — MASTER VETO GATE</b><br>• Anti-Tamper Shield (Settings, Security Center, Device Care)<br>• Hardware Task Killers (Joyose, GameSpace, Glance)"}
+
+    S1 -- "❌ ANY VETO MATCH" --> BLOCK["🚫 <b>BLOCK / EVICT TO QIEZKA</b>"]
+    S1 -- "✅ PASSED VETO" --> S2{"<b>STAGE 2 — APP CLASSIFIER GATE</b><br>• Distractions (Games, Video, Social Feeds, Remote Share)<br>• Direct Messaging & Telegram/Messenger Forks<br>• Unified Whitelist"}
+
+    S2 -- "🌐 Web Browser" --> WEB["🌐 <b>WEB CLASSIFIER</b><br>Inspect URL / DOM<br>• Block web games & distraction sites<br>• Allow academic domains (.edu, LMS)"]
+    WEB -- "Academic / Safe" --> ALLOW["✅ <b>ALLOW EXECUTION</b>"]
+    WEB -- "Distracting" --> BLOCK
+
+    S2 -- "🚫 Distraction Category<br>(Games, Video, Social Feeds, Remote Screen Share/VNC, Vaults)" --> BLOCK
+
+    S2 -- "💬 Messaging App (Telegram & forks, Messenger, WhatsApp)<br>• Auto-populated into Allowed Apps<br>• Modifiable in Dashboard/Settings" --> MSG_GATE{"<b>WHITELIST CHECK</b><br>Is package currently in Allowed Apps?"}
+    MSG_GATE -- "✅ Selected / Allowed" --> ALLOW
+    MSG_GATE -- "❌ Unchecked / Removed" --> BLOCK
+
+    S2 -- "🎓 Academic & Whitelisted Productivity" --> ALLOW
+
+    S2 -- "❓ Clean Undefined App (Not a Distraction)" --> S3{"<b>STAGE 3 — UNIVERSAL SYSTEM GATEWAY</b>"}
+
+    S3 -- "System Partition (FLAG_SYSTEM == true)" --> SYSALLOW["✅ <b>ALLOWED SYSTEM UTILITY</b><br>Camera, markup, share sheet, stylus, SIM/STK"]
+    S3 -- "User-Installed (FLAG_SYSTEM == false)" --> FALLBACK["⚠️ <b>LAYER 5 FALLBACK</b><br>Unknown 3rd-party binary"] --> BLOCK
+
+    classDef start fill:#e8f4ff,stroke:#2672c9,stroke-width:2px;
+    classDef stage fill:#fff3cd,stroke:#d39e00,stroke-width:2px;
+    classDef block fill:#f8d7da,stroke:#b02a37,stroke-width:2px;
+    classDef allow fill:#d1e7dd,stroke:#198754,stroke-width:2px;
+    classDef web fill:#dff2ff,stroke:#087990,stroke-width:2px;
+    classDef fallback fill:#fff3cd,stroke:#d39e00,stroke-width:2px;
+
+    class START start;
+    class S1,S2,S3,MSG_GATE stage;
+    class BLOCK,FALLBACK block;
+    class ALLOW,SYSALLOW allow;
+    class WEB web;
+```
+
+---
+
 note: i do notice a home app when defaulted, you cant uninstall it, have to navigate to settings inorder to do so, uninstall prevention would be home app + already device admin
 the app would be persistent always since it will be the first thing you will see the moment phone boots
 imagine if that was qiezka

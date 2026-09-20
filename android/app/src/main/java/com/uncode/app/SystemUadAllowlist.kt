@@ -1,9 +1,6 @@
 package com.uncode.app;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Locale;
-import java.util.Set;
+import java.util.Locale
 
 /**
  * SystemUadAllowlist:
@@ -21,12 +18,11 @@ import java.util.Set;
  *
  * Maintained as an independent authority file to avoid polluting QIEZKA's internal app blocklists.
  */
-public final class SystemUadAllowlist {
-
-    private SystemUadAllowlist() {}
+object SystemUadAllowlist {
 
     // ── AOSP & Google Pixel Ecosystem (78 packages) ──
-    public static final Set<String> AOSP_AND_GOOGLE_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val AOSP_AND_GOOGLE_PACKAGES: Set<String> = hashSetOf(
         "com.android.phone.product.res.overlay.no_imei_emergency_call", // [Emergency & Safety] Unsure but I would just leave it as you need to stay safe. Find out mo
         "com.android.screenshot", // [Screenshot & Markup] Default android screenshot tool
         "com.android.stk2", // [Telephony & Telecom] SIM toolkit Special package for dual-sim devices? Enables carriers to 
@@ -109,10 +105,11 @@ public final class SystemUadAllowlist {
         "com.google.android.as", // [On-Device AI Engine] Android System Intelligence (Live text OCR, text selection)
         "com.google.android.apps.camera.services", // [Document Scanner & Camera] Pixel Camera Services
         "com.google.pixel.camera.services", // [Document Scanner & Camera] CameraIDRemapper & camera pipeline dependency
-    }));
+    )
 
     // ── Samsung Electronics (One UI) (32 packages) ──
-    public static final Set<String> SAMSUNG_ONEUI_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val SAMSUNG_ONEUI_PACKAGES: Set<String> = hashSetOf(
         "com.samsung.android.app.talkback", // [Accessibility Services] Voice assistant. Accessibility feature Screen Reader to provide audibl
         "com.samsung.android.aware.service", // [Share Sheet & Intent Resolver] Samsung Quick Share Agent Use Wifi direct to share files between 2 Sam
         "com.samsung.android.app.sharelive", // [Share Sheet & Intent Resolver] Samsung Quick Share (from the Galaxy Store) Breaks Quick Share if you 
@@ -145,10 +142,11 @@ public final class SystemUadAllowlist {
         "com.samsung.android.app.siofviewer", // [Document Scanner & Camera] Samsung Live Focus / Portrait rendering engine
         "com.samsung.android.scs", // [On-Device AI Engine] Samsung Core Services (On-device OCR & Smart Select)
         "com.samsung.android.app.cocktailbarservice", // [System Multitasking & Sidebar] Edge Screen / Edge Panels
-    }));
+    )
 
     // ── Xiaomi, Redmi & POCO (MIUI / HyperOS) (11 packages) ──
-    public static final Set<String> XIAOMI_MIUI_HYPEROS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val XIAOMI_MIUI_HYPEROS_PACKAGES: Set<String> = hashSetOf(
         "com.miui.gallery", // [Screenshot & Markup] MIUI Gallery app. Note: Removing the Gallery will break the send scree
         "com.miui.screenshot", // [Screenshot & Markup] MIUI Screenshot Screenshots will not work.
         "com.miui.mishare.connectivity", // [Share Sheet & Intent Resolver] Mi Share Unified file sharing service between Xiaomi, Oppo, Realme and
@@ -160,10 +158,11 @@ public final class SystemUadAllowlist {
         "com.xiaomi.aicr", // [On-Device AI Engine] Mi AI Engine / computational vision
         "com.miui.freeform", // [System Multitasking & Sidebar] MIUI Floating Window and Mini Window manager
         "com.miui.creation", // [Notes & Canvas] Xiaomi Mi Canvas - Stylus Drawing, Diagrams & Handwritten Notes
-    }));
+    )
 
     // ── Oppo, OnePlus & Realme (ColorOS / OxygenOS) (18 packages) ──
-    public static final Set<String> OPPO_ONEPLUS_REALME_COLOROS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val OPPO_ONEPLUS_REALME_COLOROS_PACKAGES: Set<String> = hashSetOf(
         "com.oneplus.android.cellbroadcast.overlay", // [Emergency & Safety] Wireless emergency alerts Theme pack Guessing it's a pack of themes fo
         "com.oneplus.screenshot", // [Screenshot & Markup] Needed for Power + Volume Down screenshot.
         "com.oneplus.commonoverlay.com.google.android.networkstack", // [Captive Portal & System Dialogs] Needed for DHCP hostname?, captive portal HTTP URLs?
@@ -182,24 +181,27 @@ public final class SystemUadAllowlist {
         "com.oplus.pscanvas", // [System Multitasking & Sidebar] Open Canvas: OnePlus fluid split-screen multi-window
         "com.coloros.smartsidebar", // [System Multitasking & Sidebar] ColorOS Smart Sidebar quick tool drawer
         "com.oneplus.camera.pictureprocessing", // [Document Scanner & Camera] OnePlus camera image processing companion
-    }));
+    )
 
     // ── Vivo & iQOO (FuntouchOS / OriginOS) (3 packages) ──
-    public static final Set<String> VIVO_IQOO_FUNTOUCH_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val VIVO_IQOO_FUNTOUCH_PACKAGES: Set<String> = hashSetOf(
         "com.vivo.easyshare", // [Share Sheet & Intent Resolver] Easy share Sharing apps to another phone. https://play.google.com/stor
         "com.vivo.smartshot", // [Screenshot & Markup] S-capture Used for screenshots?
         "com.vivo.card", // [System Multitasking & Sidebar] Vivo Smart Sidebar quick drawer
-    }));
+    )
 
     // ── Motorola / Lenovo (MyUX / HelloUI) (3 packages) ──
-    public static final Set<String> MOTOROLA_MYUX_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val MOTOROLA_MYUX_PACKAGES: Set<String> = hashSetOf(
         "com.motorola.screenshoteditor", // [Screenshot & Markup] Screenshot Editor Edit and share your screenshots right away, or take 
         "com.motorola.photoeditor", // [Screenshot & Markup] Photo Editor Moto Photo Editor.
         "com.motorola.freeform", // [System Multitasking & Sidebar] Motorola Freeform window mode
-    }));
+    )
 
     // ── Huawei & Honor (EMUI / MagicOS) (12 packages) ──
-    public static final Set<String> HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES: Set<String> = hashSetOf(
         "com.huawei.HwMultiScreenShot", // [Screenshot & Markup] Scrolling screenshot feature
         "com.huawei.printservice", // [Print Spooler] Print service
         "com.huawei.desktop.systemui", // [Screenshot & Markup] Huawei desktop mode switching It has also Take Screenshot Service. Req
@@ -212,15 +214,17 @@ public final class SystemUadAllowlist {
         "com.hihonor.printservice", // [Print Spooler] Print service
         "com.hihonor.lbs", // [Emergency & Safety] Location Based Services Location-based services (LBS) are applications
         "androidx.camera.extensions.impl", // [Document Scanner & Camera] Camera extensions for Huawei/Honor (Bokeh, HDR)
-    }));
+    )
 
     // ── Transsion Holdings (Infinix, Tecno, Itel - XOS / HiOS) (1 packages) ──
-    public static final Set<String> TRANSSION_INFINIX_TECNO_XOS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val TRANSSION_INFINIX_TECNO_XOS_PACKAGES: Set<String> = hashSetOf(
         "com.transsion.screencapture", // [Screenshot & Markup] Needed for screenshots.
-    }));
+    )
 
     // ── Sony, ASUS, TCL, LG & Other OEMs (13 packages) ──
-    public static final Set<String> SONY_ASUS_TCL_OTHERS_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val SONY_ASUS_TCL_OTHERS_PACKAGES: Set<String> = hashSetOf(
         "com.sonyericsson.mtp.extension.factoryreset", // [Core Hardware Prompts] Sony phone says 'lock screen settings'. Removing it can cause bootloop
         "com.sonyericsson.photoeditor", // [Screenshot & Markup] Sony's photo editor: https://www.apkmirror.com/apk/sony-mobile-communi
         "com.sonymobile.cellbroadcast.notification", // [Emergency & Safety] Cell information Cell broadcast is designed to deliver messages to mul
@@ -234,10 +238,11 @@ public final class SystemUadAllowlist {
         "com.lge.nextcapture", // [Screenshot & Markup] Needed for screenshots?
         "cn.nubia.photoeditor", // [Screenshot & Markup] Photo Editor Photo Editor. It has Baidu location so better turn off ne
         "cn.nubia.supersnap", // [Screenshot & Markup] Super Snap Shot, Screenshot
-    }));
+    )
 
     // ── Universal Core Framework & Carrier Telecom (16 packages) ──
-    public static final Set<String> UNIVERSAL_CORE_FRAMEWORK_PACKAGES = new HashSet<>(Arrays.asList(new String[] {
+    @JvmField
+    val UNIVERSAL_CORE_FRAMEWORK_PACKAGES: Set<String> = hashSetOf(
         "com.orange.mysosh", // [Emergency & Safety] My Sosh (https://play.google.com/store/apps/details?id=com.orange.myso
         "com.sec.app.samsungprintservice", // [Print Spooler] Samsung Print Service Plugin. Published by HP, see: https://play.googl
         "com.qualcomm.qti.xrcb", // [Emergency & Safety] Receive xrcb network signals for radio side. it's about emergency aler
@@ -254,54 +259,55 @@ public final class SystemUadAllowlist {
         "com.epson.mobilephone.samsungprintservice", // [Print Spooler] Completely empty package. Useless.
         "com.hp.android.printservice", // [Print Spooler] Print to your HP printer using your Android phone. Most reviews on Goo
         "com.siso.app.genericprintservice", // [Print Spooler] Completely empty package. Useless.
-    }));
+    )
 
     // ── Unified Standalone UAD-NG Allowlist ──
-    public static final Set<String> UAD_SYSTEM_ALLOWLIST = new HashSet<>();
-
-    static {
-        UAD_SYSTEM_ALLOWLIST.addAll(AOSP_AND_GOOGLE_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(SAMSUNG_ONEUI_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(XIAOMI_MIUI_HYPEROS_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(OPPO_ONEPLUS_REALME_COLOROS_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(VIVO_IQOO_FUNTOUCH_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(MOTOROLA_MYUX_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(TRANSSION_INFINIX_TECNO_XOS_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(SONY_ASUS_TCL_OTHERS_PACKAGES);
-        UAD_SYSTEM_ALLOWLIST.addAll(UNIVERSAL_CORE_FRAMEWORK_PACKAGES);
+    @JvmField
+    val UAD_SYSTEM_ALLOWLIST: Set<String> = hashSetOf<String>().apply {
+        addAll(AOSP_AND_GOOGLE_PACKAGES)
+        addAll(SAMSUNG_ONEUI_PACKAGES)
+        addAll(XIAOMI_MIUI_HYPEROS_PACKAGES)
+        addAll(OPPO_ONEPLUS_REALME_COLOROS_PACKAGES)
+        addAll(VIVO_IQOO_FUNTOUCH_PACKAGES)
+        addAll(MOTOROLA_MYUX_PACKAGES)
+        addAll(HUAWEI_HONOR_EMUI_MAGICOS_PACKAGES)
+        addAll(TRANSSION_INFINIX_TECNO_XOS_PACKAGES)
+        addAll(SONY_ASUS_TCL_OTHERS_PACKAGES)
+        addAll(UNIVERSAL_CORE_FRAMEWORK_PACKAGES)
     }
 
     /**
      * Fast O(1) membership check against the UAD system allowlist.
      */
-    public static boolean isUadSystemAllowed(String pkg) {
-        if (pkg == null || pkg.isEmpty()) return false;
-        return UAD_SYSTEM_ALLOWLIST.contains(pkg);
+    @JvmStatic
+    fun isUadSystemAllowed(pkg: String?): Boolean {
+        if (pkg.isNullOrEmpty()) return false
+        return UAD_SYSTEM_ALLOWLIST.contains(pkg)
     }
 
     /**
      * Dynamic heuristic pattern check to catch unlisted OEM variations of
      * Emergency SOS, Screenshot Markup, Intent Resolvers, and Captive Portals.
      */
-    public static boolean isUadSystemPattern(String pkg, String appLabel) {
-        if (pkg == null) return false;
-        String lowerPkg = pkg.toLowerCase(Locale.US);
+    @JvmStatic
+    fun isUadSystemPattern(pkg: String?, appLabel: String?): Boolean {
+        if (pkg == null) return false
+        val lowerPkg = pkg.lowercase(Locale.US)
 
         // Emergency & Life Safety patterns
         if (lowerPkg.contains(".emergency") || lowerPkg.endsWith(".emergency") ||
             lowerPkg.contains(".sos") || lowerPkg.endsWith(".sos") ||
             lowerPkg.contains("safetyhub") || lowerPkg.contains("safetycore") ||
             lowerPkg.contains("emergencyalert") || lowerPkg.contains(".cbr")) {
-            return true;
+            return true
         }
 
-        // Screenshot, Markup & Photo Editors
+        // Screenshot Capture, Image Crop & Markup
         if (lowerPkg.contains(".markup") || lowerPkg.endsWith(".markup") ||
             lowerPkg.contains("screenshot") || lowerPkg.contains("smartcapture") ||
             lowerPkg.contains("photoeditor") || lowerPkg.contains("screenshoteditor") ||
             lowerPkg.contains("mediaeditor")) {
-            return true;
+            return true
         }
 
         // Share Sheets & Intent Resolvers
@@ -309,44 +315,44 @@ public final class SystemUadAllowlist {
             lowerPkg.contains("sharelive") || lowerPkg.contains("mishare") ||
             lowerPkg.contains("directshare") || lowerPkg.contains("easyshare") ||
             lowerPkg.contains("oshare")) {
-            return true;
+            return true
         }
 
         // Captive portal & Wi-Fi system dialogs
         if (lowerPkg.contains("captiveportallogin") || lowerPkg.contains("vpndialogs") ||
             lowerPkg.contains("certinstaller") || lowerPkg.contains("wifi.dialog") ||
             lowerPkg.contains("photopicker") || lowerPkg.contains("printspooler")) {
-            return true;
+            return true
         }
 
         // Document Scanners & Camera Processing Sub-APKs
         if (lowerPkg.contains("ocrscanner") || lowerPkg.contains(".scanner") || lowerPkg.endsWith(".scanner") ||
             lowerPkg.contains("cameramind") || lowerPkg.contains("extraphoto") ||
             lowerPkg.contains("siofviewer") || lowerPkg.contains("pictureprocessing")) {
-            return true;
+            return true
         }
 
         // On-Device AI Engines (NPU OCR & Text Extraction)
         if (lowerPkg.contains("aiservice") || lowerPkg.contains(".aicr") ||
-            lowerPkg.equals("com.samsung.android.scs") || lowerPkg.equals("com.google.android.as")) {
-            return true;
+            lowerPkg == "com.samsung.android.scs" || lowerPkg == "com.google.android.as") {
+            return true
         }
 
         // System Multitasking, Freeform Windows & Sidebars
         if (lowerPkg.contains("freeform") || lowerPkg.contains("pscanvas") ||
             lowerPkg.contains("smartsidebar") || lowerPkg.contains("cocktailbarservice")) {
-            return true;
+            return true
         }
 
         // Stylus & Canvas Note-Taking Tools
-        if (lowerPkg.equals("com.miui.creation") || lowerPkg.contains(".creation")) {
-            return true;
+        if (lowerPkg == "com.miui.creation" || lowerPkg.contains(".creation")) {
+            return true
         }
 
         // App Label semantic inspection
-        if (appLabel != null && !appLabel.trim().isEmpty()) {
-            String lowerLabel = appLabel.toLowerCase(Locale.US);
-            if (lowerLabel.equals("emergency") || lowerLabel.contains("emergency alert") ||
+        if (!appLabel.isNullOrBlank()) {
+            val lowerLabel = appLabel.lowercase(Locale.US)
+            if (lowerLabel == "emergency" || lowerLabel.contains("emergency alert") ||
                 lowerLabel.contains("emergency sos") || lowerLabel.contains("personal safety") ||
                 lowerLabel.contains("markup") || lowerLabel.contains("photo editor") ||
                 lowerLabel.contains("screenshot") || lowerLabel.contains("intent resolver") ||
@@ -354,14 +360,15 @@ public final class SystemUadAllowlist {
                 lowerLabel.contains("document scanner") || lowerLabel.contains("scanner") ||
                 lowerLabel.contains("mi canvas") || lowerLabel.contains("smart sidebar") ||
                 lowerLabel.contains("edge panel") || lowerLabel.contains("floating window")) {
-                return true;
+                return true
             }
         }
 
-        return false;
+        return false
     }
 
-    public static boolean isUadSystemAllowed(String pkg, String appLabel) {
-        return isUadSystemAllowed(pkg) || isUadSystemPattern(pkg, appLabel);
+    @JvmStatic
+    fun isUadSystemAllowed(pkg: String?, appLabel: String?): Boolean {
+        return isUadSystemAllowed(pkg) || isUadSystemPattern(pkg, appLabel)
     }
 }
