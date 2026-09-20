@@ -208,7 +208,10 @@ public final class AppClassifier {
         ".shelter.", ".vphonegaga.", ".f1player.", ".gspace.", ".vault.", ".gallerylock.",
         ".multispace.", ".superclone.", ".2accounts.", ".x8zs.", ".shortdrama.", ".dramabox.",
         ".reelshort.", ".shortmax.", ".goodshort.", ".webtoon.", ".manga.", ".manhwa.", ".comic.",
-        ".webnovel.", ".wattpad.", ".gacha.", ".rpg.", ".brawl."
+        ".webnovel.", ".wattpad.", ".gacha.", ".rpg.", ".brawl.",
+        // Stage 1 Bloatware & Game Booster Signatures (UAD-NG Ground Truth)
+        "joyose", "gamecenter", "gamebooster", "gamemode", "gamehome", "gamespace",
+        "shortvideo", "mipicks", "palmstore", "glance"
     };
 
     /**
@@ -300,6 +303,11 @@ public final class AppClassifier {
         // Tier 1d: Hardcoded Distraction Blacklist & Hostile Signatures MUST take precedence!
         // YouTube native app, TikTok, games, KissKH PWA, and social media can NEVER be allowed.
         if (BlacklistConstants.isBlacklisted(pkg, appLabel)) {
+            return true;
+        }
+
+        // Tier 1d-2: Anti-Tamper Shield (Android Settings, MIUI Security Center, OEM Phone Managers)
+        if (isSettingsOrDeviceManager(pkg, appLabel)) {
             return true;
         }
 
@@ -496,15 +504,62 @@ public final class AppClassifier {
             return false;
         }
 
+        // ── Stage 2: Universal System Partition Gateway ──
+        // If it is on the system partition (pre-installed by OEM in /system, /vendor, /product)
+        // and has passed all Stage 1 Master Veto checks above (not YouTube, not social, not game, not settings/manager),
+        // it is a verified legitimate OEM hardware tool or sub-APK!
+        if (appInfo != null) {
+            boolean isSystemApp = (appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                                  (appInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+            if (isSystemApp) {
+                // Guard: Ensure general web browsers still route through WebClassifier URL inspection
+                if (!lowerPkg.contains("browser") && !lowerPkg.contains("chrome") && !lowerPkg.contains("firefox")) {
+                    Log.d(TAG, "Allowed by Universal System Partition Gateway: " + pkg + " (" + appLabel + ")");
+                    return false;
+                }
+            }
+        }
+
         // ── Layer 5: Conservative Fallback ──
-        // Unknown app with undefined category and no educational signals is blocked
-        Log.i(TAG, "Blocked by conservative fallback (unknown app): " + pkg + " (" + appLabel + ")");
+        // Unknown user-installed third-party app with undefined category and no educational signals is blocked
+        Log.i(TAG, "Blocked by conservative fallback (unknown user app): " + pkg + " (" + appLabel + ")");
         return true;
+    }
+
+    /**
+     * Identifies Android Settings, MIUI Security Center, and OEM Device Care/Phone Managers
+     * that provide UI to force-stop QIEZKA, clear app data, or revoke permissions.
+     */
+    public static boolean isSettingsOrDeviceManager(String pkg, String appLabel) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT);
+        if (lowerPkg.equals("com.android.settings") ||
+            lowerPkg.equals("com.miui.securitycenter") ||
+            lowerPkg.equals("com.coloros.safecenter") ||
+            lowerPkg.equals("com.samsung.android.lool") ||
+            lowerPkg.equals("com.transsion.phonemaster") ||
+            lowerPkg.equals("com.vivo.safecenter") ||
+            lowerPkg.equals("com.iqoo.secure") ||
+            lowerPkg.equals("com.huawei.systemmanager") ||
+            lowerPkg.equals("com.google.android.apps.wellbeing") ||
+            lowerPkg.contains(".settings") || lowerPkg.contains("securitycore")) {
+            return true;
+        }
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.ROOT);
+            if (lowerLabel.equals("settings") || lowerLabel.contains("phone manager") ||
+                lowerLabel.contains("device care") || lowerLabel.contains("security center") ||
+                lowerLabel.contains("app manager") || lowerLabel.contains("cleaner") ||
+                lowerLabel.contains("battery saver") || lowerLabel.contains("system manager")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static boolean isForbiddenDistraction(Context context, String pkg) {
         if (pkg == null || context == null) return false;
-        if (pkg.equals("com.android.settings")) return true;
+        if (pkg.equals("com.android.settings") || isSettingsOrDeviceManager(pkg, null)) return true;
         try {
             PackageManager pm = context.getPackageManager();
             if (pm == null) return false;

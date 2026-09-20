@@ -1024,7 +1024,23 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private boolean isSystemOrLauncher(String pkg) {
         if (pkg == null) return false;
-        return pkg.equals("com.android.systemui") || KNOWN_LAUNCHERS.contains(pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg);
+        if (pkg.equals("com.android.systemui") || KNOWN_LAUNCHERS.contains(pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg)) {
+            return true;
+        }
+        // Universal System Partition Gateway for non-browser, non-settings system overlays
+        try {
+            PackageManager pm = getPackageManager();
+            if (pm != null) {
+                android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+                if ((ai.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                    (ai.flags & android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) {
+                    if (!isBrowserPackage(pkg) && !AppClassifier.isSettingsOrDeviceManager(pkg, null)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
     }
 
     /**
@@ -1570,6 +1586,9 @@ public class LockAccessibilityService extends AccessibilityService {
 
         // Hardcoded Distraction Blacklist Check (Strictly Takes Precedence over all categories)
         if (BlacklistConstants.isBlacklisted(pkg, appLabel)) return true;
+
+        // Stage 1 Anti-Tamper Shield: Android Settings, MIUI Security, and OEM Phone Managers
+        if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel)) return true;
 
         // Also inspect active window title if this package is currently in front (e.g. KissKH running under Chrome)
         try {
