@@ -2084,6 +2084,15 @@ flowchart TB
     class WEB web;
 ```
 
+### Anti-Tamper Shield Enhancement: Default Home App Interception & Messaging Decoupling
+1. **Default Home Launcher Lock**:
+   - Intercepts all default home app selection screens, popups, and role requests (`RequestRoleActivity`, `DefaultAppActivity`, `HomeSettingsActivity`, `ResolverActivity`).
+   - Prevents third-party launchers (such as Nova Launcher) or users from altering the established default home launcher.
+   - Automatically shows an anti-tamper notice (`🛡️ Changing default home launcher is restricted by QIEZKA`) and dismisses the dialog/screen back to the home screen.
+2. **Messaging Apps Decoupled from Always Allowed**:
+   - Messaging apps (Telegram, Messenger, WhatsApp, Signal) are auto-populated into the user-modifiable `Allowed Applications` list on discovery rather than being locked into `Always Allowed by System`.
+   - Users can freely toggle or remove messaging apps from their study whitelist in Dashboard and Settings.
+
 ---
 
 note: i do notice a home app when defaulted, you cant uninstall it, have to navigate to settings inorder to do so, uninstall prevention would be home app + already device admin
