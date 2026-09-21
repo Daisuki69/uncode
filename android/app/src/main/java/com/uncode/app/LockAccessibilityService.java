@@ -828,6 +828,19 @@ public class LockAccessibilityService extends AccessibilityService {
                  eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED) && !isSystemOrLauncher(pkgStr)) {
                 lastForegroundPackage = pkgStr;
             }
+
+            // Never inspect or block QIEZKA itself
+            if (!pkgStr.equals(getPackageName())) {
+                // ── Anti-Tamper: Intercept Default Home Launcher Selection Popup ──
+                if (interceptHomeLauncherChangeAttempt(event, null, pkgStr)) {
+                    return;
+                }
+
+                // ── Anti-Uninstall Shield (Secondary Defense when Device Admin is not granted) ──
+                if (interceptUninstallAttempt(event, pkgStr)) {
+                    return;
+                }
+            }
         }
 
         boolean isLockdownActive = prefs.getBoolean("lockdown_active", false);
@@ -916,11 +929,6 @@ public class LockAccessibilityService extends AccessibilityService {
 
         // Never inspect or block QIEZKA itself
         if (pkg.equals(getPackageName())) return;
-
-        // ── Anti-Uninstall Shield (Secondary Defense when Device Admin is not granted) ──
-        if (interceptUninstallAttempt(event, pkg)) {
-            return;
-        }
 
         // ── SystemUI handling ──
         if (pkg.equals("com.android.systemui")) {
@@ -1029,6 +1037,9 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private boolean isSystemOrLauncher(String pkg) {
         if (pkg == null) return false;
+        if (pkg.contains("permissioncontroller") || pkg.contains("packageinstaller")) {
+            return false;
+        }
         if (pkg.equals("com.android.systemui") || KNOWN_LAUNCHERS.contains(pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg)) {
             return true;
         }
@@ -1774,6 +1785,29 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
+        // ── 24/7 Anti-Tamper: Continuous Home Launcher & Anti-Uninstall Ticker Shield ──
+        try {
+            AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
+            if (activeRoot != null) {
+                try {
+                    CharSequence p = activeRoot.getPackageName();
+                    if (p != null) {
+                        String rootPkg = p.toString();
+                        if (!rootPkg.equals(getPackageName())) {
+                            if (interceptHomeLauncherChangeAttempt(null, activeRoot, rootPkg)) {
+                                return;
+                            }
+                            if (interceptUninstallAttempt(null, rootPkg)) {
+                                return;
+                            }
+                        }
+                    }
+                } finally {
+                    activeRoot.recycle();
+                }
+            }
+        } catch (Exception ignore) {}
+
         // 3. If consequence mode or lockdown is currently active in operating hours, continuously enforce blocking!
         if ((isConsequenceActive && inOperatingHours) || isLockdownActive) {
             AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
@@ -2299,6 +2333,129 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
         return false;
+    }
+
+    /**
+     * Intercepts default home launcher selection screens, popups, and role requests
+     * (e.g. from Nova Launcher, RoleManager, or ResolverActivity), preventing users or third-party
+     * apps from modifying the established home launcher.
+     */
+    private boolean interceptHomeLauncherChangeAttempt(AccessibilityEvent event, AccessibilityNodeInfo providedRoot, String pkg) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.US);
+
+        // Home selection is hosted by PermissionController, Android framework resolver, Settings, or 3rd-party launchers
+        boolean isPotentialHost = lowerPkg.contains("permissioncontroller") || 
+                                  lowerPkg.equals("android") || 
+                                  lowerPkg.contains("settings") ||
+                                  (lowerPkg.contains("launcher") && !KNOWN_LAUNCHERS.contains(pkg));
+
+        if (!isPotentialHost) return false;
+
+        String classStr = "";
+        if (event != null && event.getClassName() != null) {
+            classStr = event.getClassName().toString().toLowerCase(Locale.US);
+        }
+
+        AccessibilityNodeInfo root = providedRoot;
+        boolean needsRecycle = false;
+        try {
+            if (root == null) {
+                root = getRootInActiveWindow();
+                if (root != null) needsRecycle = true;
+            }
+            if (root == null && event != null) {
+                root = event.getSource();
+            }
+
+            // Quick class-level match for Role / Default app activities
+            if (classStr.contains("defaultappactivity") || classStr.contains("requestroleactivity") || classStr.contains("homesettingsactivity")) {
+                evictHomeLauncherChange();
+                return true;
+            }
+
+            if (root == null) return false;
+
+            // 1. Direct window title inspection
+            String winTitle = resolveActiveWindowTitle(root);
+            if (winTitle != null) {
+                String lowerTitle = winTitle.toLowerCase(Locale.US);
+                if (lowerTitle.contains("home app") || 
+                    lowerTitle.contains("select a home") || 
+                    lowerTitle.contains("choose home") ||
+                    lowerTitle.contains("use as home") ||
+                    (lowerTitle.contains("home") && lowerTitle.contains("default"))) {
+                    evictHomeLauncherChange();
+                    return true;
+                }
+            }
+
+            // 2. Search for launcher and home indicators in hierarchy
+            if (lowerPkg.contains("permissioncontroller") || lowerPkg.contains("settings") || lowerPkg.equals("android")) {
+                List<AccessibilityNodeInfo> launcherNodes = root.findAccessibilityNodeInfosByText("Launcher");
+                if (launcherNodes == null || launcherNodes.isEmpty()) {
+                    launcherNodes = root.findAccessibilityNodeInfosByText("launcher");
+                }
+
+                List<AccessibilityNodeInfo> homeNodes = root.findAccessibilityNodeInfosByText("Home");
+                if (homeNodes == null || homeNodes.isEmpty()) {
+                    homeNodes = root.findAccessibilityNodeInfosByText("home");
+                }
+
+                // If PermissionController / Settings is displaying both launcher items and home references
+                if (launcherNodes != null && !launcherNodes.isEmpty() && homeNodes != null && !homeNodes.isEmpty()) {
+                    evictHomeLauncherChange();
+                    return true;
+                }
+
+                // Description string in AOSP / Google PermissionController: "Apps, often called launchers..."
+                List<AccessibilityNodeInfo> phraseNodes = root.findAccessibilityNodeInfosByText("launchers");
+                if (phraseNodes != null && !phraseNodes.isEmpty()) {
+                    evictHomeLauncherChange();
+                    return true;
+                }
+
+                phraseNodes = root.findAccessibilityNodeInfosByText("Default home");
+                if (phraseNodes != null && !phraseNodes.isEmpty()) {
+                    evictHomeLauncherChange();
+                    return true;
+                }
+            }
+
+            // 3. Third party launchers (e.g. Nova Launcher prompt to set default launcher)
+            if (lowerPkg.contains("launcher") && !KNOWN_LAUNCHERS.contains(pkg)) {
+                List<AccessibilityNodeInfo> defaultHomeNodes = root.findAccessibilityNodeInfosByText("Default");
+                if (defaultHomeNodes != null && !defaultHomeNodes.isEmpty()) {
+                    List<AccessibilityNodeInfo> launcherNodes = root.findAccessibilityNodeInfosByText("Launcher");
+                    if (launcherNodes != null && !launcherNodes.isEmpty()) {
+                        evictHomeLauncherChange();
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking home launcher change attempt: " + e.getMessage());
+        } finally {
+            if (root != null && needsRecycle) {
+                try {
+                    root.recycle();
+                } catch (Exception ignore) {}
+            }
+        }
+        return false;
+    }
+
+    private void evictHomeLauncherChange() {
+        Log.w(TAG, "🛡️ Intercepted Default Home App / Launcher change attempt! Dismissing and returning home.");
+        new Handler(Looper.getMainLooper()).post(() -> {
+            Toast.makeText(getApplicationContext(),
+                "🛡️ Changing default home launcher is restricted by QIEZKA",
+                Toast.LENGTH_SHORT).show();
+        });
+
+        // Global BACK to dismiss any popup/dialog, then HOME to restore launcher
+        performGlobalAction(GLOBAL_ACTION_BACK);
+        performGlobalAction(GLOBAL_ACTION_HOME);
     }
 
     @Override

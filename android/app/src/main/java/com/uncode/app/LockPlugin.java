@@ -705,7 +705,7 @@ public class LockPlugin extends Plugin {
                         boolean isStudentApp = isStudentAppKeywords(pkg, appLabel);
                         boolean isAi = isAiAppKeywords(pkg, appLabel);
                         boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
-                        boolean isHardcoded = isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp || isAi || isMessaging;
+                        boolean isHardcoded = isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp || isAi;
 
                         addedPackages.add(pkg);
 
@@ -725,7 +725,7 @@ public class LockPlugin extends Plugin {
                         else if (isStudentApp) iconName = "BookOpen";
                         else if (isMessaging || isSimOrCarrier) iconName = "MessageSquare";
 
-                        boolean isAutoAllowed = isHardcoded || isSimOrCarrier || !AppClassifier.isPackageBlocked(getActivity(), pkg, null);
+                        boolean isAutoAllowed = isHardcoded || isMessaging || isSimOrCarrier || !AppClassifier.isPackageBlocked(getActivity(), pkg, null);
                         if (!isHardcoded && !isSimOrCarrier && isAutoAllowed && "LayoutGrid".equals(iconName)) {
                             iconName = "BookOpen";
                         }

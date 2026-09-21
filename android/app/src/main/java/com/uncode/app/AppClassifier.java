@@ -681,7 +681,8 @@ public final class AppClassifier {
             lowerPkg.equals("com.iqoo.secure") ||
             lowerPkg.equals("com.huawei.systemmanager") ||
             lowerPkg.equals("com.google.android.apps.wellbeing") ||
-            lowerPkg.contains(".settings") || lowerPkg.contains("securitycore")) {
+            lowerPkg.contains(".settings") || lowerPkg.contains("securitycore") ||
+            lowerPkg.contains("permissioncontroller") || lowerPkg.contains("packageinstaller")) {
             return true;
         }
         if (appLabel != null && !appLabel.trim().isEmpty()) {

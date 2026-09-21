@@ -447,6 +447,7 @@ export function isHiddenSystemExemptApp(packageId?: string | null, appName?: str
  */
 export function isHardcodedApp(app: AllowedApp): boolean {
   if (isHiddenSystemExemptApp(app.id, app.name)) return false;
+  if (isMessagingPackage(app.id, app.name)) return false;
   if (
     app.isHardcoded || 
     app.isBrowser || 
