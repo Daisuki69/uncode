@@ -2154,6 +2154,9 @@ flowchart TD
    - Removed obsolete legacy `PunishmentManager.java` (previously querying 7-day screen time for top 10 app locks, which was superseded by Consequence Mode + dynamic on-device `AppClassifier`).
    - Removed unused special permission `android.permission.PACKAGE_USAGE_STATS` from `AndroidManifest.xml`, eliminating unnecessary Play Protect warnings and onboarding permission overhead.
    - Fixed variable scope collision (`activeRoot` $\rightarrow$ `browserRoot`) in `LockAccessibilityService.onTickerTick()` for clean Java compilation.
+5. **Cleaned Legacy `blacklistedApps.ts` Substrings**:
+   - Refined frontend `isAppBlacklisted` in [`blacklistedApps.ts`](file:///src/constants/blacklistedApps.ts) to strictly guard the Stage 1 Master Veto Gate (Anti-Tamper Settings, Security Center, Joyose, GameSpace, and work profile sandbox cloners).
+   - Removed deprecated hardcoded substrings (`youtube`, `tiktok`, `reddit`, remote desktop, vaults, VMs) that were conflicting with `AppClassifier` and the UI YouTube toggle.
 
 ### Patch: Pure-List KnownDistracting, KnownSafe & Stage 3 System Delegation (Flow Update V3)
 1. **Decoupled `KnownDistracting` Package Registry**:
