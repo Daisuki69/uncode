@@ -1072,7 +1072,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private boolean isSystemOrLauncher(String pkg) {
         if (pkg == null) return false;
-        if (pkg.contains("permissioncontroller") || pkg.contains("packageinstaller")) {
+        if (pkg.contains("permissioncontroller")) {
             return false;
         }
         if (pkg.equals("com.android.systemui") || isLauncherApp(this, pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg)) {
