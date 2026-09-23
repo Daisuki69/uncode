@@ -45,11 +45,12 @@ public final class ScheduleManager {
         boolean isLockActive = prefs.getBoolean("lockdown_active", false);
         long currentEnd = prefs.getLong("lock_end_time", 0L);
 
-        // If lockdown was active but effective clock is now at or beyond lockEndTime, cleanly end the session!
+        // If lockdown was active but effective clock is now at or beyond lockEndTime, cleanly end the session and transition to consequence!
         if (isLockActive && currentEnd > 0 && effectiveNow >= currentEnd) {
             Log.i(TAG, "rescheduleAll: effectiveNow (" + effectiveNow + ") >= currentEnd (" + currentEnd + ") — ending expired lockdown");
             prefs.edit()
                     .putBoolean("lockdown_active", false)
+                    .putBoolean("consequence_active", true)
                     .remove("lock_end_time")
                     .remove("active_schedule_id")
                     .apply();
@@ -121,6 +122,10 @@ public final class ScheduleManager {
                     int startCode = baseCode * 10 + 0;
                     scheduleExact(context, am, realTriggerStartMs, startCode, AlarmReceiver.ACTION_SCHEDULE_START, id, title, durationMinutes, null);
                     activeAlarmCodes.add(String.valueOf(startCode));
+                    prefs.edit()
+                            .putLong("armed_window_start_" + id, targetStartSim)
+                            .putLong("armed_window_end_" + id, targetStartSim + durationMs)
+                            .apply();
                     return;
                 }
                 long safeEnd = Math.min(targetEndSim, effectiveNow + durationMs);
@@ -143,7 +148,11 @@ public final class ScheduleManager {
             int startCode = baseCode * 10 + 0;
             scheduleExact(context, am, realTriggerStartMs, startCode, AlarmReceiver.ACTION_SCHEDULE_START, id, title, durationMinutes, null);
             activeAlarmCodes.add(String.valueOf(startCode));
-            Log.i(TAG, "Scheduled start alarm for " + id + " at real timestamp " + realTriggerStartMs);
+            prefs.edit()
+                    .putLong("armed_window_start_" + id, targetStartSim)
+                    .putLong("armed_window_end_" + id, targetStartSim + durationMs)
+                    .apply();
+            Log.i(TAG, "Scheduled start alarm for " + id + " at real timestamp " + realTriggerStartMs + " (armed window: " + targetStartSim + " - " + (targetStartSim + durationMs) + ")");
 
             // 2. Warning Alarms (30 min, 15 min, 5 min, 1 min, 30 sec, 10 sec)
             long[] warningOffsets = new long[]{

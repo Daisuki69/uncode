@@ -847,6 +847,24 @@ public class LockAccessibilityService extends AccessibilityService {
         return (totalMins >= 1140 || totalMins < 180);
     }
 
+    public boolean hasActiveSchedules() {
+        if (prefs == null) {
+            prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        }
+        String schedulesJson = prefs.getString("schedules_json", null);
+        if (schedulesJson == null || schedulesJson.trim().isEmpty()) return false;
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(schedulesJson);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject s = arr.getJSONObject(i);
+                if (s.optBoolean("isActive", true)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
@@ -906,21 +924,29 @@ public class LockAccessibilityService extends AccessibilityService {
             Log.i(TAG, "Lockdown expired — entered Consequence Mode");
         }
 
-        // ── Consequence Mode Operating Hours Enforcement ──
-        if (isConsequenceActive) {
-            if (!inOperatingHours) {
-                // Safemode outside operating hours (3:00 AM to 7:00 PM):
-                // User flowchart: CHECK_HOURS -- "No (Daytime 3am-7pm)" --> ALLOW_IDLE
-                return;
-            }
-            isLockdownActive = true;
-        } else if (!isLockdownActive) {
+        // ── State Evaluation: Lockdown, Consequence, Standby, or Total Idle ──
+        boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+        boolean isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours);
+
+        if (!isLockdownActive && !isConsequenceActive) {
             isLockdownActive = checkAndAutoStartScheduledLock(prefs);
         }
 
-        if (!isLockdownActive) return;
+        boolean isEnforcing = isLockdownActive || isConsequenceEnforcing;
+        boolean hasSchedules = hasActiveSchedules();
 
-        // ── Anti-Tamper Shield (Gated: only active during lockdown or consequence mode) ──
+        // Flowchart: If Consequence Active in Safemode outside Operating Hours (Daytime 3am-7pm) -> ALLOW_IDLE
+        if (isConsequenceActive && !isHardcore && !inOperatingHours) {
+            return;
+        }
+
+        // Flowchart: If neither Lockdown nor Consequence is Active, check Active Schedules
+        if (!isEnforcing && !hasSchedules) {
+            // Total System Idle: Zero schedules -> ALLOW_IDLE (Settings, launcher, and uninstall allowed)
+            return;
+        }
+
+        // ── STAGE 1: MASTER VETO GATE (Active Lockdown, Active Consequence, or Standby Protection) ──
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
             if (!pkgStr.equals(getPackageName())) {
@@ -928,6 +954,22 @@ public class LockAccessibilityService extends AccessibilityService {
                     return;
                 }
                 if (interceptUninstallAttempt(event, pkgStr)) {
+                    return;
+                }
+
+                String appLabel = null;
+                try {
+                    PackageManager pm = getPackageManager();
+                    if (pm != null) {
+                        android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkgStr, 0);
+                        CharSequence lbl = pm.getApplicationLabel(ai);
+                        if (lbl != null) appLabel = lbl.toString();
+                    }
+                } catch (Exception ignore) {}
+
+                if (AppClassifier.isSettingsOrDeviceManager(pkgStr, appLabel) || AppClassifier.isStage1Bloat(pkgStr, appLabel)) {
+                    Log.w(TAG, "Stage 1 Master Veto Gate matched: " + pkgStr + " (" + appLabel + ")");
+                    enforceBlock(pkgStr);
                     return;
                 }
             }
@@ -939,6 +981,27 @@ public class LockAccessibilityService extends AccessibilityService {
         if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
             String currentFg = detectCurrentForegroundPackage();
             if (currentFg != null && !currentFg.equals(getPackageName()) && !isSystemOrLauncher(currentFg)) {
+                String fgLabel = null;
+                try {
+                    PackageManager pm = getPackageManager();
+                    if (pm != null) {
+                        android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(currentFg, 0);
+                        CharSequence lbl = pm.getApplicationLabel(ai);
+                        if (lbl != null) fgLabel = lbl.toString();
+                    }
+                } catch (Exception ignore) {}
+
+                if (AppClassifier.isSettingsOrDeviceManager(currentFg, fgLabel) || AppClassifier.isStage1Bloat(currentFg, fgLabel)) {
+                    Log.w(TAG, "Stage 1 Master Veto caught window stack change: " + currentFg);
+                    enforceBlock(currentFg);
+                    return;
+                }
+
+                // If not enforcing (Standby), normal apps are allowed
+                if (!isEnforcing) {
+                    return;
+                }
+
                 if (isPackageBlocked(currentFg)) {
                     enforceBlock(currentFg);
                     return;
@@ -947,6 +1010,12 @@ public class LockAccessibilityService extends AccessibilityService {
                     return;
                 }
             }
+        }
+
+        // ── STAGE 1 PASSED: ROUTE BY STATE ──
+        if (!isEnforcing) {
+            // Active Schedule Standby: Normal apps (TikTok, YouTube, games, browsers) are allowed until schedule lock starts
+            return;
         }
 
         if (pkgChar == null) return;
@@ -1794,14 +1863,21 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
-        // 3. Stage 1 & Stage 2 Enforcement Gate
-        // User Flowchart: Standby / System Idle when neither lockdown nor consequence is active
-        boolean isEnforcing = isLockdownActive || (isConsequenceActive && inOperatingHours);
-        if (!isEnforcing) {
-            return; // ALLOW ALL (System Idle)
+        // 3. State Evaluation Gate
+        boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+        boolean isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours);
+        boolean isEnforcing = isLockdownActive || isConsequenceEnforcing;
+        boolean hasSchedules = hasActiveSchedules();
+
+        if (isConsequenceActive && !isHardcore && !inOperatingHours) {
+            return; // Safemode Daytime (3am - 7pm): ALLOW_IDLE
         }
 
-        // ── STAGE 1: Anti-Tamper & Task Killer Shield (Active Lockdown / Consequence Only) ──
+        if (!isEnforcing && !hasSchedules) {
+            return; // Total System Idle: ALLOW_IDLE
+        }
+
+        // ── STAGE 1: Anti-Tamper & Task Killer Shield (Active Lockdown, Consequence, or Standby) ──
         AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
         if (activeRoot != null) {
             try {
@@ -1815,7 +1891,23 @@ public class LockAccessibilityService extends AccessibilityService {
                         if (interceptUninstallAttempt(null, rootPkg)) {
                             return;
                         }
-                        if (!isSystemOrLauncher(rootPkg)) {
+                        String appLabel = null;
+                        try {
+                            PackageManager pm = getPackageManager();
+                            if (pm != null) {
+                                android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(rootPkg, 0);
+                                CharSequence lbl = pm.getApplicationLabel(ai);
+                                if (lbl != null) appLabel = lbl.toString();
+                            }
+                        } catch (Exception ignore) {}
+
+                        if (AppClassifier.isSettingsOrDeviceManager(rootPkg, appLabel) || AppClassifier.isStage1Bloat(rootPkg, appLabel)) {
+                            enforceBlock(rootPkg);
+                            return;
+                        }
+
+                        // STAGE 2 & 3: Only when Lockdown or Consequence is Active
+                        if (isEnforcing && !isSystemOrLauncher(rootPkg)) {
                             if (isPackageBlocked(rootPkg)) {
                                 enforceBlock(rootPkg);
                                 return;
@@ -1828,6 +1920,10 @@ public class LockAccessibilityService extends AccessibilityService {
             } finally {
                 activeRoot.recycle();
             }
+        }
+
+        if (!isEnforcing) {
+            return; // Standby: normal apps allowed
         }
 
         String currentForegroundPkg = detectCurrentForegroundPackage();

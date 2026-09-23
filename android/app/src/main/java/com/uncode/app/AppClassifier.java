@@ -214,7 +214,7 @@ public final class AppClassifier {
         }
         if (appLabel != null && !appLabel.trim().isEmpty()) {
             String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
-            if (lowerLabel.contains("facebook") || lowerLabel.contains("instagram") ||
+            if ((lowerLabel.contains("facebook") && !lowerLabel.contains("messenger")) || lowerLabel.contains("instagram") ||
                 lowerLabel.contains("twitter") || lowerLabel.contains("reddit") ||
                 lowerLabel.contains("tiktok")) {
                 return false;
