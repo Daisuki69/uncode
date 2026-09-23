@@ -408,6 +408,7 @@ public class LockPlugin extends Plugin {
         try {
             boolean allow = Boolean.TRUE.equals(call.getBoolean("allow", false));
             prefs.edit().putBoolean("allow_youtube", allow).apply();
+            AppClassifier.clearCache();
             Log.i(TAG, "Allow YouTube set to: " + allow);
             JSObject ret = new JSObject();
             ret.put("success", true);
@@ -474,6 +475,7 @@ public class LockPlugin extends Plugin {
                 .putString("youtube_policy", policy)
                 .putBoolean("allow_youtube", allow)
                 .apply();
+            AppClassifier.clearCache();
             Log.i(TAG, "YouTube policy set to: " + policy + " (allow_youtube=" + allow + ")");
             JSObject ret = new JSObject();
             ret.put("success", true);

@@ -1381,7 +1381,6 @@ qiezka/
 │   ├── LockAccessibilityService.java # Core Accessibility engine: window monitoring & app interception
 │   ├── LockPlugin.java               # Capacitor two-way IPC bridge & canonical lockdown state machine
 │   ├── MainActivity.java             # Android activity entry point & Capacitor bridge initializer
-│   ├── PunishmentManager.java        # Consequence manager & accountability tracking
 │   └── ScheduleManager.java          # Native schedule persistence & AlarmManager coordinator
 ├── src/
 │   ├── api/
@@ -2047,42 +2046,130 @@ flowchart TB
 - **The Amended 3-Stage Security Pipeline (Execution Flow)**:
 
 ```mermaid
-flowchart TB
-    START(["📱 App / Window Event<br><b>Target: pkg, label</b>"]) --> S1{"<b>STAGE 1 — MASTER VETO GATE</b><br>• Anti-Tamper Shield (Settings, Security Center, Device Care)<br>• Hardware Task Killers (Joyose, GameSpace, Glance)"}
+flowchart TD
 
-    S1 -- "❌ ANY VETO MATCH" --> BLOCK["🚫 <b>BLOCK / EVICT TO QIEZKA</b>"]
-    S1 -- "✅ PASSED VETO" --> S2{"<b>STAGE 2 — APP CLASSIFIER GATE</b><br>• Distractions (Games, Video, Social Feeds, Remote Share)<br>• Direct Messaging & Telegram/Messenger Forks<br>• Unified Whitelist"}
+    BOOT_START(["🔄 User Restarts Device<br>Device Reboots / Powers On"]):::startNode --> OS_INIT["📱 Android OS Boot Completed<br>System Server Initializes"]:::actionNode
+    OS_INIT --> BROADCAST_BOOT["📡 Android Dispatches<br>ACTION_BOOT_COMPLETED"]:::actionNode
 
-    S2 -- "🌐 Web Browser" --> WEB["🌐 <b>WEB CLASSIFIER</b><br>Inspect URL / DOM<br>• Block web games & distraction sites<br>• Allow academic domains (.edu, LMS)"]
-    WEB -- "Academic / Safe" --> ALLOW["✅ <b>ALLOW EXECUTION</b>"]
-    WEB -- "Distracting" --> BLOCK
+    OS_INIT --> BIND_A11Y["⚙️ Android AccessibilityManager<br>Binds LockAccessibilityService"]:::actionNode
 
-    S2 -- "🚫 Distraction Category<br>(Games, Video, Social Feeds, Remote Screen Share/VNC, Vaults)" --> BLOCK
+    subgraph SUB_BOOT ["1. BootReceiver Execution"]
+        BROADCAST_BOOT --> BOOT_RCV["📥 BootReceiver.kt onReceive()"]:::actionNode
+        BOOT_RCV --> RESCHED_ALL["⏰ ScheduleManager.rescheduleAll()<br>Re-register AlarmManager exact alarms"]:::actionNode
+        RESCHED_ALL --> READ_PREFS_BOOT["📖 Read uncode_lock.xml<br>lockdown_active, lock_end_time, schedules"]:::actionNode
 
-    S2 -- "💬 Messaging App (Telegram & forks, Messenger, WhatsApp)<br>• Auto-populated into Allowed Apps<br>• Modifiable in Dashboard/Settings" --> MSG_GATE{"<b>WHITELIST CHECK</b><br>Is package currently in Allowed Apps?"}
-    MSG_GATE -- "✅ Selected / Allowed" --> ALLOW
-    MSG_GATE -- "❌ Unchecked / Removed" --> BLOCK
+        READ_PREFS_BOOT --> CHECK_WAS_LOCKED{"Was lockdown active<br>before restart?"}:::gateNode
+        
+        CHECK_WAS_LOCKED -- "Yes" --> CHECK_TIME_EXP{"Did timer expire while<br>device was powered off?"}:::gateNode
+        CHECK_TIME_EXP -- "Yes (now >= lockEndTime)" --> EXPIRE_TO_CONSEQUENCE["Clear lockdown_active<br>Set consequence_active = true"]:::blockNode
+        CHECK_TIME_EXP -- "No (Lockdown still active)" --> RESCHED_ALARM["Reschedule Alarm &<br>Relaunch QIEZKA to foreground"]:::actionNode
 
-    S2 -- "🎓 Academic & Whitelisted Productivity" --> ALLOW
+        CHECK_WAS_LOCKED -- "No" --> CHECK_BOOT_SCHED{"Check Active Schedules<br>Status on Boot"}:::gateNode
+        CHECK_BOOT_SCHED -- "Window Missed While Off<br>(now >= scheduledEnd)" --> MISSED_CONSEQUENCE["⚠️ Missed lock while powered off<br>Set consequence_active = true"]:::blockNode
+        CHECK_BOOT_SCHED -- "Currently Inside Window<br>(start <= now < end)" --> BOOT_START_LOCK["🔒 Lockdown starts immediately<br>Relaunch QIEZKA to foreground"]:::actionNode
+        CHECK_BOOT_SCHED -- "Upcoming Schedule<br>(now < start)" --> EVENT_OR_TICK
+        CHECK_BOOT_SCHED -- "No Schedules Exist" --> ALLOW_IDLE
+    end
 
-    S2 -- "❓ Clean Undefined App (Not a Distraction)" --> S3{"<b>STAGE 3 — UNIVERSAL SYSTEM GATEWAY</b>"}
+    subgraph SUB_A11Y ["2. LockAccessibilityService Startup"]
+        BIND_A11Y --> A11Y_CONNECTED["🔌 onServiceConnected()"]:::actionNode
+        A11Y_CONNECTED --> START_TICKER["⏱️ Start 500ms Ticker<br>onTickerTick()"]:::actionNode
+        A11Y_CONNECTED --> USER_UNLOCK["🔓 User Unlocks Device /<br>Launcher Homescreen Loads"]:::actionNode
+    end
 
-    S3 -- "System Partition (FLAG_SYSTEM == true)" --> SYSALLOW["✅ <b>ALLOWED SYSTEM UTILITY</b><br>Camera, markup, share sheet, stylus, SIM/STK"]
-    S3 -- "User-Installed (FLAG_SYSTEM == false)" --> FALLBACK["⚠️ <b>LAYER 5 FALLBACK</b><br>Unknown 3rd-party binary"] --> BLOCK
+    USER_UNLOCK --> EVENT_OR_TICK["📱 App Launch / Window Event / Ticker"]:::actionNode
+    START_TICKER --> EVENT_OR_TICK
+    RESCHED_ALARM --> EVENT_OR_TICK
+    EXPIRE_TO_CONSEQUENCE --> EVENT_OR_TICK
+    MISSED_CONSEQUENCE --> EVENT_OR_TICK
+    BOOT_START_LOCK --> EVENT_OR_TICK
 
-    classDef start fill:#e8f4ff,stroke:#2672c9,stroke-width:2px;
-    classDef stage fill:#fff3cd,stroke:#d39e00,stroke-width:2px;
-    classDef block fill:#f8d7da,stroke:#b02a37,stroke-width:2px;
-    classDef allow fill:#d1e7dd,stroke:#198754,stroke-width:2px;
-    classDef web fill:#dff2ff,stroke:#087990,stroke-width:2px;
-    classDef fallback fill:#fff3cd,stroke:#d39e00,stroke-width:2px;
+    EVENT_OR_TICK --> CHECK_LOCK_STATE{"Is Consequence Active<br>or Lockdown Active?"}:::gateNode
 
-    class START start;
-    class S1,S2,S3,MSG_GATE stage;
-    class BLOCK,FALLBACK block;
-    class ALLOW,SYSALLOW allow;
-    class WEB web;
-```
+    CHECK_LOCK_STATE -- "Lockdown is Active" --> S1
+    CHECK_LOCK_STATE -- "Consequence is Active" --> CHECK_MODE{"Operating Mode?"}:::gateNode
+
+    %% STANDBY ENFORCEMENT GATE
+    CHECK_LOCK_STATE -- "Neither Active" --> CHECK_ACTIVE_SCHED{"Are there any<br>Active Schedules?"}:::gateNode
+    CHECK_ACTIVE_SCHED -- "No (Zero Schedules)" --> ALLOW_IDLE["✅ <b>ALLOW ALL (Total System Idle)</b><br>Settings, launcher & uninstall allowed"]:::allow
+    CHECK_ACTIVE_SCHED -- "Yes (Standby Protection)" --> S1
+
+    CHECK_MODE -- "Hardcore" --> ENFORCE_247["🛡️ Enforce 24/7 Consequence"]:::gateNode --> S1
+    CHECK_MODE -- "Safemode" --> CHECK_HOURS{"Time between<br>7:00 PM & 3:00 AM?"}:::gateNode
+    CHECK_HOURS -- "Yes (Night)" --> S1
+    CHECK_HOURS -- "No (Daytime 3am-7pm)" --> ALLOW_IDLE
+
+    S1{"<b>STAGE 1 — MASTER VETO GATE</b><br>• Anti-Tamper (Settings, Security Center, Device Care)<br>• Hardware Task Killers (Joyose, GameSpace, Glance)<br>• Uninstall Dialog & Home Launcher Selection Dialog"}:::stage
+
+    S1 -- "❌ ANY VETO MATCH" --> BLOCK["🚫 <b>BLOCK AND EVICT TO QIEZKA (not route EVICT TO HOMESCREEN</b>)"]:::block
+    
+    %% STAGE 1 PASSED: ROUTE BY STATE
+    S1 -- "✅ PASSED VETO" --> CHECK_ACTIVE_LOCK{"Is Lockdown or<br>Consequence Active?"}:::gateNode
+
+    CHECK_ACTIVE_LOCK -- "No (Active Schedule Standby)" --> ALLOW_STANDBY["✅ <b>ALLOW NORMAL APP (Standby)</b><br>TikTok, games, browsers usable until schedule lock starts"]:::allow
+    CHECK_ACTIVE_LOCK -- "Yes (Lockdown/Consequence)" --> S2{"<b>STAGE 2 — APP CLASSIFIER GATE</b><br>"}:::stage
+
+    S2 -- "🌐 Web Browser" --> WEB["🌐 <b>WEB CLASSIFIER</b><br>Inspect URL / DOM<br>• Block web games & distraction sites<br>• Allow academic domains (.edu, LMS)"]:::web
+    WEB -- "Academic / Safe" --> ALLOW["Allowed on sites, For Apps Auto add to Userconfigurable on ui Allow List</b>"]:::allow
+    WEB -- "Distracting" --> BLOCKS["Auto Back Until Safe Site, If theres nothing to back on then go to HomePage"]
+
+    MSG_GATE3{"Initial App Policy Result CLasifier"} -- NO — Not KnownDistracting, not KnownSafe --> NO{"Secondary App CLassifier"}
+    MSG_GATE3 -- Yes KnownDistracting, No KnownSafe --> BLOCK
+    NO -- Detected as Distracting 🚫 Distraction Category<br>(Games, Video, Social Feeds, Remote Screen Share/VNC, Vaults --> BLOCK
+    NO -- Detected Academic & Productivity --> ALLOW
+
+    S2 -- "Known Distracting" --> MSG_GATE["<b>KnownDistracting CHECK</b><br>Is the package currently classified in the internal KnownDistracting?"]:::stage
+    MSG_GATE --> MSG_GATE2["<b>KnownSafe CHECK</b><br>Is the package currently classified in the internal KnownSafe? + this is where User Configured in APP UI Youtube Policy Applies"]
+    MSG_GATE3 -- YES KnownDistracting + KnownSafe -->ALLOW
+    MSG_GATE2 --> MSG_GATE3
+
+    NO -- "❓ Clean Undefined App (Not a Distraction)" --> S3{"<b>STAGE 3 — UNIVERSAL SYSTEM GATEWAY</b>"}:::stage
+
+    S3 -- "System Partition (FLAG_SYSTEM == true)" --> SYSALLOW["✅ <b>ALLOWED SYSTEM UTILITY</b><br>Camera, markup, share sheet, stylus, SIM/STK"]:::allow
+    S3 -- "User-Installed (FLAG_SYSTEM == false)" --> FALLBACK["⚠️ <b>LAYER 5 FALLBACK</b><br>Unknown 3rd-party binary"]:::fallback --> BLOCK
+
+    classDef startNode fill:#1e293b,stroke:#64748b,stroke-width:2px,color:#fff;
+    classDef gateNode fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#fff;
+    classDef actionNode fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#fff;
+    classDef stage fill:#fff3cd,stroke:#d39e00,stroke-width:2px,color:#000;
+    classDef block fill:#f8d7da,stroke:#b02a37,stroke-width:2px,color:#000;
+    classDef allow fill:#d1e7dd,stroke:#198754,stroke-width:2px,color:#000;
+    classDef web fill:#dff2ff,stroke:#087990,stroke-width:2px,color:#000;
+    classDef fallback fill:#fff3cd,stroke:#d39e00,stroke-width:2px,color:#000;
+    classDef blockNode fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fff;
+
+### Patch: Veto Direct QIEZKA Eviction, AppSettings YouTube Policy Resolution & Web Auto-Back (Flow Update V4)
+1. **Eviction Race Condition Neutralized**:
+   - Replaced `performGlobalAction(GLOBAL_ACTION_HOME)` in `evictHomeLauncherChange()` with direct `launchLockOverlay()`.
+   - Eliminates the corrupt fighting loop where Android's WindowManager was simultaneously commanded to navigate home while active lockdown enforcement commanded QIEZKA lock overlay to front.
+   - All Stage 1 Master Veto actions (Settings, Security Center, Device Care, Joyose/GameSpace, and Default Home selection dialogs) now cleanly evict directly to QIEZKA overlay (`🚫 BLOCK AND EVICT TO QIEZKA (not route EVICT TO HOMESCREEN)`).
+2. **AppSettings YouTube Policy Integration (`MSG_GATE2` Resolution)**:
+   - Wired `isYoutubeAllowedByPolicy()` directly into `AppClassifier.isKnownSafe()`.
+   - Checks `allow_youtube` and `youtube_policy` ("academic", "unrestricted") from `uncode_lock.xml` SharedPreferences for all official and third-party YouTube packages (`com.google.android.youtube`, `com.google.android.youtube.tv`, `app.revanced.android.youtube`, `org.schabi.newpipe`, `app.libre_tube`, etc.).
+   - Added cache invalidation (`AppClassifier.clearCache()`) to `LockPlugin.setAllowYoutube` and `setYoutubePolicy` so policy updates in AppSettings UI take effect instantaneously.
+3. **Web Browser Auto-Back Isolation (`BLOCKS`)**:
+   - Web browser packages (Chrome, Firefox, Edge, Opera, Brave, Samsung Internet, etc.) are formally exempted from package-level blocking and Layer 5 Fallback in `AppClassifier.isPackageBlocked()`.
+   - Distracting websites inside browsers are handled strictly through native Auto-Back (Hits 1-2) or browser Home button reset (Hit 3+), isolating web remediation without evicting the entire browser or launching QIEZKA.
+4. **Purged Legacy `PunishmentManager` & `PACKAGE_USAGE_STATS`**:
+   - Removed obsolete legacy `PunishmentManager.java` (previously querying 7-day screen time for top 10 app locks, which was superseded by Consequence Mode + dynamic on-device `AppClassifier`).
+   - Removed unused special permission `android.permission.PACKAGE_USAGE_STATS` from `AndroidManifest.xml`, eliminating unnecessary Play Protect warnings and onboarding permission overhead.
+   - Fixed variable scope collision (`activeRoot` $\rightarrow$ `browserRoot`) in `LockAccessibilityService.onTickerTick()` for clean Java compilation.
+
+### Patch: Pure-List KnownDistracting, KnownSafe & Stage 3 System Delegation (Flow Update V3)
+1. **Decoupled `KnownDistracting` Package Registry**:
+   - Centralized all known distracting video, streaming, social media, dating, web novel, mobile gaming, and remote PC bypass apps into [`KnownDistracting.kt`](file:///android/app/src/main/java/com/uncode/app/KnownDistracting.kt).
+   - Fast $O(1)$ set lookup replaces fragmented heuristic conditions scattered across legacy layers.
+2. **Unified `KnownSafe` Policy Resolver**:
+   - Resolves user-configured Allowed Apps from SharedPreferences (`whitelist`) — including user-configured YouTube policy toggles.
+   - Automatically incorporates active Input Method Editors (keyboards like Gboard, SwiftKey) and QIEZKA itself.
+3. **Stage 2 Dual-Gate Truth Table (`MSG_GATE` $\rightarrow$ `MSG_GATE2` $\rightarrow$ `MSG_GATE3`)**:
+   - `KnownDistracting + KnownSafe` $\rightarrow$ **`ALLOW`** (User explicitly whitelisted e.g. YouTube policy).
+   - `KnownDistracting + !KnownSafe` $\rightarrow$ **`BLOCK`** (Known distraction, unapproved).
+   - `!KnownDistracting + KnownSafe` $\rightarrow$ **`ALLOW`** (User-approved study apps).
+   - `!KnownDistracting + !KnownSafe` $\rightarrow$ Defer to **Secondary App Classifier** dynamic heuristics.
+4. **Stage 3 Universal System Gateway (`SYSALLOW`)**:
+   - Clean system partition apps (`FLAG_SYSTEM == true`) such as Telephony, SIM/STK, system camera, markup, and documentsUI are naturally permitted without needing redundant early-tier allowlists.
+   - Unknown third-party binaries (`FLAG_SYSTEM == false`) fall through to Layer 5 Fallback and are blocked.
 
 ### Anti-Tamper Shield Enhancement: Default Home App Interception & Messaging Decoupling
 1. **Default Home Launcher Lock**:

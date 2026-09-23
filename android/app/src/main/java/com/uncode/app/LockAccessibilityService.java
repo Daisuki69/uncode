@@ -783,10 +783,10 @@ public class LockAccessibilityService extends AccessibilityService {
                lower.contains(".poe");
     }
 
-    private boolean isKeyboardApp(String pkg) {
+    public static boolean isKeyboardPackage(Context context, String pkg) {
         if (pkg == null) return false;
-        if (KNOWN_KEYBOARDS.contains(pkg) || dynamicKeyboardPackages.contains(pkg)) return true;
-        String lower = pkg.toLowerCase();
+        if (KNOWN_KEYBOARDS.contains(pkg)) return true;
+        String lower = pkg.toLowerCase(Locale.ROOT);
         if (lower.contains("inputmethod") || 
             lower.contains("honeyboard") || 
             lower.contains("keyboard") || 
@@ -795,13 +795,22 @@ public class LockAccessibilityService extends AccessibilityService {
             lower.contains(".ime")) {
             return true;
         }
-        try {
-            String defaultIme = Settings.Secure.getString(getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
-            if (defaultIme != null && defaultIme.startsWith(pkg + "/")) {
-                dynamicKeyboardPackages.add(pkg);
-                return true;
-            }
-        } catch (Exception ignore) {}
+        if (context != null) {
+            try {
+                String defaultIme = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+                if (defaultIme != null && defaultIme.startsWith(pkg + "/")) {
+                    return true;
+                }
+            } catch (Exception ignore) {}
+        }
+        return false;
+    }
+
+    private boolean isKeyboardApp(String pkg) {
+        if (pkg == null) return false;
+        if (dynamicKeyboardPackages.contains(pkg) || isKeyboardPackage(this, pkg)) {
+            return true;
+        }
         return false;
     }
 
@@ -1002,11 +1011,11 @@ public class LockAccessibilityService extends AccessibilityService {
                     return;
                 }
 
-                if (isPackageBlocked(currentFg)) {
-                    enforceBlock(currentFg);
-                    return;
-                } else if (isBrowserPackage(currentFg)) {
+                if (isBrowserPackage(currentFg)) {
                     handleBrowserUrlInspection(event, currentFg);
+                    return;
+                } else if (isPackageBlocked(currentFg)) {
+                    enforceBlock(currentFg);
                     return;
                 }
             }
@@ -1035,6 +1044,38 @@ public class LockAccessibilityService extends AccessibilityService {
             return;
         }
 
+        // STAGE 2 — Branch 1: Web Browser Gate (URL / DOM Classifier & In-Browser Auto-Back)
+        if (isBrowserPackage(pkg)) {
+            // Typing Immunity: Ignore keystrokes and text selection events while user is editing in address bars
+            if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
+                return;
+            }
+            boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+                                    eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED);
+            boolean isInteraction = (eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED || 
+                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+                                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED);
+
+            boolean isVisibleOnScreen = false;
+            AccessibilityNodeInfo source = event.getSource();
+            if (source != null) {
+                try {
+                    isVisibleOnScreen = source.isVisibleToUser();
+                } finally {
+                    source.recycle();
+                }
+            }
+
+            String currentForeground = detectCurrentForegroundPackage();
+            boolean isForegroundApp = pkg.equals(currentForeground);
+            if (isTransition || isInteraction || isVisibleOnScreen || isForegroundApp) {
+                handleBrowserUrlInspection(event, pkg);
+            }
+            return;
+        }
+
+        // STAGE 2 — Branch 2: App Classifier Gate (isPackageBlocked)
         if (isPackageBlocked(pkg)) {
             // Milestone 20: PWA & Recents Task-Switch Interceptor
             boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
@@ -1063,33 +1104,6 @@ public class LockAccessibilityService extends AccessibilityService {
                 Log.d(TAG, "Ignored background event from blocked package: " + pkg + " (event=" + eventType + ")");
             }
             return;
-        } else if (isBrowserPackage(pkg)) {
-            // Typing Immunity: Ignore keystrokes and text selection events while user is editing in address bars
-            if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
-                eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
-                return;
-            }
-            boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
-                                    eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED);
-            boolean isInteraction = (eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED || 
-                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
-                                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED);
-
-            boolean isVisibleOnScreen = false;
-            AccessibilityNodeInfo source = event.getSource();
-            if (source != null) {
-                try {
-                    isVisibleOnScreen = source.isVisibleToUser();
-                } finally {
-                    source.recycle();
-                }
-            }
-
-            String currentForeground = detectCurrentForegroundPackage();
-            boolean isForegroundApp = pkg.equals(currentForeground);
-            if (isTransition || isInteraction || isVisibleOnScreen || isForegroundApp) {
-                handleBrowserUrlInspection(event, pkg);
-            }
         }
     }
 
@@ -1122,11 +1136,11 @@ public class LockAccessibilityService extends AccessibilityService {
 
     // Web distraction, gaming domains, and academic safe-lists are centralized in WebBlocklistConstants.java
 
-    private boolean isBrowserPackage(String pkg) {
+    public static boolean isBrowserPackage(String pkg) {
         if (pkg == null) return false;
         if (KNOWN_BROWSER_PACKAGES.contains(pkg)) return true;
         String lower = pkg.toLowerCase(Locale.US);
-        return lower.contains("browser") || lower.contains("chrome");
+        return lower.contains("browser") || lower.contains("chrome") || lower.contains("firefox");
     }
 
     private boolean isSystemOrLauncher(String pkg) {
@@ -1231,7 +1245,9 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         String url = extractUrlFromBrowser(root, pkg);
-        boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
+        boolean allowYoutube = prefs != null && (prefs.getBoolean("allow_youtube", false) ||
+            "academic".equalsIgnoreCase(prefs.getString("youtube_policy", "")) ||
+            "unrestricted".equalsIgnoreCase(prefs.getString("youtube_policy", "")));
 
         if (url == null) {
             // General browsers with hidden/scrolled address bars or typing in progress
@@ -1261,7 +1277,9 @@ public class LockAccessibilityService extends AccessibilityService {
 
         try {
             String url = extractUrlFromBrowser(root, pkg);
-            boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
+            boolean allowYoutube = prefs != null && (prefs.getBoolean("allow_youtube", false) ||
+                "academic".equalsIgnoreCase(prefs.getString("youtube_policy", "")) ||
+                "unrestricted".equalsIgnoreCase(prefs.getString("youtube_policy", "")));
             String eventClass = event != null && event.getClassName() != null ? event.getClassName().toString() : null;
             String windowTitle = resolveActiveWindowTitle(root);
 
@@ -1671,10 +1689,6 @@ public class LockAccessibilityService extends AccessibilityService {
     public boolean isPackageBlocked(String pkg) {
         if (pkg == null) return false;
         if (pkg.equals(getPackageName())) return false;
-        if (ALWAYS_EXEMPT.contains(pkg)) return false;
-
-        // Package installers & App store updates are explicitly allowed
-        if (isInstallerOrStoreApp(pkg)) return false;
 
         // Query app label for fast-path blacklist matching
         String appLabel = null;
@@ -1687,32 +1701,19 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         } catch (Exception ignore) {}
 
-        // SIM Toolkit (STK), MMS, Carrier notifications (Globe, Smart, DITO, etc.) are always allowed
-        if (isSimOrCarrierService(pkg, appLabel)) return false;
-
-        // Standalone Universal Android Debloater (UAD-NG) System Allowlist
-        // (Emergency services, AOSP Screenshot Markup, IntentResolver/Chooser, Captive Portal, etc.)
-        if (SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)) return false;
-
         // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield (Android Settings, MIUI Security, OEM Phone Managers)
         if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel)) return true;
 
         // STAGE 1 — MASTER VETO GATE: Hardware Bloatware & Game Boosters (Joyose, GameCenter, PalmStore, Glance)
         if (AppClassifier.isStage1Bloat(pkg, appLabel)) return true;
 
+        if (isBrowserPackage(pkg)) return false;
         if (isKeyboardApp(pkg)) return false;
-        if (isAuthenticatorApp(pkg)) return false;
-        if (isNotesApp(pkg)) return false;
-        if (isAiApp(pkg)) return false;
-        if (isStudentApp(pkg)) return false;
-        if (isHiddenInfrastructureApp(pkg)) return false;
         if (isLauncherApp(this, pkg)) return false;
-        if (pkg.contains("documentsui")) return false;
-        if (MEDIA_AND_FILE_EXEMPT.contains(pkg) || dynamicExemptPackages.contains(pkg) || KNOWN_MUSIC_APPS.contains(pkg)) return false;
 
-        Set<String> whitelist = prefs.getStringSet("whitelist", new HashSet<>());
+        Set<String> whitelist = prefs != null ? prefs.getStringSet("whitelist", new HashSet<>()) : new HashSet<>();
 
-        // ── STAGE 2: On-Device Local App Classifier (Metadata, Categories & Unified Whitelist) ──
+        // ── STAGE 2 & STAGE 3: On-Device Local App Classifier (Initial Policy, Heuristics & Universal System Gateway) ──
         return AppClassifier.isPackageBlocked(this, pkg, whitelist);
     }
 
@@ -1908,11 +1909,11 @@ public class LockAccessibilityService extends AccessibilityService {
 
                         // STAGE 2 & 3: Only when Lockdown or Consequence is Active
                         if (isEnforcing && !isSystemOrLauncher(rootPkg)) {
-                            if (isPackageBlocked(rootPkg)) {
+                            if (isBrowserPackage(rootPkg)) {
+                                inspectBrowserForBlockedPwaOrContent(activeRoot, rootPkg);
+                            } else if (isPackageBlocked(rootPkg)) {
                                 enforceBlock(rootPkg);
                                 return;
-                            } else if (isBrowserPackage(rootPkg)) {
-                                inspectBrowserForBlockedPwaOrContent(activeRoot, rootPkg);
                             }
                         }
                     }
@@ -1928,14 +1929,17 @@ public class LockAccessibilityService extends AccessibilityService {
 
         String currentForegroundPkg = detectCurrentForegroundPackage();
         if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
-            if (isPackageBlocked(currentForegroundPkg)) {
-                enforceBlock(currentForegroundPkg);
-            } else if (isBrowserPackage(currentForegroundPkg)) {
-                String winTitle = resolveActiveWindowTitle(null);
-                if (winTitle != null && BlacklistConstants.isBlacklisted("", winTitle)) {
-                    Log.w(TAG, "Ticker caught blocked PWA by window title: " + winTitle);
-                    enforceBlock(currentForegroundPkg);
+            if (isBrowserPackage(currentForegroundPkg)) {
+                AccessibilityNodeInfo browserRoot = getRootInActiveWindow();
+                if (browserRoot != null) {
+                    try {
+                        inspectBrowserForBlockedPwaOrContent(browserRoot, currentForegroundPkg);
+                    } finally {
+                        browserRoot.recycle();
+                    }
                 }
+            } else if (isPackageBlocked(currentForegroundPkg)) {
+                enforceBlock(currentForegroundPkg);
             }
         }
     }
@@ -2539,16 +2543,16 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     private void evictHomeLauncherChange() {
-        Log.w(TAG, "🛡️ Intercepted Default Home App / Launcher change attempt! Dismissing and returning home.");
+        Log.w(TAG, "🛡️ Intercepted Default Home App / Launcher change attempt! Dismissing and evicting directly to QIEZKA.");
         new Handler(Looper.getMainLooper()).post(() -> {
             Toast.makeText(getApplicationContext(),
                 "🛡️ Changing default home launcher is restricted by QIEZKA",
                 Toast.LENGTH_SHORT).show();
         });
 
-        // Global BACK to dismiss any popup/dialog, then HOME to restore launcher
+        // Global BACK to dismiss popup/dialog, then directly bring QIEZKA to front (no HOME fighting loop)
         performGlobalAction(GLOBAL_ACTION_BACK);
-        performGlobalAction(GLOBAL_ACTION_HOME);
+        launchLockOverlay();
     }
 
     @Override
