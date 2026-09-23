@@ -1,6 +1,8 @@
 /**
- * Hardcoded blacklist of distracting applications.
+ * Hardcoded blacklist of Stage 1 Anti-Tamper and Hardware Bloatware applications.
  * Strictly prohibited from being whitelisted during system lockdown.
+ * Consumer apps (YouTube, TikTok, Reddit, games, etc.) are dynamically classified
+ * on-device by AppClassifier and KnownDistracting.
  */
 export const HARDCODED_BLACKLISTED_PACKAGES: string[] = [
   // ── Stage 1 Anti-Tamper Shield ──
@@ -29,56 +31,38 @@ export const HARDCODED_BLACKLISTED_PACKAGES: string[] = [
 const BLACKLIST_SET = new Set(HARDCODED_BLACKLISTED_PACKAGES.map(p => p.toLowerCase()));
 
 /**
- * Checks if a given package ID is in the hardcoded blacklist or matches known signature substrings.
+ * Checks if a package ID matches Stage 1 Anti-Tamper or hardware task killer vetoes.
  */
 export function isAppBlacklisted(packageId?: string | null): boolean {
   if (!packageId) return false;
   const lower = packageId.trim().toLowerCase();
   if (BLACKLIST_SET.has(lower)) return true;
 
-  // Heuristic substring signature checks to automatically block anti-tamper, cloners, and game boosters
-  return lower.includes('settings') ||
-         lower.includes('securitycenter') ||
-         lower.includes('safecenter') ||
-         lower.includes('phonemaster') ||
-         lower.includes('joyose') ||
-         lower.includes('gamecenter') ||
-         lower.includes('gamebooster') ||
-         lower.includes('palmstore') ||
-         lower.includes('mipicks') ||
-         lower.includes('parallel') ||
-         lower.includes('dualspace') ||
-         lower.includes('multispace') ||
-         lower.includes('superclone') ||
-         lower.includes('appcloner') ||
-         lower.includes('2accounts') ||
-         lower.includes('secondspace') ||
-         lower.includes('calculatorvault') ||
-         lower.includes('photovault') ||
-         lower.includes('gallerylock') ||
-         lower.includes('luckypatcher') ||
-         lower.includes('gameguardian') ||
-         lower.includes('happymod') ||
-         lower.includes('acmarket') ||
-         lower.includes('vmos') ||
-         lower.includes('f1vm') ||
-         lower.includes('vphonegaga') ||
-         lower.includes('x8zs') ||
-         lower.includes('teamviewer') ||
-         lower.includes('anydesk') ||
-         lower.includes('rustdesk') ||
-         lower.includes('remotedesktop') ||
-         lower.includes('screenshare') ||
-         lower.includes('screenmirror') ||
-         lower.includes('screenstream') ||
-         lower.includes('airdroid') ||
-         lower.includes('splashtop') ||
-         lower.includes('nethunter') ||
-         lower.includes('droidvnc') ||
-         lower.includes('nhkex') ||
-         lower.includes('tiktok') ||
-         lower.includes('musically') ||
-         lower.includes('trill') ||
-         (lower.includes('youtube') && !lower.includes('music')) ||
-         lower.includes('reddit');
+  // Anti-tamper settings and security manager substrings
+  if (lower.includes('settings') ||
+      lower.includes('securitycenter') ||
+      lower.includes('safecenter') ||
+      lower.includes('phonemaster') ||
+      lower.includes('joyose') ||
+      lower.includes('gamecenter') ||
+      lower.includes('gamebooster') ||
+      lower.includes('palmstore') ||
+      lower.includes('mipicks')) {
+    return true;
+  }
+
+  // Work profile / multi-user sandboxes that bypass accessibility monitoring
+  if (lower.includes('parallel') ||
+      lower.includes('dualspace') ||
+      lower.includes('multispace') ||
+      lower.includes('superclone') ||
+      lower.includes('appcloner') ||
+      lower.includes('2accounts') ||
+      lower.includes('secondspace') ||
+      lower.includes('island') ||
+      lower.includes('shelter')) {
+    return true;
+  }
+
+  return false;
 }
