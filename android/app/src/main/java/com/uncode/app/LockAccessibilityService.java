@@ -40,105 +40,11 @@ public class LockAccessibilityService extends AccessibilityService {
     private static final String PREFS_NAME = "uncode_lock";
 
     /**
-     * Packages that are always exempt from blocking.
-     * Core OS, Telephony, In-Call UI, SIM Card Toolkit (STK), Carrier Services, MMS & Emergency Broadcasts.
-     * NOTE: com.android.settings is intentionally NOT here — it should be blockable.
-     * The launcher/home is also exempt because we actively send users there on block.
+     * Active browser tracking to provide Same-Page and Long-Press immunity.
+     * In accordance with flowchart: As long as the user is on the same page, browsing
+     * including long-press or context menu interactions continues uninterrupted.
      */
-    public static final Set<String> ALWAYS_EXEMPT = new HashSet<>(Arrays.asList(
-        // Core OS framework & System UI
-        "android",
-        "com.android.systemui",
-
-        // Core Telephony, In-Call UI & Telecom
-        "com.android.phone",
-        "com.android.server.telecom",
-        "com.android.incallui",
-        "com.google.android.dialer",
-        "com.samsung.android.dialer",
-        "com.samsung.android.incallui",
-        "com.samsung.android.app.telephonyui",
-        "com.sec.android.app.servicemodeapp",
-        "com.miui.telephonyui",
-        "com.oppo.telephonyui",
-        "com.coloros.telephonyui",
-        "com.vivo.telephonyui",
-        "com.asus.telephonyui",
-
-        // SIM Card Toolkit (STK) & SIM Application Services (AOSP, Samsung, MTK, Transsion, Qualcomm, etc.)
-        "com.android.stk",                         // AOSP SIM Toolkit
-        "com.android.stk2",                        // AOSP Dual-SIM STK slot 2
-        "com.google.android.stk",                  // Google SIM Toolkit
-        "com.sec.android.app.simappdialog",        // Samsung STK dialog & Flash SMS popup (Critical for Globe/Smart)
-        "com.sec.android.app.simsetting",          // Samsung SIM card manager
-        "com.sec.android.app.simsettings",         // Samsung SIM settings variant
-        "com.mediatek.stk",                        // MediaTek SIM Toolkit (Infinix, Tecno, etc.)
-        "com.mediatek.stk2",                       // MediaTek SIM Toolkit slot 2
-        "com.mediatek.simprocessor",               // MediaTek SIM Processor
-        "com.mediatek.engineermode",               // MediaTek Engineer Mode
-        "com.transsion.simtoolkit",                // Transsion SIM Toolkit (Infinix, Tecno, Itel)
-        "com.transsion.stk",                       // Transsion STK
-        "com.qualcomm.qti.simcontacts",            // Qualcomm SIM Contacts
-        "com.qualcomm.qti.uim",                    // Qualcomm User Identity Module
-        "com.qualcomm.qti.modemtestmode",          // Qualcomm Modem test
-        "com.vivo.stk",                            // Vivo SIM Toolkit
-        "com.coloros.simsettings",                 // Oppo / Realme SIM Settings
-        "com.oppo.stk",                            // Oppo STK
-        "com.coloros.stk",                         // ColorOS STK
-        "com.huawei.stk",                          // Huawei SIM Toolkit
-        "com.motorola.stk",                        // Motorola STK
-        "com.zte.stk",                             // ZTE STK
-        "com.oneplus.stk",                         // OnePlus STK
-
-        // MMS & Native Carrier Messaging Services
-        "com.android.mms",                         // AOSP Messaging / MMS
-        "com.android.mms.service",                 // AOSP MMS Service
-        "com.google.android.apps.messaging",       // Google Messages / RCS / Class 0 Flash SMS (Default on Infinix/Pixel/Samsung)
-        "com.samsung.android.messaging",           // Samsung Messages / MMS
-        "com.transsion.mms",                       // Transsion MMS / SMS
-        "com.coloros.mms",                         // ColorOS / Oppo MMS
-        "com.vivo.mms",                            // Vivo MMS
-        "com.huawei.message",                      // Huawei Messaging
-        "com.motorola.messaging",                  // Motorola Messaging
-        "com.asus.message",                        // ASUS Messaging
-        "com.zte.mms",                             // ZTE MMS
-
-        // Cell Broadcast, Wireless Emergency Alerts (WEA) & Flash Alerts
-        "com.android.cellbroadcastreceiver",       // AOSP Cell Broadcast
-        "com.android.cellbroadcastreceiver.module",// Android Mainline Cell Broadcast Module
-        "com.android.cellbroadcastservice",        // AOSP Cell Broadcast Service
-        "com.google.android.cellbroadcastreceiver",// Google Emergency Alerts
-        "com.google.android.cellbroadcastservice", // Google Cell Broadcast Service
-        "com.mediatek.cellbroadcastreceiver",      // MediaTek Cell Broadcast
-        "com.transsion.cellbroadcastreceiver",     // Transsion Cell Broadcast
-        "com.oplus.cellbroadcastreceiver",         // Oppo / Realme Cell Broadcast
-        "com.qualcomm.qti.cellbroadcastreceiver",  // Qualcomm Cell Broadcast
-        "com.sec.android.app.wlantest",            // Samsung carrier wireless test
-        "com.sec.android.app.safetyinformation",   // Samsung Safety / Emergency Information
-
-        // Carrier Default Apps, Carrier Configuration & RCS/IMS
-        "com.android.carrierdefaultapp",           // Android Carrier Default App
-        "com.android.carrierconfig",               // Carrier Config
-        "com.google.android.carrierconfig",        // Google Carrier Config
-        "com.google.android.ims",                  // Google Carrier Services / RCS
-        "com.samsung.android.ims",                 // Samsung IMS
-        "com.sec.android.carrier.carrierwifi",     // Samsung Carrier Wi-Fi
-        "com.shannon.imsservice",                  // Samsung Exynos IMS Service
-        "com.mediatek.ims",                        // MediaTek IMS
-
-        // Philippine Carrier Ecosystem (Globe Telecom, Smart Communications, DITO)
-        "ph.com.globe",                            // Globe Telecom Carrier Services
-        "ph.com.globe.globeathome",                // Globe at Home
-        "ph.com.globe.globeonesuperapp",           // GlobeOne
-        "com.globe.services",                      // Globe Services / SIM Menu
-        "com.globe.telecom",                       // Globe Telecom
-        "ph.com.smart",                            // Smart Communications
-        "com.smart.services",                      // Smart Services / SIM Menu
-        "ph.dito.telecommunity",                   // DITO Telecommunity
-        "com.dito.services"                        // DITO Services
-    ));
-
-    public static final Set<String> TELEPHONY_AND_SIM_EXEMPT = ALWAYS_EXEMPT;
+    private String lastBrowserEventClass = null;
 
     /**
      * Known launcher packages. These are always allowed so the user can freely use
@@ -392,7 +298,6 @@ public class LockAccessibilityService extends AccessibilityService {
      */
     public static boolean isSimOrCarrierService(String pkg, String appLabel) {
         if (pkg == null) return false;
-        if (ALWAYS_EXEMPT.contains(pkg)) return true;
 
         String lowerPkg = pkg.toLowerCase(Locale.US);
 
@@ -883,6 +788,16 @@ public class LockAccessibilityService extends AccessibilityService {
 
         // Track foreground app switches
         int eventType = event.getEventType();
+
+        // Flowchart Immunity: Long press gestures and in-page selections must NEVER trigger app blocks or evictions
+        if (eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) {
+            return;
+        }
+
+        if (event.getClassName() != null) {
+            lastBrowserEventClass = event.getClassName().toString();
+        }
+
         CharSequence pkgChar = event.getPackageName();
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
@@ -956,15 +871,13 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         // ── STAGE 1: MASTER VETO GATE (Active Lockdown, Active Consequence, or Standby Protection) ──
+        if (interceptHomeLauncherChangeAttempt(event, null, pkgChar != null ? pkgChar.toString() : null)) {
+            return;
+        }
+
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
             if (!pkgStr.equals(getPackageName())) {
-                if (interceptHomeLauncherChangeAttempt(event, null, pkgStr)) {
-                    return;
-                }
-                if (interceptUninstallAttempt(event, pkgStr)) {
-                    return;
-                }
 
                 String appLabel = null;
                 try {
@@ -1012,7 +925,14 @@ public class LockAccessibilityService extends AccessibilityService {
                 }
 
                 if (isBrowserPackage(currentFg)) {
-                    handleBrowserUrlInspection(event, currentFg);
+                    AccessibilityNodeInfo root = getRootInActiveWindow();
+                    if (root != null) {
+                        try {
+                            inspectBrowserWindow(root, currentFg, false);
+                        } finally {
+                            root.recycle();
+                        }
+                    }
                     return;
                 } else if (isPackageBlocked(currentFg)) {
                     enforceBlock(currentFg);
@@ -1070,7 +990,14 @@ public class LockAccessibilityService extends AccessibilityService {
             String currentForeground = detectCurrentForegroundPackage();
             boolean isForegroundApp = pkg.equals(currentForeground);
             if (isTransition || isInteraction || isVisibleOnScreen || isForegroundApp) {
-                handleBrowserUrlInspection(event, pkg);
+                AccessibilityNodeInfo root = getRootInActiveWindow();
+                if (root != null) {
+                    try {
+                        inspectBrowserWindow(root, pkg, false);
+                    } finally {
+                        root.recycle();
+                    }
+                }
             }
             return;
         }
@@ -1227,101 +1154,149 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     /**
-     * Inspects a browser window during continuous ticker execution to catch standalone PWAs.
+     * Verifies if the active browser window/tab represents a Search Engine Results Page (SERP),
+     * a search query, or active typing in the search box.
+     * Search queries are research and must NEVER be blocked or inspected for blacklisted search terms.
      */
-    private void inspectBrowserForBlockedPwaOrContent(AccessibilityNodeInfo root, String pkg) {
-        if (root == null || pkg == null) return;
-        String windowTitle = resolveActiveWindowTitle(root);
-        if (windowTitle != null) {
-            if (WebBlocklistConstants.isAcademicExempt(windowTitle)) {
-                resetBrowserRemediationState();
-                return; // Academic window is unconditionally immune
+    /**
+     * Verifies if the active browser window/tab represents a Search Engine Results Page (SERP),
+     * a search query, or active typing in the search box.
+     * Research is 100% immune; browsing continues uninterrupted.
+     */
+    private boolean isBrowserSearch(String url, AccessibilityNodeInfo root) {
+        if (url != null && !url.trim().isEmpty()) {
+            String lowerUrl = url.trim().toLowerCase(Locale.US);
+
+            // If it is a destination URL that is NOT a search engine host, it is NEVER a search results page!
+            if (WebClassifier.isDestinationUrl(url)) {
+                String host = WebBlocklistConstants.extractHost(lowerUrl);
+                if (!host.contains("google.") && !host.contains("bing.com") &&
+                    !host.contains("duckduckgo.com") && !host.contains("search.yahoo.com") &&
+                    !host.contains("ecosia.org") && !host.contains("qwant.com") &&
+                    !host.contains("baidu.com") && !host.contains("yandex.com") &&
+                    !host.contains("startpage.com")) {
+                    return false; // Destination page! E.g. y8.com, youtube.com, etc.
+                }
             }
-            if (!isBrowserPackage(pkg) && BlacklistConstants.isBlacklisted("", windowTitle)) {
-                Log.w(TAG, "Ticker caught blocked PWA window title: " + windowTitle + " (pkg=" + pkg + ")");
-                enforceBlock(pkg);
-                return;
+
+            // Google redirect URLs (google.com/url?q=...) are transitions to destination pages, not search results
+            if (lowerUrl.contains("google.") && lowerUrl.contains("/url?")) {
+                return false;
+            }
+
+            // Check if it is a search engine URL with query parameters
+            if (lowerUrl.contains("google.") && (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
+                return true;
+            }
+            if (lowerUrl.contains("bing.com/search") || lowerUrl.contains("duckduckgo.com") ||
+                lowerUrl.contains("search.yahoo.com") || lowerUrl.contains("ecosia.org/search") ||
+                lowerUrl.contains("qwant.com") || lowerUrl.contains("baidu.com/s") ||
+                lowerUrl.contains("yandex.com/search") || lowerUrl.contains("startpage.com")) {
+                return true;
             }
         }
 
-        String url = extractUrlFromBrowser(root, pkg);
-        boolean allowYoutube = prefs != null && (prefs.getBoolean("allow_youtube", false) ||
-            "academic".equalsIgnoreCase(prefs.getString("youtube_policy", "")) ||
-            "unrestricted".equalsIgnoreCase(prefs.getString("youtube_policy", "")));
-
-        if (url == null) {
-            // General browsers with hidden/scrolled address bars or typing in progress
-            // are NEVER standalone PWAs. Never scan DOM and never evict!
-            if (isBrowserPackage(pkg)) {
-                return;
-            }
-            WebClassifier.ClassificationResult res = WebClassifier.classifyStandalonePwa(windowTitle, root, allowYoutube);
-            if (res.isBlocked) {
-                Log.w(TAG, "Ticker caught blocked standalone PWA content: " + (windowTitle != null ? windowTitle : "DOM") + " (" + res.reason + ")");
-                enforceBlock(pkg);
-            }
-        } else {
-            WebClassifier.ClassificationResult res = WebClassifier.classify(url, root, allowYoutube);
-            if (res.isBlocked) {
-                Log.w(TAG, "Ticker caught blocked browser URL: " + url + " (" + res.reason + ")");
-                remediateBlockedBrowserTab(pkg, url, res.reason, root);
-            } else {
-                resetBrowserRemediationState();
-            }
+        // Active typing or search input focus
+        if (root != null) {
+            try {
+                AccessibilityNodeInfo focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (focused != null) {
+                    try {
+                        if (focused.isEditable() || focused.isFocused()) {
+                            return true;
+                        }
+                    } finally {
+                        focused.recycle();
+                    }
+                }
+            } catch (Exception ignore) {}
         }
+
+        return false;
     }
 
-    private void handleBrowserUrlInspection(AccessibilityEvent event, String pkg) {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return;
+    /**
+     * Unified Web Browser & PWA Inspection Pipeline (Flowchart Aligned).
+     *
+     * Flow:
+     * 1. VERIFICATION: Is it a Browser Search?
+     *    - Search Engine Results Page (SERP), query typing, or active search input -> ALLOW_SEARCH.
+     *      Research is 100% immune; browsing including long press continues uninterrupted.
+     * 2. Extract URL (extractUrlFromBrowser):
+     *    - URL Found (Address bar visible - Standard Browser Tab):
+     *        a. Academic Safe-List check -> ALLOW_BROWSER
+     *        b. Evaluate WebClassifier.classify(url, root, allowYoutube)
+     *        c. Allowed -> ALLOW_BROWSER (normal browsing including long press continues uninterrupted)
+     *        d. Blocked (e.g. y8.com, TikTok) -> WEB_REMEDIATE (In-Browser Auto-Back / Home button).
+     *    - URL is Null (No address bar - Scrolled Tab / Standalone PWA / TWA):
+     *        a. Known general browser in standard browsing (scrolled tab, in-page popup, context menu) ->
+     *           ALLOW_BROWSER (never treated as PWA)
+     *        b. Actual standalone PWA / TWA / WebAPK ->
+     *           Walk Chromium Accessibility View Tree via WebClassifier.classifyStandalonePwa
+     *           If blocked -> enforceBlock(pkg) directly to QIEZKA Lock (no Back key)
+     */
+    private void inspectBrowserWindow(AccessibilityNodeInfo root, String pkg, boolean fromTicker) {
+        if (root == null || pkg == null) return;
 
         try {
             String url = extractUrlFromBrowser(root, pkg);
+
+            // ── VERIFICATION: Is it a Browser Search? ──
+            if (isBrowserSearch(url, root)) {
+                resetBrowserRemediationState();
+                return; // ALLOW_SEARCH: Research is 100% immune, browsing continues uninterrupted
+            }
+
             boolean allowYoutube = prefs != null && (prefs.getBoolean("allow_youtube", false) ||
                 "academic".equalsIgnoreCase(prefs.getString("youtube_policy", "")) ||
                 "unrestricted".equalsIgnoreCase(prefs.getString("youtube_policy", "")));
-            String eventClass = event != null && event.getClassName() != null ? event.getClassName().toString() : null;
-            String windowTitle = resolveActiveWindowTitle(root);
 
-            if (windowTitle != null && WebBlocklistConstants.isAcademicExempt(windowTitle)) {
-                resetBrowserRemediationState();
-                return; // Academic window title is unconditionally safe
+            Set<String> activeServices = prefs != null ? prefs.getStringSet("active_unified_services", new HashSet<>()) : new HashSet<>();
+            Set<String> allowedDomains = new HashSet<>(UnifiedPolicyRegistry.getDomainsForServices(activeServices));
+            if (prefs != null) {
+                Set<String> customDomains = prefs.getStringSet("allowed_domains", null);
+                if (customDomains != null) allowedDomains.addAll(customDomains);
+            }
+            if (allowYoutube) {
+                UnifiedService yt = UnifiedPolicyRegistry.SERVICES.get("youtube");
+                if (yt != null) allowedDomains.addAll(yt.getDomains());
             }
 
-            if (url == null) {
-                // If this is a general browser, url == null indicates that the address bar is hidden,
-                // scrolled, being typed into, or animating. Normal browser tab usage must NEVER be evicted.
-                if (isBrowserPackage(pkg)) {
-                    return;
+            if (url != null && !url.trim().isEmpty()) {
+                // ── BRANCH A: URL Found (Standard Browser Tab) ──
+                if (WebBlocklistConstants.isAcademicExempt(url)) {
+                    resetBrowserRemediationState();
+                    return; // Academic safe-list immunity
                 }
-
-                // Standalone PWA / WebAPK / TWA / CustomTab evaluation (non-browser packages only)
-                if (windowTitle != null && BlacklistConstants.isBlacklisted("", windowTitle)) {
-                    Log.w(TAG, "Blocked standalone PWA by window title: " + windowTitle + " (pkg=" + pkg + ")");
-                    enforceBlock(pkg);
-                    return;
+                WebClassifier.ClassificationResult res = WebClassifier.classify(url, root, allowYoutube, allowedDomains);
+                if (res.isBlocked) {
+                    Log.w(TAG, "inspectBrowserWindow: blocked browser URL: " + url + " (" + res.reason + ")");
+                    remediateBlockedBrowserTab(pkg, url, res.reason, root);
+                } else {
+                    resetBrowserRemediationState();
                 }
-
-                // Deep semantic classification on PWA window title & DOM
-                WebClassifier.ClassificationResult pwaRes = WebClassifier.classifyStandalonePwa(windowTitle, root, allowYoutube);
-                if (pwaRes.isBlocked) {
-                    Log.w(TAG, "WebClassifier blocked standalone PWA: " + (windowTitle != null ? windowTitle : "DOM") + " (" + pwaRes.reason + ")");
-                    enforceBlock(pkg);
-                    return;
-                }
-                return;
-            }
-
-            WebClassifier.ClassificationResult result = WebClassifier.classify(url, root, allowYoutube);
-
-            if (result.isBlocked) {
-                Log.w(TAG, "WebClassifier blocked browser content: " + (url != null ? url : "DOM Content") + " (" + result.reason + ")");
-                remediateBlockedBrowserTab(pkg, url, result.reason, root);
             } else {
-                resetBrowserRemediationState();
+                // ── BRANCH B: URL is Null (Scrolled Tab / In-Page Context Menu / PWA / TWA) ──
+                // Known general web browsers in standard browsing (scrolling down, in-page popups, context menus)
+                // must NEVER be treated as Standalone PWAs and must NEVER be evicted to QIEZKA Lock.
+                boolean isPwa = isStandalonePwa(pkg, lastBrowserEventClass, null, root);
+                if (!isPwa && isBrowserPackage(pkg)) {
+                    // Standard browser in-page interaction or scrolled state -> ALLOW_BROWSER
+                    return;
+                }
+
+                // Walk Chromium Accessibility View Tree for genuine standalone PWAs / WebAPKs
+                WebClassifier.ClassificationResult pwaRes = WebClassifier.classifyStandalonePwa(null, root, allowYoutube);
+                if (pwaRes.isBlocked) {
+                    Log.w(TAG, "inspectBrowserWindow: caught blocked standalone PWA: " + pkg + " (" + pwaRes.reason + ")");
+                    // Flowchart: Block and Evict to QIEZKA (no Back key)
+                    enforceBlock(pkg);
+                } else {
+                    resetBrowserRemediationState();
+                }
             }
-        } finally {
-            root.recycle();
+        } catch (Exception e) {
+            Log.e(TAG, "Error in inspectBrowserWindow: " + e.getMessage());
         }
     }
 
@@ -1879,6 +1854,10 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         // ── STAGE 1: Anti-Tamper & Task Killer Shield (Active Lockdown, Consequence, or Standby) ──
+        if (interceptHomeLauncherChangeAttempt(null, null, null)) {
+            return;
+        }
+
         AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
         if (activeRoot != null) {
             try {
@@ -1887,9 +1866,6 @@ public class LockAccessibilityService extends AccessibilityService {
                     String rootPkg = p.toString();
                     if (!rootPkg.equals(getPackageName())) {
                         if (interceptHomeLauncherChangeAttempt(null, activeRoot, rootPkg)) {
-                            return;
-                        }
-                        if (interceptUninstallAttempt(null, rootPkg)) {
                             return;
                         }
                         String appLabel = null;
@@ -1910,7 +1886,7 @@ public class LockAccessibilityService extends AccessibilityService {
                         // STAGE 2 & 3: Only when Lockdown or Consequence is Active
                         if (isEnforcing && !isSystemOrLauncher(rootPkg)) {
                             if (isBrowserPackage(rootPkg)) {
-                                inspectBrowserForBlockedPwaOrContent(activeRoot, rootPkg);
+                                inspectBrowserWindow(activeRoot, rootPkg, true);
                             } else if (isPackageBlocked(rootPkg)) {
                                 enforceBlock(rootPkg);
                                 return;
@@ -1933,7 +1909,7 @@ public class LockAccessibilityService extends AccessibilityService {
                 AccessibilityNodeInfo browserRoot = getRootInActiveWindow();
                 if (browserRoot != null) {
                     try {
-                        inspectBrowserForBlockedPwaOrContent(browserRoot, currentForegroundPkg);
+                        inspectBrowserWindow(browserRoot, currentForegroundPkg, true);
                     } finally {
                         browserRoot.recycle();
                     }
@@ -2034,6 +2010,7 @@ public class LockAccessibilityService extends AccessibilityService {
         // Directly bring QIEZKA lock screen to front immediately
         launchLockOverlay();
 
+        // Follow-up check to re-assert QIEZKA Lock overlay if another activity transitions in
         tickerHandler.postDelayed(() -> {
             String fg = detectCurrentForegroundPackage();
             if (fg != null && !fg.equals(getPackageName()) && !isSystemOrLauncher(fg)) {
@@ -2041,7 +2018,7 @@ public class LockAccessibilityService extends AccessibilityService {
                     launchLockOverlay();
                 }
             }
-        }, 200L);
+        }, 250L);
     }
 
     public void onScheduleStartTriggered() {
@@ -2064,6 +2041,17 @@ public class LockAccessibilityService extends AccessibilityService {
             if (windows != null && !windows.isEmpty()) {
                 for (AccessibilityWindowInfo w : windows) {
                     if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            CharSequence wt = w.getTitle();
+                            if (wt != null) {
+                                String titleStr = wt.toString();
+                                if (isHomeAppSelectionTitle(titleStr)) {
+                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: " + titleStr);
+                                    lastForegroundPackage = "com.android.permissioncontroller";
+                                    return "com.android.permissioncontroller";
+                                }
+                            }
+                        }
                         AccessibilityNodeInfo root = w.getRoot();
                         if (root != null) {
                             try {
@@ -2107,6 +2095,17 @@ public class LockAccessibilityService extends AccessibilityService {
                 // First pass: Active or Focused application window
                 for (AccessibilityWindowInfo w : windows) {
                     if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive() || w.isFocused())) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            CharSequence wt = w.getTitle();
+                            if (wt != null) {
+                                String titleStr = wt.toString();
+                                if (isHomeAppSelectionTitle(titleStr)) {
+                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: " + titleStr);
+                                    lastForegroundPackage = "com.android.permissioncontroller";
+                                    return "com.android.permissioncontroller";
+                                }
+                            }
+                        }
                         AccessibilityNodeInfo root = w.getRoot();
                         if (root != null) {
                             try {
@@ -2304,154 +2303,55 @@ public class LockAccessibilityService extends AccessibilityService {
         return false;
     }
 
+
+
     /**
-     * Intercepts uninstallation popups and dialogs targeting QIEZKA,
-     * providing a secondary anti-tamper layer when Device Admin privileges are not granted.
+     * Intercepts default home launcher selection screens, popups, and role requests
+     * (e.g. from PermissionController, Nova Launcher, RoleManager, or ResolverActivity).
+     * Flowchart: Home Launcher Selection Dialog (PROCESS EXACTLY, NOT WORD MATCHING) -> BLOCK AND EVICT TO QIEZKA
      */
-    private boolean interceptUninstallAttempt(AccessibilityEvent event, String pkg) {
-        if (pkg == null) return false;
-        String lowerPkg = pkg.toLowerCase(Locale.US);
+    private boolean interceptHomeLauncherChangeAttempt(AccessibilityEvent event, AccessibilityNodeInfo providedRoot, String pkg) {
+        String lowerPkg = pkg != null ? pkg.toLowerCase(Locale.US) : "";
 
-        // Check if package is a package installer, settings, or home launcher
-        boolean isPotentialUninstallHost = lowerPkg.contains("packageinstaller") || 
-                                           lowerPkg.contains("settings") ||
-                                           KNOWN_LAUNCHERS.contains(pkg);
-
-        if (!isPotentialUninstallHost) return false;
-
-        // Check event class name
         String classStr = "";
         if (event != null && event.getClassName() != null) {
             classStr = event.getClassName().toString().toLowerCase(Locale.US);
         }
-        boolean isUninstallClass = classStr.contains("uninstall") || classStr.contains("uninstaller");
 
-        AccessibilityNodeInfo root = null;
-        try {
-            root = getRootInActiveWindow();
-            if (root == null && event != null) {
-                root = event.getSource();
-            }
-            if (root == null) return false;
-
-            boolean mentionsQiezka = false;
-            boolean mentionsUninstall = isUninstallClass;
-            AccessibilityNodeInfo cancelButton = null;
-
-            // 1. Search for app label or name "QIEZKA" / "com.uncode.app"
-            List<AccessibilityNodeInfo> labelNodes = root.findAccessibilityNodeInfosByViewId("com.android.packageinstaller:id/app_label");
-            if (labelNodes != null && !labelNodes.isEmpty()) {
-                for (AccessibilityNodeInfo node : labelNodes) {
-                    CharSequence text = node.getText();
-                    if (text != null && text.toString().toLowerCase(Locale.US).contains("qiezka")) {
-                        mentionsQiezka = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!mentionsQiezka) {
-                List<AccessibilityNodeInfo> textNodes = root.findAccessibilityNodeInfosByText("QIEZKA");
-                if (textNodes != null && !textNodes.isEmpty()) {
-                    mentionsQiezka = true;
-                }
-            }
-
-            if (!mentionsQiezka) {
-                List<AccessibilityNodeInfo> idNodes = root.findAccessibilityNodeInfosByText(getPackageName());
-                if (idNodes != null && !idNodes.isEmpty()) {
-                    mentionsQiezka = true;
-                }
-            }
-
-            // 2. Search for uninstall terms or title
-            List<AccessibilityNodeInfo> titleNodes = root.findAccessibilityNodeInfosByViewId("com.android.packageinstaller:id/alertTitle");
-            if (titleNodes != null && !titleNodes.isEmpty()) {
-                for (AccessibilityNodeInfo node : titleNodes) {
-                    CharSequence text = node.getText();
-                    if (text != null) {
-                        String t = text.toString().toLowerCase(Locale.US);
-                        if (t.contains("uninstall") || t.contains("delete") || t.contains("remove")) {
-                            mentionsUninstall = true;
-                            break;
+        // Window title check via getWindows() (crucial for Android 16 sandboxed permissioncontroller or null package events)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                List<AccessibilityWindowInfo> windows = getWindows();
+                if (windows != null) {
+                    for (AccessibilityWindowInfo w : windows) {
+                        if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive() || w.isFocused())) {
+                            CharSequence wt = w.getTitle();
+                            if (wt != null && isHomeAppSelectionTitle(wt.toString())) {
+                                evictHomeLauncherChange();
+                                return true;
+                            }
                         }
                     }
                 }
-            }
-
-            if (!mentionsUninstall) {
-                List<AccessibilityNodeInfo> uninstallTextNodes = root.findAccessibilityNodeInfosByText("Uninstall");
-                if (uninstallTextNodes != null && !uninstallTextNodes.isEmpty()) {
-                    mentionsUninstall = true;
-                }
-            }
-
-            // 3. Find Cancel button to auto-dismiss
-            List<AccessibilityNodeInfo> cancelButtons = root.findAccessibilityNodeInfosByViewId("android:id/button2");
-            if (cancelButtons != null && !cancelButtons.isEmpty()) {
-                cancelButton = cancelButtons.get(0);
-            } else {
-                List<AccessibilityNodeInfo> cancelTextNodes = root.findAccessibilityNodeInfosByText("Cancel");
-                if (cancelTextNodes != null && !cancelTextNodes.isEmpty()) {
-                    cancelButton = cancelTextNodes.get(0);
-                }
-            }
-
-            if (mentionsQiezka && mentionsUninstall) {
-                Log.w(TAG, "🛡️ INTERCEPTED UNINSTALL ATTEMPT TARGETING QIEZKA! Auto-cancelling...");
-
-                // Step 1: Click "Cancel" if available
-                if (cancelButton != null && cancelButton.isClickable()) {
-                    cancelButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                }
-
-                // Step 2: Perform global Back action
-                performGlobalAction(GLOBAL_ACTION_BACK);
-
-                // Step 3: Bring QIEZKA back to foreground immediately
-                launchLockOverlay();
-
-                // Step 4: Show anti-tamper warning Toast
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    Toast.makeText(getApplicationContext(),
-                        "🛡️ QIEZKA Anti-Tamper Shield: App cannot be uninstalled while active!",
-                        Toast.LENGTH_LONG).show();
-                });
-
-                return true;
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error in interceptUninstallAttempt: " + e.getMessage());
-        } finally {
-            if (root != null && (event == null || root != event.getSource())) {
-                try {
-                    root.recycle();
-                } catch (Exception ignore) {}
-            }
+            } catch (Exception ignore) {}
         }
-        return false;
-    }
 
-    /**
-     * Intercepts default home launcher selection screens, popups, and role requests
-     * (e.g. from Nova Launcher, RoleManager, or ResolverActivity), preventing users or third-party
-     * apps from modifying the established home launcher.
-     */
-    private boolean interceptHomeLauncherChangeAttempt(AccessibilityEvent event, AccessibilityNodeInfo providedRoot, String pkg) {
         if (pkg == null) return false;
-        String lowerPkg = pkg.toLowerCase(Locale.US);
 
         // Home selection is hosted by PermissionController, Android framework resolver, Settings, or 3rd-party launchers
         boolean isPotentialHost = lowerPkg.contains("permissioncontroller") || 
-                                  lowerPkg.equals("android") || 
                                   lowerPkg.contains("settings") ||
+                                  (lowerPkg.equals("android") && (classStr.contains("resolveractivity") || classStr.contains("chooseractivity"))) ||
                                   (lowerPkg.contains("launcher") && !KNOWN_LAUNCHERS.contains(pkg));
 
         if (!isPotentialHost) return false;
 
-        String classStr = "";
-        if (event != null && event.getClassName() != null) {
-            classStr = event.getClassName().toString().toLowerCase(Locale.US);
+        // Exact class-level match for Role / Default app activities
+        if (classStr.contains("defaultappactivity") || classStr.contains("requestroleactivity") || 
+            classStr.contains("homesettingsactivity") || classStr.contains("rolesearchactivity") ||
+            classStr.contains("specialappaccessactivity")) {
+            evictHomeLauncherChange();
+            return true;
         }
 
         AccessibilityNodeInfo root = providedRoot;
@@ -2465,61 +2365,23 @@ public class LockAccessibilityService extends AccessibilityService {
                 root = event.getSource();
             }
 
-            // Quick class-level match for Role / Default app activities
-            if (classStr.contains("defaultappactivity") || classStr.contains("requestroleactivity") || classStr.contains("homesettingsactivity")) {
-                evictHomeLauncherChange();
-                return true;
-            }
-
             if (root == null) return false;
 
-            // 1. Direct window title inspection
-            String winTitle = resolveActiveWindowTitle(root);
-            if (winTitle != null) {
-                String lowerTitle = winTitle.toLowerCase(Locale.US);
-                if (lowerTitle.contains("home app") || 
-                    lowerTitle.contains("select a home") || 
-                    lowerTitle.contains("choose home") ||
-                    lowerTitle.contains("use as home") ||
-                    (lowerTitle.contains("home") && lowerTitle.contains("default"))) {
+            // Direct check on texts matching Default Home App
+            if (lowerPkg.contains("permissioncontroller") || lowerPkg.contains("settings")) {
+                List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText("Default home app");
+                if (nodes != null && !nodes.isEmpty()) {
+                    evictHomeLauncherChange();
+                    return true;
+                }
+                nodes = root.findAccessibilityNodeInfosByText("Default home");
+                if (nodes != null && !nodes.isEmpty()) {
                     evictHomeLauncherChange();
                     return true;
                 }
             }
 
-            // 2. Search for launcher and home indicators in hierarchy
-            if (lowerPkg.contains("permissioncontroller") || lowerPkg.contains("settings") || lowerPkg.equals("android")) {
-                List<AccessibilityNodeInfo> launcherNodes = root.findAccessibilityNodeInfosByText("Launcher");
-                if (launcherNodes == null || launcherNodes.isEmpty()) {
-                    launcherNodes = root.findAccessibilityNodeInfosByText("launcher");
-                }
-
-                List<AccessibilityNodeInfo> homeNodes = root.findAccessibilityNodeInfosByText("Home");
-                if (homeNodes == null || homeNodes.isEmpty()) {
-                    homeNodes = root.findAccessibilityNodeInfosByText("home");
-                }
-
-                // If PermissionController / Settings is displaying both launcher items and home references
-                if (launcherNodes != null && !launcherNodes.isEmpty() && homeNodes != null && !homeNodes.isEmpty()) {
-                    evictHomeLauncherChange();
-                    return true;
-                }
-
-                // Description string in AOSP / Google PermissionController: "Apps, often called launchers..."
-                List<AccessibilityNodeInfo> phraseNodes = root.findAccessibilityNodeInfosByText("launchers");
-                if (phraseNodes != null && !phraseNodes.isEmpty()) {
-                    evictHomeLauncherChange();
-                    return true;
-                }
-
-                phraseNodes = root.findAccessibilityNodeInfosByText("Default home");
-                if (phraseNodes != null && !phraseNodes.isEmpty()) {
-                    evictHomeLauncherChange();
-                    return true;
-                }
-            }
-
-            // 3. Third party launchers (e.g. Nova Launcher prompt to set default launcher)
+            // Third party launchers prompting to set default launcher
             if (lowerPkg.contains("launcher") && !KNOWN_LAUNCHERS.contains(pkg)) {
                 List<AccessibilityNodeInfo> defaultHomeNodes = root.findAccessibilityNodeInfosByText("Default");
                 if (defaultHomeNodes != null && !defaultHomeNodes.isEmpty()) {
@@ -2543,17 +2405,27 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     private void evictHomeLauncherChange() {
-        Log.w(TAG, "🛡️ Intercepted Default Home App / Launcher change attempt! Dismissing and evicting directly to QIEZKA.");
+        Log.w(TAG, "🛡️ Intercepted Default Home App / Launcher change attempt! Evicting directly to QIEZKA.");
         new Handler(Looper.getMainLooper()).post(() -> {
             Toast.makeText(getApplicationContext(),
                 "🛡️ Changing default home launcher is restricted by QIEZKA",
                 Toast.LENGTH_SHORT).show();
         });
 
-        // Global BACK to dismiss popup/dialog, then directly bring QIEZKA to front (no HOME fighting loop)
-        performGlobalAction(GLOBAL_ACTION_BACK);
+        // Flowchart: BLOCK AND EVICT TO QIEZKA (not route EVICT TO HOMESCREEN, and NO Back key)
         launchLockOverlay();
     }
+
+    public static boolean isHomeAppSelectionTitle(String title) {
+        if (title == null) return false;
+        String lower = title.trim().toLowerCase(Locale.US);
+        return lower.equals("default home app") || lower.contains("default home") ||
+               lower.contains("choose home") || lower.contains("select a home") ||
+               lower.contains("use as home") || lower.equals("home app") ||
+               (lower.contains("home") && lower.contains("launcher"));
+    }
+
+
 
     @Override
     public void onInterrupt() {

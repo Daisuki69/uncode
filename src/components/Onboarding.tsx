@@ -921,8 +921,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 {/* YouTube Toggle */}
                 <label className="flex items-center justify-between pt-2 border-t border-gray-700/50 cursor-pointer">
                   <div>
-                    <span className="text-xs font-bold text-gray-200 block">Allow YouTube (Academic Web Only)</span>
-                    <span className="text-[11px] text-gray-400">Allows lectures on Chrome; strictly blocks Shorts. Native YouTube app is always blocked.</span>
+                    <span className="text-xs font-bold text-gray-200 block">Allow YouTube</span>
+                    <span className="text-[11px] text-gray-400">Allows YouTube application and YouTube web browser domains.</span>
                   </div>
                   <input
                     type="checkbox"
@@ -1006,7 +1006,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <div className="flex items-center justify-between pb-2 border-b border-gray-700/50">
                 <span className="text-gray-400 font-medium">YouTube Policy</span>
                 <span className="font-bold text-gray-200">
-                  {allowYoutube ? 'Academic Only (Web, No Shorts)' : 'Completely Blocked'}
+                  {allowYoutube ? 'Allowed (App + Web)' : 'Completely Blocked'}
                 </span>
               </div>
 

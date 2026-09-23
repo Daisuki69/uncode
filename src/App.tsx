@@ -6,7 +6,7 @@ import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch, setServicePolicy } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -1173,6 +1173,11 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
                     }
                     if (updates.enforceSafeSearch !== undefined) {
                       setEnforceSafeSearch(updates.enforceSafeSearch);
+                    }
+                    if (updates.activeServices !== undefined) {
+                      for (const s of ['youtube', 'gemini', 'openai', 'claude']) {
+                        setServicePolicy(s, updates.activeServices.includes(s));
+                      }
                     }
                     setSettings(prev => ({ ...prev, ...updates }));
                     navigate('dashboard', 'backward');

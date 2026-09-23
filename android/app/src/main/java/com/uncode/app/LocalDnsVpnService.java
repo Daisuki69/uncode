@@ -284,8 +284,17 @@ public class LocalDnsVpnService extends VpnService {
         String lowerDomain = queryDomain.toLowerCase(Locale.US);
 
         boolean allowYoutube = prefs.getBoolean("allow_youtube", false);
+        Set<String> activeServiceIds = prefs.getStringSet("active_unified_services", null);
+        Set<String> allowedDomains = new HashSet<>(UnifiedPolicyRegistry.getDomainsForServices(activeServiceIds));
+        Set<String> customAllowed = prefs.getStringSet("allowed_domains", null);
+        if (customAllowed != null) allowedDomains.addAll(customAllowed);
+        if (allowYoutube) {
+            UnifiedService yt = UnifiedPolicyRegistry.SERVICES.get("youtube");
+            if (yt != null) allowedDomains.addAll(yt.getDomains());
+        }
+
         // 1. Check if domain is blocked via WebClassifier multi-genre intelligence
-        WebClassifier.ClassificationResult classResult = WebClassifier.classifyDomain(lowerDomain, allowYoutube);
+        WebClassifier.ClassificationResult classResult = WebClassifier.classifyDomain(lowerDomain, allowYoutube, allowedDomains);
         if (classResult.isBlocked) {
             // Synthesize local sinkhole NXDOMAIN response
             byte[] responseDns = buildSinkholeResponse(packet, dnsOffset, dnsLength);

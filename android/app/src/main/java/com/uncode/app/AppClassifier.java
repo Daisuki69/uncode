@@ -427,8 +427,9 @@ public final class AppClassifier {
         try {
             SharedPreferences prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE);
             if (prefs != null) {
-                boolean allow = prefs.getBoolean("allow_youtube", false);
-                if (allow) return true;
+                if (prefs.getBoolean("allow_youtube", false)) return true;
+                Set<String> activeServices = prefs.getStringSet("active_unified_services", null);
+                if (activeServices != null && activeServices.contains("youtube")) return true;
                 String policy = prefs.getString("youtube_policy", "");
                 if ("academic".equalsIgnoreCase(policy) || "unrestricted".equalsIgnoreCase(policy)) {
                     return true;
@@ -442,7 +443,7 @@ public final class AppClassifier {
      * Evaluates whether a package is recognized in KnownSafe (MSG_GATE2):
      * 1. QIEZKA itself
      * 2. User-configured UI Allowed Apps whitelist
-     * 3. User-configured in APP UI YouTube Policy
+     * 3. User-configured in APP UI YouTube Policy / Unified Service Policy
      * 4. Active & installed keyboard / Input Method Editors (IMEs)
      */
     public static boolean isKnownSafe(Context context, String pkg, Set<String> userWhitelist) {
@@ -460,6 +461,18 @@ public final class AppClassifier {
         // User-configured in APP UI YouTube Policy (MSG_GATE2)
         if (isYoutubeAllowedByPolicy(context, pkg)) {
             return true;
+        }
+        // Unified Service Policies (e.g. YouTube, Gemini, OpenAI, Claude)
+        if (context != null) {
+            try {
+                SharedPreferences prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE);
+                if (prefs != null) {
+                    Set<String> activeServices = prefs.getStringSet("active_unified_services", null);
+                    if (UnifiedPolicyRegistry.isPackageAllowedByService(pkg, activeServices)) {
+                        return true;
+                    }
+                }
+            } catch (Exception ignore) {}
         }
         // Keyboards / IMEs
         if (LockAccessibilityService.isKeyboardPackage(context, pkg)) {
