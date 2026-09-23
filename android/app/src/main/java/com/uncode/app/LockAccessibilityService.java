@@ -465,7 +465,29 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private final Set<String> dynamicExemptPackages = new HashSet<>();
     private final Set<String> dynamicKeyboardPackages = new HashSet<>();
+    public static final Set<String> dynamicLauncherPackages = new HashSet<>();
     private SharedPreferences prefs;
+
+    public static boolean isLauncherApp(Context context, String pkg) {
+        if (pkg == null) return false;
+        if (KNOWN_LAUNCHERS.contains(pkg) || dynamicLauncherPackages.contains(pkg)) return true;
+        if (context != null) {
+            try {
+                PackageManager pm = context.getPackageManager();
+                if (pm != null) {
+                    Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+                    homeIntent.addCategory(Intent.CATEGORY_HOME);
+                    homeIntent.setPackage(pkg);
+                    List<ResolveInfo> list = pm.queryIntentActivities(homeIntent, 0);
+                    if (list != null && !list.isEmpty()) {
+                        dynamicLauncherPackages.add(pkg);
+                        return true;
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+        return false;
+    }
 
     private String lastForegroundPackage = null;
     private String lastBlockedPackage = null;
@@ -665,7 +687,21 @@ public class LockAccessibilityService extends AccessibilityService {
             dynamicExemptPackages.addAll(KNOWN_STUDENT_APPS);
             dynamicExemptPackages.addAll(KNOWN_AI_APPS);
 
-            Log.d(TAG, "Discovered dynamic exempt packages: media=" + dynamicExemptPackages.size() + ", keyboards=" + dynamicKeyboardPackages.size());
+            // Dynamically discover all installed Home Launchers (CATEGORY_HOME)
+            try {
+                Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+                homeIntent.addCategory(Intent.CATEGORY_HOME);
+                List<ResolveInfo> homeApps = pm.queryIntentActivities(homeIntent, 0);
+                if (homeApps != null) {
+                    for (ResolveInfo info : homeApps) {
+                        if (info.activityInfo != null && info.activityInfo.packageName != null) {
+                            dynamicLauncherPackages.add(info.activityInfo.packageName);
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+
+            Log.d(TAG, "Discovered dynamic exempt packages: media=" + dynamicExemptPackages.size() + ", keyboards=" + dynamicKeyboardPackages.size() + ", launchers=" + dynamicLauncherPackages.size());
         } catch (Exception e) {
             Log.w(TAG, "Error resolving dynamic media/keyboard packages: " + e.getMessage());
         }
@@ -828,19 +864,6 @@ public class LockAccessibilityService extends AccessibilityService {
                  eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED) && !isSystemOrLauncher(pkgStr)) {
                 lastForegroundPackage = pkgStr;
             }
-
-            // Never inspect or block QIEZKA itself
-            if (!pkgStr.equals(getPackageName())) {
-                // ── Anti-Tamper: Intercept Default Home Launcher Selection Popup ──
-                if (interceptHomeLauncherChangeAttempt(event, null, pkgStr)) {
-                    return;
-                }
-
-                // ── Anti-Uninstall Shield (Secondary Defense when Device Admin is not granted) ──
-                if (interceptUninstallAttempt(event, pkgStr)) {
-                    return;
-                }
-            }
         }
 
         boolean isLockdownActive = prefs.getBoolean("lockdown_active", false);
@@ -886,19 +909,8 @@ public class LockAccessibilityService extends AccessibilityService {
         // ── Consequence Mode Operating Hours Enforcement ──
         if (isConsequenceActive) {
             if (!inOperatingHours) {
-                // Outside operating hours (3:00 AM to 7:00 PM): QIEZKA allows general daytime access,
-                // BUT web-based games (y8, poki, etc.) and distracting websites remain strictly blocked in consequence mode!
-                if (pkgChar != null && isBrowserPackage(pkgChar.toString())) {
-                    if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
-                        eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
-                        return;
-                    }
-                    boolean isWindowStateChanged = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
-                    String currentFg = detectCurrentForegroundPackage();
-                    if (isWindowStateChanged || pkgChar.toString().equals(currentFg)) {
-                        handleBrowserUrlInspection(event, pkgChar.toString());
-                    }
-                }
+                // Safemode outside operating hours (3:00 AM to 7:00 PM):
+                // User flowchart: CHECK_HOURS -- "No (Daytime 3am-7pm)" --> ALLOW_IDLE
                 return;
             }
             isLockdownActive = true;
@@ -907,6 +919,19 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         if (!isLockdownActive) return;
+
+        // ── Anti-Tamper Shield (Gated: only active during lockdown or consequence mode) ──
+        if (pkgChar != null) {
+            String pkgStr = pkgChar.toString();
+            if (!pkgStr.equals(getPackageName())) {
+                if (interceptHomeLauncherChangeAttempt(event, null, pkgStr)) {
+                    return;
+                }
+                if (interceptUninstallAttempt(event, pkgStr)) {
+                    return;
+                }
+            }
+        }
 
         // Milestone 20: Immediate evaluation on window stack reordering (such as Recents task switch)
         // In Android, TYPE_WINDOWS_CHANGED events dispatched by WindowManager have event.getPackageName() == null!
@@ -1040,7 +1065,7 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkg.contains("permissioncontroller") || pkg.contains("packageinstaller")) {
             return false;
         }
-        if (pkg.equals("com.android.systemui") || KNOWN_LAUNCHERS.contains(pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg)) {
+        if (pkg.equals("com.android.systemui") || isLauncherApp(this, pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg)) {
             return true;
         }
         // Universal System Partition Gateway for non-browser, non-settings system overlays
@@ -1606,29 +1631,13 @@ public class LockAccessibilityService extends AccessibilityService {
         // STAGE 1 — MASTER VETO GATE: Hardware Bloatware & Game Boosters (Joyose, GameCenter, PalmStore, Glance)
         if (AppClassifier.isStage1Bloat(pkg, appLabel)) return true;
 
-        // Also inspect active window title if this package is currently in front (e.g. KissKH running under Chrome)
-        try {
-            if (isBrowserPackage(pkg)) {
-                String winTitle = resolveActiveWindowTitle(null);
-                if (winTitle != null) {
-                    if (WebBlocklistConstants.isAcademicExempt(winTitle)) {
-                        return false; // Academic window is unconditionally immune
-                    }
-                    if (BlacklistConstants.isBlacklisted("", winTitle)) {
-                        Log.w(TAG, "isPackageBlocked: identified blocked PWA window title: " + winTitle + " under " + pkg);
-                        return true;
-                    }
-                }
-            }
-        } catch (Exception ignore) {}
-
         if (isKeyboardApp(pkg)) return false;
         if (isAuthenticatorApp(pkg)) return false;
         if (isNotesApp(pkg)) return false;
         if (isAiApp(pkg)) return false;
         if (isStudentApp(pkg)) return false;
         if (isHiddenInfrastructureApp(pkg)) return false;
-        if (KNOWN_LAUNCHERS.contains(pkg)) return false;
+        if (isLauncherApp(this, pkg)) return false;
         if (pkg.contains("documentsui")) return false;
         if (MEDIA_AND_FILE_EXEMPT.contains(pkg) || dynamicExemptPackages.contains(pkg) || KNOWN_MUSIC_APPS.contains(pkg)) return false;
 
@@ -1785,63 +1794,51 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
-        // ── 24/7 Anti-Tamper: Continuous Home Launcher & Anti-Uninstall Ticker Shield ──
-        try {
-            AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
-            if (activeRoot != null) {
-                try {
-                    CharSequence p = activeRoot.getPackageName();
-                    if (p != null) {
-                        String rootPkg = p.toString();
-                        if (!rootPkg.equals(getPackageName())) {
-                            if (interceptHomeLauncherChangeAttempt(null, activeRoot, rootPkg)) {
-                                return;
-                            }
-                            if (interceptUninstallAttempt(null, rootPkg)) {
-                                return;
-                            }
-                        }
-                    }
-                } finally {
-                    activeRoot.recycle();
-                }
-            }
-        } catch (Exception ignore) {}
+        // 3. Stage 1 & Stage 2 Enforcement Gate
+        // User Flowchart: Standby / System Idle when neither lockdown nor consequence is active
+        boolean isEnforcing = isLockdownActive || (isConsequenceActive && inOperatingHours);
+        if (!isEnforcing) {
+            return; // ALLOW ALL (System Idle)
+        }
 
-        // 3. If consequence mode or lockdown is currently active in operating hours, continuously enforce blocking!
-        if ((isConsequenceActive && inOperatingHours) || isLockdownActive) {
-            AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
-            if (activeRoot != null) {
-                try {
-                    CharSequence p = activeRoot.getPackageName();
-                    if (p != null) {
-                        String rootPkg = p.toString();
+        // ── STAGE 1: Anti-Tamper & Task Killer Shield (Active Lockdown / Consequence Only) ──
+        AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
+        if (activeRoot != null) {
+            try {
+                CharSequence p = activeRoot.getPackageName();
+                if (p != null) {
+                    String rootPkg = p.toString();
+                    if (!rootPkg.equals(getPackageName())) {
+                        if (interceptHomeLauncherChangeAttempt(null, activeRoot, rootPkg)) {
+                            return;
+                        }
                         if (interceptUninstallAttempt(null, rootPkg)) {
                             return;
                         }
-                        if (!isSystemOrLauncher(rootPkg) && !rootPkg.equals(getPackageName())) {
+                        if (!isSystemOrLauncher(rootPkg)) {
                             if (isPackageBlocked(rootPkg)) {
                                 enforceBlock(rootPkg);
+                                return;
                             } else if (isBrowserPackage(rootPkg)) {
                                 inspectBrowserForBlockedPwaOrContent(activeRoot, rootPkg);
                             }
                         }
                     }
-                } finally {
-                    activeRoot.recycle();
                 }
+            } finally {
+                activeRoot.recycle();
             }
+        }
 
-            String currentForegroundPkg = detectCurrentForegroundPackage();
-            if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
-                if (isPackageBlocked(currentForegroundPkg)) {
+        String currentForegroundPkg = detectCurrentForegroundPackage();
+        if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
+            if (isPackageBlocked(currentForegroundPkg)) {
+                enforceBlock(currentForegroundPkg);
+            } else if (isBrowserPackage(currentForegroundPkg)) {
+                String winTitle = resolveActiveWindowTitle(null);
+                if (winTitle != null && BlacklistConstants.isBlacklisted("", winTitle)) {
+                    Log.w(TAG, "Ticker caught blocked PWA by window title: " + winTitle);
                     enforceBlock(currentForegroundPkg);
-                } else if (isBrowserPackage(currentForegroundPkg)) {
-                    String winTitle = resolveActiveWindowTitle(null);
-                    if (winTitle != null && BlacklistConstants.isBlacklisted("", winTitle)) {
-                        Log.w(TAG, "Ticker caught blocked PWA by window title: " + winTitle);
-                        enforceBlock(currentForegroundPkg);
-                    }
                 }
             }
         }
