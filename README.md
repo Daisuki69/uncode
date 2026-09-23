@@ -2095,10 +2095,10 @@ flowchart TB
 
 ---
 
-note: i do notice a home app when defaulted, you cant uninstall it, have to navigate to settings inorder to do so, uninstall prevention would be home app + already device admin
+What if Update: 
+i do notice a home app when defaulted, you cant uninstall it, have to navigate to settings inorder to do so, uninstall prevention would be home app + already device admin
 the app would be persistent always since it will be the first thing you will see the moment phone boots
 imagine if that was qiezka
-that could be another model in future
 qiezka would be even stronger
 
 qiezka would be like a home shell architecture
@@ -2106,7 +2106,7 @@ making qiezka a homelauncher would require me to code a home launcehr ui... and 
 make qiezka a home app but we will use the previous home launcher as the the ui with a qiezka as an app
 
 like as if qiezka was never the home launcher in the first place
-if user clicks home button qiezka handler would be launched and quickly launch the previous launcher
+if user clicks home button qiezka handler would be launched and quickly launch user selected launcher or we detected what was the previous launcher
 
 That could produce:
 User: presses Home
@@ -2138,6 +2138,23 @@ so uninstall isnt merely uninstall you have to select first different launcher i
 > and somehow you also need to deactivate admin inorder to unInstall qiezka, which is also intercept
 
 would require to sOmehow intercept a default home launcher selectiOn whenever it happens
+
+```mermaid
+flowchart TB
+    A["ANDROID<br>User presses HOME"] --> C["QiezkaHomeHandlerActivity<br>🏠 Android HOME Role"]
+    C --> Asd{"QiezkaMainactivty Running?"}
+    Asd -- Yes --> K["Enforcement operational"]
+    Asd -- No --> J["Launch /Autoopen / restart<br>QiezkaMainActivity<br>as required by architecture"]
+    J --> K
+    K --> L["Read selectedLauncher<br>from persistent state"]
+    L --> M["QiezkaHomeHandlerActivity<br>delegates HOME"]
+    M --> N@{ label: "User's actual launcher<br>Lawnchair / Nova / etc." }
+    N --> O["Normal Android home screen"]
+
+    N@{ shape: rect}
+    style K stroke-width:2px
+    style N stroke-width:2px
+```
 
 wait actually cant we just abuse the accesibility feature, instead of blocking the whole settings app, what if we just block a specific layer that allows the user to deactivate/uninstall qiezka like
 /appinfo/uninstall/accesibility, this must be discussed
@@ -2306,6 +2323,133 @@ Several potential forks have been proposed but are currently deemed **impractica
 | **🎨 QIEZKA Creative** | Unlock device by drawing, painting, or writing poetry/fiction. | • **Plagiarism & Image Download**: Downloading artwork or text from Pinterest, Google Images, or AI generators and photographing the monitor.<br/>• **Subjective Effort**: No algorithmic metric can verify whether a 5-minute sketch represents honest effort or deliberate evasion. | ❌ **Rejected / Impractical** (Impossible to verify effort objectively without continuous surveillance). |
 
 ---
+Proposed Quiz App Flow
+```mermaid
+flowchart TB
+    D["🏠 Dashboard"]
+
+    %% =========================
+    %% MY DECKS
+    %% =========================
+    D --> MD["📚 My Decks"]
+    MD --> DL["Deck List"]
+    D --> Schd["Schedules"]
+    DL --> S0["📖 Select Deck"]
+    DL --> ODS["📊 Overall Deck Statistics"]
+    DL --> CREATE["➕ Create Deck"]
+
+    S0 --> SD["Deck Details"]
+    SD --> EDITQ["✏️ Flashcard Editor"]
+    SD --> DD["🗑️ Delete Deck"]
+    SD --> DST["📊 Deck Statistics"]
+    SD --> DSQ["▶ Start Quiz<br/>This Deck"]
+
+    DSQ --> QUIZ{"Quiz now?"}
+    QUIZ -- No --> SCHEDULER["📝 Schedule Function"]
+    SCHEDULER --> Schd
+    QUIZ -- Yes --> StartNow["📝 Quiz now"]
+
+    %% =========================
+    %% GLOBAL START QUIZ
+    %% =========================
+    D --> SQ["▶ Start Quiz"]
+
+    SQ --> ASK["Which Decks?"]
+
+    ASK --> ONE["Select One Deck"]
+    ASK --> MULTI["Select Multiple Decks"]
+
+    ONE --> QUIZ
+
+    MULTI --> MO["Choose Quiz Combination"]
+
+    MO --> OPT1["Option 1<br/>Combined Pool"]
+    MO --> OPT2["Option 2<br/>Stitched Decks"]
+
+    %% OPTION 1
+    OPT1 --> DIST["Set Percentage Per Deck and Define How many questions"]
+
+    DIST --> COMBINE["Combine Flashcards<br/>
+    From All Selected Decks"]
+
+    COMBINE --> SHUFFLE["Shuffle Combined Pool"]
+    SHUFFLE --> APPLY["Apply User Distribution"]
+    APPLY --> QUIZ
+
+    %% OPTION 2
+    OPT2 --> STITCH["Stitch Selected Decks"]
+    STITCH --> ORDER["QIEZKA Determines<br/>Deck Order"]
+    ORDER --> QUIZ
+
+    %% =========================
+    %% CREATE DECK
+    %% =========================
+    CREATE --> MANUAL["✍️ Manual"]
+    CREATE --> IMPORT["📄 Import"]
+
+    %% MANUAL
+    MANUAL --> EDITQ
+
+    EDITQ --> PHOTO{"Add Photo?"}
+
+    PHOTO -->|No| DEF["Definition / Answer"]
+    PHOTO -->|Yes| IMG["🖼️ Add Photo"]
+
+    IMG --> ANN{"Create Annotation?"}
+
+    ANN -->|No| DEF
+    ANN -->|Yes| AE["🎯 Annotation Editor"]
+
+    
+    AE --> LINE["Draw Connector Line/Arrow/Circle/Similar"]
+    LINE --> TARGET["Add Answer Box / Text Box(not limited to 1), Align it perfectly to the Connector Line"]
+    TARGET --> PREVIEW["Flashcard Preview"]
+
+    PREVIEW --> BACK{"Go Back?"}
+
+    BACK -->|Annotation Exists| ANNCARD["Annotated Flashcard<br/>
+    Annotation Only"]
+
+    BACK -->|No Annotation| DEF
+
+    ANNCARD --> NEXT["NEXT"]
+
+    DEF --> STANDARD["Standard Flashcard"]
+    STANDARD --> NEXT
+
+    %% Definition box conversion
+    IMG --> DEFBOX["Definition Box"]
+    DEFBOX -->|Clicked| STANDARD
+
+    %% More cards
+    NEXT --> MORE{"Add Another Flashcard?"}
+    MORE -->|Yes| EDITQ
+    MORE -->|No| SAVE["💾 Save Deck"]
+
+    %% =========================
+    %% IMPORT / TEMPLATE
+    %% =========================
+    IMPORT --> TEMPLATE["📋 Template Library"]
+    TEMPLATE --> SELECTT["Select Template"]
+    SELECTT --> GEN["Generate Questions"]
+    GEN --> REVIEW["Review Generated Questions"]
+    REVIEW --> EDITQ
+    REVIEW --> DELETEQ["🗑️ Delete"]
+    DELETEQ --> REVIEW
+    REVIEW --> CHANGE{"Change Template?"}
+    CHANGE -->|Yes| SELECTT
+    CHANGE -- No --> EDITQ
+
+    %% =========================
+    %% RECENT QUIZZES
+    %% =========================
+    D --> RQ["🕘 Recent Quizzes"]
+    RQ --> HISTORY["Quiz History"]
+    HISTORY --> RESULT["Quiz Result"]
+
+    RESULT --> REVIEWQ["Review Answers"]
+    RESULT --> RETAKE["Retake Quiz"]
+```
 
 ## 💻 Tech Stack
 

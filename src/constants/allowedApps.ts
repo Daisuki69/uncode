@@ -59,7 +59,7 @@ export function isMessagingPackage(packageId?: string | null, appName?: string |
   }
   if (appName) {
     const lowerName = appName.trim().toLowerCase();
-    if (lowerName.includes('facebook') || lowerName.includes('instagram') ||
+    if ((lowerName.includes('facebook') && !lowerName.includes('messenger')) || lowerName.includes('instagram') ||
         lowerName.includes('twitter') || lowerName.includes('reddit') || lowerName.includes('tiktok')) {
       return false;
     }
