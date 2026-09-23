@@ -659,6 +659,13 @@ public final class AppClassifier {
             }
         }
 
+        // ── Stage 2: Home Launcher Exemption ──
+        // Home launchers (user's home screen) are always allowed to execute and must never fall through to Layer 5
+        if (LockAccessibilityService.isLauncherApp(context, pkg)) {
+            Log.d(TAG, "Allowed as Home Launcher: " + pkg + " (" + appLabel + ")");
+            return false;
+        }
+
         // ── Layer 5: Conservative Fallback ──
         // Unknown user-installed third-party app with undefined category and no educational signals is blocked
         Log.i(TAG, "Blocked by conservative fallback (unknown user app): " + pkg + " (" + appLabel + ")");

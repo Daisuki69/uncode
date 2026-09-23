@@ -22,10 +22,11 @@ class BootReceiver : BroadcastReceiver() {
         if (lockdownWasActive) {
             val now = System.currentTimeMillis()
             if (lockEndTime > 0 && now >= lockEndTime) {
-                // Lock expired while device was powered off
-                Log.i(TAG, "Boot detected: lockdown already expired while powered off — releasing")
+                // Lock expired while device was powered off — transition to consequence mode
+                Log.i(TAG, "Boot detected: lockdown already expired while powered off — transitioning to consequence")
                 prefs.edit()
                     .putBoolean("lockdown_active", false)
+                    .putBoolean("consequence_active", true)
                     .remove("lock_end_time")
                     .remove("active_schedule_id")
                     .apply()
