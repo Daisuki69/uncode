@@ -52,6 +52,10 @@ public final class WebClassifier {
             return new ClassificationResult(false, null);
         }
 
+        public static ClassificationResult allowed(String reason) {
+            return new ClassificationResult(false, reason);
+        }
+
         public static ClassificationResult blocked(String reason) {
             return new ClassificationResult(true, reason);
         }

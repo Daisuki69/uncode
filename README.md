@@ -2183,8 +2183,8 @@ flowchart TD
    - Android 16 Sandboxing Defense: Resolved `AccessibilityWindowInfo.getTitle()` (`"Default home app"`, `"Uninstall"`) via `getWindows()` in `detectCurrentForegroundPackage()`, `onTickerTick()`, and `onAccessibilityEvent()` to catch role dialogs where accessibility node trees are restricted by Android OS.
 10. **Dual-Action Flicker Elimination**:
     - Completely removed `performGlobalAction(GLOBAL_ACTION_BACK)` from `interceptUninstallAttempt`, `evictHomeLauncherChange`, and PWA eviction, ensuring a clean single-action launch directly to the QIEZKA lock overlay without WindowManager transition collisions.
-11. **Complete Removal of Anti-Uninstall Tamper Interception**:
-    - Purged `interceptUninstallAttempt()` and `isUninstallTitle()` from `LockAccessibilityService.java`.
+11. **Complete Removal of Anti-Uninstall Tamper Interception & Package Installer Purge**:
+    - Purged `interceptUninstallAttempt()` and `isUninstallTitle()` from `LockAccessibilityService.java`, and removed `packageinstaller` from `AppClassifier.isSettingsOrDeviceManager()` and `LockAccessibilityService.isSystemOrLauncher()`.
     - Android OS natively protects QIEZKA against uninstallation via active Device Administrator privileges (`AdminReceiver`). Deactivating Device Admin is permanently blocked by the Stage 1 Master Veto Gate (`isSettingsOrDeviceManager`).
     - Eliminates false-positive interceptions and unblocks users from cleanly uninstalling standard third-party apps without interference.
 12. **Unified Service Policy Engine (`packageName + domain`)**:
@@ -2271,6 +2271,8 @@ so uninstall isnt merely uninstall you have to select first different launcher i
 
 would require to sOmehow intercept a default home launcher selectiOn whenever it happens
 
+possible to have the app package name to be randomised (not unreadable string of text)
+to try and prevent users from actually finding qieska using adb and force stopping it/uninstall
 ```mermaid
 flowchart TB
     A["ANDROID<br>User presses HOME"] --> C["QiezkaHomeHandlerActivity<br>🏠 Android HOME Role"]

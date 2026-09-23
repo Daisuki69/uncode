@@ -763,7 +763,7 @@ public final class AppClassifier {
             lowerPkg.equals("com.huawei.systemmanager") ||
             lowerPkg.equals("com.google.android.apps.wellbeing") ||
             lowerPkg.contains(".settings") || lowerPkg.contains("securitycore") ||
-            lowerPkg.contains("permissioncontroller") || lowerPkg.contains("packageinstaller")) {
+            lowerPkg.contains("permissioncontroller")) {
             return true;
         }
         if (appLabel != null && !appLabel.trim().isEmpty()) {
