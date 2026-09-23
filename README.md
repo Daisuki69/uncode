@@ -2157,6 +2157,48 @@ flowchart TD
 5. **Cleaned Legacy `blacklistedApps.ts` Substrings**:
    - Refined frontend `isAppBlacklisted` in [`blacklistedApps.ts`](file:///src/constants/blacklistedApps.ts) to strictly guard the Stage 1 Master Veto Gate (Anti-Tamper Settings, Security Center, Joyose, GameSpace, and work profile sandbox cloners).
    - Removed deprecated hardcoded substrings (`youtube`, `tiktok`, `reddit`, remote desktop, vaults, VMs) that were conflicting with `AppClassifier` and the UI YouTube toggle.
+6. **Unified Web Browser & PWA Inspection Pipeline (Flowchart Alignment & Dual-Flaw Resolution)**:
+   - Unified fragmented browser inspection into a single authoritative pipeline: `inspectBrowserWindow(root, pkg, fromTicker)`.
+   - **Restored Clean Native App Eviction**:
+     - Completely removed `performGlobalAction(GLOBAL_ACTION_BACK)` from `enforceBlock()`.
+     - Blocked native applications (YouTube app, mobile games, Settings, Security Center) cleanly launch and stay on the QIEZKA Lock overlay without unwanted Back button actions.
+   - **Insulated Search Engine Results (`VERIFICATION ──► ALLOW_SEARCH`)**:
+     - Integrated `isBrowserSearch(url, windowTitle, root)` gate at the top of the browser pipeline.
+     - Search engine results pages (Google Search, Bing, DuckDuckGo, Yahoo, query typing in Omnibox) are 100% immune research pages; window title and DOM blacklist checks are bypassed to eliminate false-positive keyword triggers.
+   - **Bifurcated Browser Tab Auto-Back vs. PWA Lock Eviction**:
+     - Standard browser tabs with an address bar (`url != null`) enforce in-browser Auto-Back (`remediateBlockedBrowserTab`) or Home button navigation, preventing browser termination.
+     - Standalone PWAs / TWAs without address bars (`url == null`) dismiss the Custom Tab with Back and evict directly to the QIEZKA Lock overlay (`enforceBlock`).
+7. **Complete Elimination of `ALWAYS_EXEMPT`**:
+   - Completely deleted `ALWAYS_EXEMPT` and `TELEPHONY_AND_SIM_EXEMPT` sets from `LockAccessibilityService.java` and removed whitelist insertion from `LockPlugin.java`.
+   - Core telephony, carrier services, SIM Toolkit, and hardware utilities are cleanly and uniformly handled by **Stage 3 Universal System Gateway** (`FLAG_SYSTEM == true` $\rightarrow$ `SYSALLOW`), while Settings and Device Managers remain strictly guarded by **Stage 1 Master Veto Gate**.
+8. **Browser Same-Page & Long-Press Immunity**:
+   - Strictly enforced flowchart specification: *"Browsing including long press or specifics continues uninterrupted (AS LONG AS USER IS IN THE SAME PAGE)"*.
+   - Added `TYPE_VIEW_LONG_CLICKED` immunity to ensure long-pressing links (such as `youtube.com` on a Google Search results page in Chrome) or selecting text never falsely triggers inspection, keyword matching, or QIEZKA eviction.
+   - Completely removed window title inspection (`resolveActiveWindowTitle`) from browser evaluation to eliminate stale title leaks across tabs.
+   - Integrated immediate destination URL classification (`WebClassifier.isDestinationUrl(url)`): visiting game sites like `y8.com` classifies and executes in-browser Auto-Back on the initial homepage load without needing a sub-page click.
+9. **Exact Process Interception for Default Home App & Uninstaller**:
+   - Replaced fragile English UI word matching (`"QIEZKA"`, `"Uninstall"`, `"Cancel"`) with exact process component matching:
+     - Default Home App: `com.android.permissioncontroller.role.ui.DefaultAppActivity`, `HomeSettingsActivity`, `RequestRoleActivity`, `RoleSearchActivity`, `SpecialAppAccessActivity`, and Android framework `ResolverActivity`.
+     - Uninstaller: `com.android.packageinstaller.UninstallerActivity`, `com.google.android.packageinstaller.UninstallerActivity`. Distinguishes uninstaller from normal package installation so legitimate app installs remain permitted.
+   - Android 16 Sandboxing Defense: Resolved `AccessibilityWindowInfo.getTitle()` (`"Default home app"`, `"Uninstall"`) via `getWindows()` in `detectCurrentForegroundPackage()`, `onTickerTick()`, and `onAccessibilityEvent()` to catch role dialogs where accessibility node trees are restricted by Android OS.
+10. **Dual-Action Flicker Elimination**:
+    - Completely removed `performGlobalAction(GLOBAL_ACTION_BACK)` from `interceptUninstallAttempt`, `evictHomeLauncherChange`, and PWA eviction, ensuring a clean single-action launch directly to the QIEZKA lock overlay without WindowManager transition collisions.
+11. **Complete Removal of Anti-Uninstall Tamper Interception**:
+    - Purged `interceptUninstallAttempt()` and `isUninstallTitle()` from `LockAccessibilityService.java`.
+    - Android OS natively protects QIEZKA against uninstallation via active Device Administrator privileges (`AdminReceiver`). Deactivating Device Admin is permanently blocked by the Stage 1 Master Veto Gate (`isSettingsOrDeviceManager`).
+    - Eliminates false-positive interceptions and unblocks users from cleanly uninstalling standard third-party apps without interference.
+12. **Unified Service Policy Engine (`packageName + domain`)**:
+    - Implemented [`UnifiedPolicyRegistry.kt`](file:///android/app/src/main/java/com/uncode/app/UnifiedPolicyRegistry.kt) with type-safe `UnifiedService` objects pairing Android application package IDs directly with web domains:
+      - **YouTube**: `com.google.android.youtube`, `com.google.android.youtube.tv`, `app.revanced.android.youtube`, `org.schabi.newpipe`, `app.libre_tube` + `youtube.com`, `youtu.be`, `m.youtube.com`.
+      - **Google Gemini**: `com.google.android.apps.gemini`, `com.google.android.apps.bard` + `gemini.google.com`, `bard.google.com`.
+      - **OpenAI / ChatGPT**: `com.openai.chatgpt` + `chatgpt.com`, `chat.openai.com`, `openai.com`.
+      - **Claude AI**: `com.anthropic.claude` + `claude.ai`, `anthropic.com`.
+    - Zero runtime string parsing: evaluates through high-performance $O(1)$ HashSets (`getPackagesForServices`, `getDomainsForServices`).
+    - Added `@PluginMethod public void setServicePolicy` and `getActiveServices` to [`LockPlugin.java`](file:///android/app/src/main/java/com/uncode/app/LockPlugin.java), automatically synchronizing `uncode_lock.xml` (`active_unified_services`), native app whitelist, and web domains while immediately clearing both `AppClassifier` and `WebClassifier` decision caches.
+    - Updated [`SettingsOverlay.tsx`](file:///src/components/SettingsOverlay.tsx) with a dedicated **Unified Service Policy Engine** card grid, allowing users to toggle individual services and have changes immediately reflected across native app locks, browser address bar URL guards, and loopback DNS sinkholes simultaneously.
+13. **Broad YouTube Simplification**:
+    - Replaced fragile DOM keyword scraping, Shorts heuristic blocks, and video title inspection with broad allowance when YouTube is enabled.
+    - When YouTube is allowed, both official/re-vanced native apps and web browser domains (`youtube.com`, `youtu.be`, `m.youtube.com`) are fully accessible.
 
 ### Patch: Pure-List KnownDistracting, KnownSafe & Stage 3 System Delegation (Flow Update V3)
 1. **Decoupled `KnownDistracting` Package Registry**:

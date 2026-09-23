@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import org.json.JSONException;
@@ -163,7 +164,6 @@ public class LockPlugin extends Plugin {
 
             // Always exempt document pickers and media providers
             whitelist.addAll(LockAccessibilityService.MEDIA_AND_FILE_EXEMPT);
-            whitelist.addAll(LockAccessibilityService.ALWAYS_EXEMPT);
 
             // Save whitelist and timestamp for AccessibilityService
             prefs.edit()
@@ -259,7 +259,6 @@ public class LockPlugin extends Plugin {
                 editor.putString("consequence_schedule_id", scheduleId);
             }
             if (whitelist != null && !whitelist.isEmpty()) {
-                whitelist.addAll(LockAccessibilityService.ALWAYS_EXEMPT);
                 editor.putStringSet("whitelist", whitelist);
             }
             editor.apply();
@@ -407,15 +406,99 @@ public class LockPlugin extends Plugin {
     public void setAllowYoutube(PluginCall call) {
         try {
             boolean allow = Boolean.TRUE.equals(call.getBoolean("allow", false));
-            prefs.edit().putBoolean("allow_youtube", allow).apply();
+            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
+            if (allow) {
+                activeServices.add("youtube");
+            } else {
+                activeServices.remove("youtube");
+            }
+
+            Set<String> domains = UnifiedPolicyRegistry.getDomainsForServices(activeServices);
+
+            prefs.edit()
+                .putBoolean("allow_youtube", allow)
+                .putStringSet("active_unified_services", activeServices)
+                .putStringSet("allowed_domains", domains)
+                .apply();
+
             AppClassifier.clearCache();
-            Log.i(TAG, "Allow YouTube set to: " + allow);
+            WebClassifier.clearCache();
+            Log.i(TAG, "Allow YouTube set to: " + allow + " (active_unified_services=" + activeServices + ")");
             JSObject ret = new JSObject();
             ret.put("success", true);
             call.resolve(ret);
         } catch (Exception e) {
             Log.e(TAG, "setAllowYoutube failed", e);
             call.reject("setAllowYoutube failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setServicePolicy(PluginCall call) {
+        try {
+            String serviceId = call.getString("serviceId", "");
+            if (serviceId == null || serviceId.trim().isEmpty()) {
+                call.reject("serviceId is required");
+                return;
+            }
+            String key = serviceId.toLowerCase(Locale.US).trim();
+            boolean allowed = Boolean.TRUE.equals(call.getBoolean("allowed", false));
+
+            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
+            if (allowed) {
+                activeServices.add(key);
+            } else {
+                activeServices.remove(key);
+            }
+
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.putStringSet("active_unified_services", activeServices);
+
+            if ("youtube".equals(key)) {
+                editor.putBoolean("allow_youtube", allowed);
+            }
+
+            // Synchronize active domains
+            Set<String> domains = UnifiedPolicyRegistry.getDomainsForServices(activeServices);
+            editor.putStringSet("allowed_domains", domains);
+            editor.apply();
+
+            AppClassifier.clearCache();
+            WebClassifier.clearCache();
+
+            Log.i(TAG, "Unified service policy updated: " + key + "=" + allowed + " (active=" + activeServices + ")");
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            JSArray activeArr = new JSArray();
+            for (String s : activeServices) {
+                activeArr.put(s);
+            }
+            ret.put("activeServices", activeArr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setServicePolicy failed", e);
+            call.reject("setServicePolicy failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getActiveServices(PluginCall call) {
+        try {
+            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
+            if (prefs.getBoolean("allow_youtube", false)) {
+                activeServices.add("youtube");
+            }
+            JSObject ret = new JSObject();
+            JSArray activeArr = new JSArray();
+            for (String s : activeServices) {
+                activeArr.put(s);
+            }
+            ret.put("activeServices", activeArr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "getActiveServices failed", e);
+            call.reject("getActiveServices failed: " + e.getMessage());
         }
     }
 

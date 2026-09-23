@@ -355,6 +355,10 @@ public final class WebClassifier {
      * @return ClassificationResult indicating whether to allow or block with reason.
      */
     public static ClassificationResult classify(String rawUrl, AccessibilityNodeInfo root, boolean allowYoutube) {
+        return classify(rawUrl, root, allowYoutube, null);
+    }
+
+    public static ClassificationResult classify(String rawUrl, AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
         String cleanUrl = rawUrl != null ? rawUrl.trim().toLowerCase(Locale.US) : "";
 
         // ── SINGLE GATE: Is this an actual destination website URL? ──
@@ -368,11 +372,22 @@ public final class WebClassifier {
             return cached;
         }
 
-        // ── LAYER 1: Academic Safe-List Immunity ──
+        // ── LAYER 1: KnownSafeWeb & Academic Safe-List Immunity ──
         if (WebBlocklistConstants.isAcademicExempt(cleanUrl)) {
             ClassificationResult res = ClassificationResult.allowed();
             decisionCache.put(cleanUrl, res);
             return res;
+        }
+
+        String host = WebBlocklistConstants.extractHost(cleanUrl);
+        if (allowedDomains != null && !allowedDomains.isEmpty()) {
+            for (String allowedDomain : allowedDomains) {
+                if (host.equals(allowedDomain) || host.endsWith("." + allowedDomain)) {
+                    ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy: " + allowedDomain);
+                    decisionCache.put(cleanUrl, res);
+                    return res;
+                }
+            }
         }
 
         if (root != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -400,16 +415,18 @@ public final class WebClassifier {
             return res;
         }
 
-        // YouTube rules
+        // YouTube rules (Broad allow/block without complex DOM checks per user specification)
         if (cleanUrl.contains("youtube.com") || cleanUrl.contains("youtu.be")) {
-            if (!allowYoutube) {
+            boolean isYtAllowed = allowYoutube || (allowedDomains != null && (allowedDomains.contains("youtube.com") || allowedDomains.contains("youtu.be")));
+            if (!isYtAllowed) {
                 ClassificationResult res = ClassificationResult.blocked("YouTube is blocked during focus mode");
                 decisionCache.put(cleanUrl, res);
                 return res;
             } else {
-                if (cleanUrl.contains("/shorts") || cleanUrl.contains("#shorts")) {
-                    return ClassificationResult.blocked("YouTube Shorts are blocked during study sessions");
-                }
+                // Broad allowance: zero fragile DOM inspection, just allow
+                ClassificationResult res = ClassificationResult.allowed("YouTube allowed broadly");
+                decisionCache.put(cleanUrl, res);
+                return res;
             }
         }
 
@@ -441,6 +458,10 @@ public final class WebClassifier {
      * Evaluates incoming DNS hostnames across all threat genres.
      */
     public static ClassificationResult classifyDomain(String domain, boolean allowYoutube) {
+        return classifyDomain(domain, allowYoutube, null);
+    }
+
+    public static ClassificationResult classifyDomain(String domain, boolean allowYoutube, Set<String> allowedDomains) {
         if (domain == null || domain.isEmpty()) {
             return ClassificationResult.allowed();
         }
@@ -452,17 +473,32 @@ public final class WebClassifier {
             return cached;
         }
 
-        // Layer 1: Academic Immunity
+        // Layer 1: Academic Immunity & KnownSafeWeb
         if (WebBlocklistConstants.isAcademicExempt(lower)) {
             ClassificationResult res = ClassificationResult.allowed();
             decisionCache.put(lower, res);
             return res;
         }
 
+        if (allowedDomains != null && !allowedDomains.isEmpty()) {
+            for (String allowedDomain : allowedDomains) {
+                if (lower.equals(allowedDomain) || lower.endsWith("." + allowedDomain)) {
+                    ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy: " + allowedDomain);
+                    decisionCache.put(lower, res);
+                    return res;
+                }
+            }
+        }
+
         // YouTube handling
-        if (!allowYoutube) {
-            if (WebBlocklistConstants.isYoutubeDomain(lower)) {
+        boolean isYtAllowed = allowYoutube || (allowedDomains != null && (allowedDomains.contains("youtube.com") || allowedDomains.contains("youtu.be")));
+        if (lower.contains("youtube.com") || lower.contains("youtu.be")) {
+            if (!isYtAllowed) {
                 ClassificationResult res = ClassificationResult.blocked("YouTube is blocked during focus mode");
+                decisionCache.put(lower, res);
+                return res;
+            } else {
+                ClassificationResult res = ClassificationResult.allowed("YouTube allowed broadly");
                 decisionCache.put(lower, res);
                 return res;
             }

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search } from 'lucide-react';
-import { AppSettings, LogEntry, SavedResource, AllowedApp } from '../types';
+import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search, Sparkles, Bot } from 'lucide-react';
+import { AppSettings, LogEntry, SavedResource, AllowedApp, UNIFIED_SERVICES, UnifiedServiceDefinition } from '../types';
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
 import { loadData, saveData } from '../storage';
-import { exportBackup } from '../systemBridge';
+import { exportBackup, setServicePolicy, getActiveServices } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
 
@@ -36,6 +36,9 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
       : 'accessibility'
   );
   const [allowYoutube, setAllowYoutubeState] = useState<boolean>(settings.allowYoutube || false);
+  const [activeServices, setActiveServicesState] = useState<string[]>(
+    settings.activeServices || (settings.allowYoutube ? ['youtube'] : [])
+  );
   const blockWebGames = true; // Permanently active & cannot be turned off
   const [webError, setWebError] = useState<string | null>(null);
   
@@ -46,6 +49,11 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   useEffect(() => {
     // Load directly from imported file for static/Vercel environments
     setDefaultPrompts(staticDefaultPrompts);
+    getActiveServices().then(res => {
+      if (res && res.length > 0) {
+        setActiveServicesState(prev => Array.from(new Set([...prev, ...res])));
+      }
+    }).catch(() => {});
   }, []);
 
   const hasActiveDaytimeSchedule = (settings.schedules || []).some(s => {
@@ -109,12 +117,27 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   };
 
   const handleToggleAllowYoutube = (allow: boolean) => {
+    handleToggleService('youtube', allow);
+  };
+
+  const handleToggleService = async (serviceId: string, allowed: boolean) => {
     setWebError(null);
     if (isLockedOrConsequence) {
-      setWebError('YouTube settings are locked during active lockdown or consequence mode.');
+      setWebError('Service policies are locked during active lockdown or consequence mode.');
       return;
     }
-    setAllowYoutubeState(allow);
+    const next = allowed
+      ? Array.from(new Set([...activeServices, serviceId]))
+      : activeServices.filter(s => s !== serviceId);
+    setActiveServicesState(next);
+    if (serviceId === 'youtube') {
+      setAllowYoutubeState(allowed);
+    }
+    try {
+      await setServicePolicy(serviceId, allowed);
+    } catch (e) {
+      console.warn('Failed to setServicePolicy', serviceId, e);
+    }
   };
 
   const handleSaveGeneral = () => {
@@ -126,7 +149,8 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
       uiScale: uiScale,
       operatingMode: operatingMode,
       webProtectionMode: webProtectionMode,
-      allowYoutube: allowYoutube,
+      allowYoutube: activeServices.includes('youtube'),
+      activeServices: activeServices,
       blockWebGames: blockWebGames,
     });
   };
@@ -652,44 +676,87 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                   </div>
                 </div>
 
-                {/* Allow YouTube (Academic Only) Option */}
-                <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-start gap-2.5">
-                      <div className="p-2 rounded-xl bg-red-100 text-red-600 mt-0.5">
-                        <Video className="w-4 h-4" />
+                {/* Unified Service Policy Engine (App + Web) */}
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
+                        <Layers className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-gray-900">Allow YouTube (Academic Only)</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                            allowYoutube ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'
-                          }`}>
-                            {allowYoutube ? 'Web Allowed • No Shorts' : 'Blocked by Default'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-                          By default, YouTube is completely blocked. When enabled, educational videos on YouTube web are accessible in your browser, but YouTube Shorts are strictly blocked. The native YouTube app remains permanently blocked.
-                        </p>
+                        <span className="font-bold text-xs text-gray-900 block">Unified Service Policy Engine</span>
+                        <span className="text-[10px] text-gray-500">Pairs native app package IDs directly with web domains</span>
                       </div>
                     </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700">
+                      App + Web Synchronized
+                    </span>
+                  </div>
 
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={allowYoutube}
-                      onClick={() => handleToggleAllowYoutube(!allowYoutube)}
-                      disabled={isLockedOrConsequence}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        allowYoutube ? 'bg-red-600' : 'bg-gray-300'
-                      } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                          allowYoutube ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
+                  <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                    Toggling any service simultaneously updates both the native application whitelist and web browser domain allowlist, clearing all decision caches in real time.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {UNIFIED_SERVICES.map((svc) => {
+                      const isAllowed = activeServices.includes(svc.id);
+                      return (
+                        <div key={svc.id} className="bg-white p-3 rounded-xl border border-gray-200/80 flex flex-col justify-between shadow-xs">
+                          <div className="flex items-start justify-between gap-2.5 mb-2">
+                            <div className="flex items-start gap-2">
+                              <div className={`p-1.5 rounded-lg mt-0.5 ${
+                                svc.id === 'youtube'
+                                  ? 'bg-red-100 text-red-600'
+                                  : svc.id === 'gemini'
+                                    ? 'bg-blue-100 text-blue-600'
+                                    : svc.id === 'openai'
+                                      ? 'bg-emerald-100 text-emerald-600'
+                                      : 'bg-purple-100 text-purple-600'
+                              }`}>
+                                {svc.id === 'youtube' && <Video className="w-3.5 h-3.5" />}
+                                {svc.id === 'gemini' && <Sparkles className="w-3.5 h-3.5" />}
+                                {svc.id === 'openai' && <Bot className="w-3.5 h-3.5" />}
+                                {svc.id === 'claude' && <Cpu className="w-3.5 h-3.5" />}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-xs text-gray-900">{svc.name}</span>
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                    isAllowed ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                                  }`}>
+                                    {isAllowed ? 'Allowed' : 'Blocked'}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-indigo-600 font-semibold">{svc.badge}</span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={isAllowed}
+                              onClick={() => handleToggleService(svc.id, !isAllowed)}
+                              disabled={isLockedOrConsequence}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                isAllowed
+                                  ? (svc.id === 'youtube' ? 'bg-red-600' : svc.id === 'gemini' ? 'bg-blue-600' : svc.id === 'openai' ? 'bg-emerald-600' : 'bg-purple-600')
+                                  : 'bg-gray-300'
+                              } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                  isAllowed ? 'translate-x-4' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <p className="text-[10.5px] text-gray-500 leading-tight">
+                            {svc.description}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 

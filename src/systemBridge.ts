@@ -33,6 +33,8 @@ interface LockPluginInterface {
   setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
   setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }): Promise<{ success: boolean }>;
   setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
+  setServicePolicy(options: { serviceId: string; allowed: boolean }): Promise<{ success: boolean; activeServices?: string[] }>;
+  getActiveServices(): Promise<{ activeServices: string[] }>;
   requestVpnPermission(): Promise<{ granted: boolean }>;
   getLockStatus(): Promise<{
     isLockActive: boolean;
@@ -80,6 +82,11 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
       console.log('[Dev] Simulating setAllowYoutube:', opts);
       return { success: true };
     },
+    setServicePolicy: async (opts: { serviceId: string; allowed: boolean }) => {
+      console.log('[Dev] Simulating setServicePolicy:', opts);
+      return { success: true, activeServices: [opts.serviceId] };
+    },
+    getActiveServices: async () => ({ activeServices: [] }),
     requestVpnPermission: async () => {
       console.log('[Dev] Simulating requestVpnPermission: granted');
       return { granted: true };
@@ -359,6 +366,26 @@ export const setEnforceSafeSearch = async (enforce: boolean): Promise<boolean> =
   } catch (e) {
     console.error('setEnforceSafeSearch failed', e);
     return false;
+  }
+};
+
+export const setServicePolicy = async (serviceId: string, allowed: boolean): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.setServicePolicy({ serviceId, allowed });
+    return res?.success ?? true;
+  } catch (e) {
+    console.error('setServicePolicy failed', e);
+    return false;
+  }
+};
+
+export const getActiveServices = async (): Promise<string[]> => {
+  try {
+    const res = await LockPlugin.getActiveServices();
+    return res?.activeServices || [];
+  } catch (e) {
+    console.error('getActiveServices failed', e);
+    return [];
   }
 };
 

@@ -7,31 +7,31 @@ title QIEZKA Setup and Permissions Tool
 ::  Edit the values below (true or false) to tailor the setup to your needs.
 :: ============================================================================
 
-:: 1. Re-install/update local APK on device (default: true, keeps existing data)[cite: 5]
+:: 1. Re-install/update local APK on device (default: true, keeps existing data)[cite: 6]
 set "FORCE_REINSTALL_APK=true"
 
-:: 2. Unlock Android 13/14+ Restricted Settings automatically via ADB[cite: 5]
+:: 2. Unlock Android 13/14+ Restricted Settings automatically via ADB[cite: 6]
 set "BYPASS_RESTRICTED_SETTINGS=true"
 
-:: 3. Grant elevated system permissions (WRITE_SECURE_SETTINGS, DUMP)[cite: 5]
+:: 3. Grant elevated system permissions (WRITE_SECURE_SETTINGS, DUMP)[cite: 6]
 set "GRANT_SECURE_PERMISSIONS=true"
 
-:: 4. Whitelist QIEZKA from aggressive OS battery savers (Samsung, Xiaomi, etc.)[cite: 5]
+:: 4. Whitelist QIEZKA from aggressive OS battery savers (Samsung, Xiaomi, etc.)[cite: 6]
 set "WHITELIST_BATTERY=true"
 
-:: 5. Automatically enable QIEZKA's Accessibility Service via ADB[cite: 5]
+:: 5. Automatically enable QIEZKA's Accessibility Service via ADB[cite: 6]
 set "ENABLE_ACCESSIBILITY=true"
 
-:: 6. Activate Device Administrator to prevent uninstallation during lockdown[cite: 5]
+:: 6. Activate Device Administrator to prevent uninstallation during lockdown[cite: 6]
 ::    (100% realistic: works with all personal Google accounts logged in, no wipe needed)
 set "ACTIVATE_DEVICE_ADMIN=true"
 
-:: 7. Automatically launch QIEZKA on your phone after setup completes[cite: 5]
+:: 7. Automatically launch QIEZKA on your phone after setup completes[cite: 6]
 set "LAUNCH_APP_ON_FINISH=true"
 
 :: ============================================================================
 
-:: Check for Administrator privileges[cite: 5]
+:: Check for Administrator privileges[cite: 6]
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     echo Requesting Administrator privileges...
@@ -39,23 +39,24 @@ if %errorLevel% neq 0 (
     exit /b
 )
 
-:: Project directory[cite: 5]
+:: Project directory[cite: 6]
 set "PROJECT_DIR=%~dp0"
 
+:start_script
 echo.
 echo  ====================================================
 echo   QIEZKA - Android Permission and Lockdown Setup
 echo  ====================================================
 echo.
 
-:: Check ADB is available[cite: 5]
+:: Check ADB is available[cite: 6]
 adb.exe version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] ADB not found. Make sure Android platform-tools is installed and in your PATH.
     goto :end
 )
 
-:: Pre-locate local APK if available[cite: 5]
+:: Pre-locate local APK if available[cite: 6]
 set "APK_PATH="
 if exist "%PROJECT_DIR%android\app\build\outputs\apk\debug\app-debug.apk" (
     set "APK_PATH=%PROJECT_DIR%android\app\build\outputs\apk\debug\app-debug.apk"
@@ -69,7 +70,7 @@ if exist "%PROJECT_DIR%android\app\build\outputs\apk\debug\app-debug.apk" (
     set "APK_PATH=%PROJECT_DIR%uncode.apk"
 )
 
-:: [1/6] Check connected devices[cite: 5]
+:: [1/6] Check connected devices[cite: 6]
 echo [1/6] Checking connected devices...
 set "DEV_COUNT=0"
 for /f "tokens=1,2" %%A in ('adb.exe devices ^| findstr /v /i "List"') do (
@@ -130,7 +131,7 @@ echo  Executing Setup on Target Device(s)
 echo ====================================================
 echo.
 
-:: [2/6] Check App Installation / APK Install[cite: 5]
+:: [2/6] Check App Installation / APK Install[cite: 6]
 echo [2/6] Checking QIEZKA installation...
 for %%D in (!TARGET_DEVICES!) do (
     set "DEVICE=%%~D"
@@ -166,7 +167,7 @@ for %%D in (!TARGET_DEVICES!) do (
     echo.
 )
 
-:: [3/6] Permissions & Restricted Settings[cite: 5]
+:: [3/6] Permissions & Restricted Settings[cite: 6]
 echo [3/6] Configuring system permissions...
 for %%D in (!TARGET_DEVICES!) do (
     set "DEVICE=%%~D"
@@ -191,7 +192,7 @@ for %%D in (!TARGET_DEVICES!) do (
     echo.
 )
 
-:: [4/6] Battery optimization whitelist[cite: 5]
+:: [4/6] Battery optimization whitelist[cite: 6]
 echo [4/6] Whitelisting from battery optimization...
 for %%D in (!TARGET_DEVICES!) do (
     set "DEVICE=%%~D"
@@ -205,7 +206,7 @@ for %%D in (!TARGET_DEVICES!) do (
     echo.
 )
 
-:: [5/6] Automatic Accessibility Service enablement via ADB[cite: 5]
+:: [5/6] Automatic Accessibility Service enablement via ADB[cite: 6]
 echo [5/6] Enabling Accessibility Service...
 for %%D in (!TARGET_DEVICES!) do (
     set "DEVICE=%%~D"
@@ -230,7 +231,7 @@ for %%D in (!TARGET_DEVICES!) do (
     echo.
 )
 
-:: [6/6] Device Administrator setup[cite: 5]
+:: [6/6] Device Administrator setup[cite: 6]
 echo [6/6] Configuring Uninstall and Lockdown Protection...
 for %%D in (!TARGET_DEVICES!) do (
     set "DEVICE=%%~D"
@@ -248,7 +249,7 @@ for %%D in (!TARGET_DEVICES!) do (
     echo.
 )
 
-:: Launch QIEZKA[cite: 5]
+:: Launch QIEZKA[cite: 6]
 echo [7/7] Launching App...
 for %%D in (!TARGET_DEVICES!) do (
     set "DEVICE=%%~D"
@@ -262,7 +263,18 @@ echo.
 echo ====================================================
 echo  All operations finished for target device(s).
 echo ====================================================
+
 :end
-echo Press any key to exit.
-pause >nul
-exit
+echo.
+:ask_restart
+set "RESTART_CHOICE="
+set /p "RESTART_CHOICE=Do you want to run setup again or exit? [1 = Go Again, 2 = Exit]: "
+if /i "!RESTART_CHOICE!"=="1" (
+    cls
+    goto :start_script
+) else if /i "!RESTART_CHOICE!"=="2" (
+    exit
+) else (
+    echo Invalid choice. Please enter 1 or 2.
+    goto :ask_restart
+)
