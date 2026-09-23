@@ -1,6 +1,7 @@
 package com.uncode.app;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -396,7 +397,80 @@ public final class AppClassifier {
     }
 
     /**
+     * Recognized YouTube application packages.
+     */
+    public static final Set<String> YOUTUBE_PACKAGES = new HashSet<>(Arrays.asList(
+        "com.google.android.youtube",
+        "com.google.android.youtube.tv",
+        "com.google.android.apps.youtube.unplugged", // YouTube TV
+        "com.google.android.apps.youtube.kids",
+        "app.revanced.android.youtube",
+        "org.schabi.newpipe",
+        "app.libre_tube",
+        "org.polymc.tubular"
+    ));
+
+    public static boolean isYoutubePackage(String pkg) {
+        if (pkg == null) return false;
+        String lower = pkg.toLowerCase(Locale.ROOT).trim();
+        return YOUTUBE_PACKAGES.contains(lower);
+    }
+
+    /**
+     * Checks if YouTube package is permitted by user policy configured in AppSettings UI.
+     * Evaluates both boolean 'allow_youtube' and string 'youtube_policy' ("academic", "unrestricted").
+     */
+    public static boolean isYoutubeAllowedByPolicy(Context context, String pkg) {
+        if (!isYoutubePackage(pkg) || context == null) {
+            return false;
+        }
+        try {
+            SharedPreferences prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE);
+            if (prefs != null) {
+                boolean allow = prefs.getBoolean("allow_youtube", false);
+                if (allow) return true;
+                String policy = prefs.getString("youtube_policy", "");
+                if ("academic".equalsIgnoreCase(policy) || "unrestricted".equalsIgnoreCase(policy)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
+    /**
+     * Evaluates whether a package is recognized in KnownSafe (MSG_GATE2):
+     * 1. QIEZKA itself
+     * 2. User-configured UI Allowed Apps whitelist
+     * 3. User-configured in APP UI YouTube Policy
+     * 4. Active & installed keyboard / Input Method Editors (IMEs)
+     */
+    public static boolean isKnownSafe(Context context, String pkg, Set<String> userWhitelist) {
+        if (pkg == null || pkg.trim().isEmpty()) {
+            return false;
+        }
+        // QIEZKA itself is always KnownSafe
+        if (context != null && pkg.equals(context.getPackageName())) {
+            return true;
+        }
+        // User-configured whitelist from Allowed Apps UI
+        if (userWhitelist != null && userWhitelist.contains(pkg)) {
+            return true;
+        }
+        // User-configured in APP UI YouTube Policy (MSG_GATE2)
+        if (isYoutubeAllowedByPolicy(context, pkg)) {
+            return true;
+        }
+        // Keyboards / IMEs
+        if (LockAccessibilityService.isKeyboardPackage(context, pkg)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Classifies whether a package should be blocked during lockdown.
+     * Follows the Stage 1 -> Stage 2 (MSG_GATE -> MSG_GATE2 -> MSG_GATE3) -> Secondary Classifier -> Stage 3 Gateway architecture.
      *
      * @param context       Android Context for PackageManager access.
      * @param pkg           The target package name.
@@ -408,11 +482,16 @@ public final class AppClassifier {
             return false;
         }
 
-        // Tier 1a: Core OS framework and QIEZKA itself
+        // Framework & Caller Immunity: android, SystemUI, and QIEZKA itself
         if (pkg.equals("android") || pkg.equals("com.android.systemui")) {
             return false;
         }
         if (context != null && pkg.equals(context.getPackageName())) {
+            return false;
+        }
+
+        // STAGE 2 — Branch 1: Web Browsers are inspected by WebClassifier at URL/DOM level and NEVER blocked at package level
+        if (LockAccessibilityService.isBrowserPackage(pkg)) {
             return false;
         }
 
@@ -428,22 +507,6 @@ public final class AppClassifier {
             } catch (Exception ignore) {}
         }
 
-        // Tier 1b: Telephony, Emergency in-call UI, SIM Toolkit (STK), MMS & Carrier Push
-        if (TELEPHONY_PACKAGES.contains(pkg) || isSimOrCarrierService(pkg, appLabel)) {
-            return false;
-        }
-
-        // Tier 1b-2: Standalone Universal Android Debloater (UAD-NG) System Allowlist
-        // (Emergency services, AOSP Screenshot Markup, IntentResolver/Chooser, Captive Portal, etc.)
-        if (SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)) {
-            return false;
-        }
-
-        // Tier 1c: System App Store & Package Installers are explicitly allowed
-        if (isInstallerOrStoreApp(pkg)) {
-            return false;
-        }
-
         // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield (Android Settings, MIUI Security Center, OEM Phone Managers)
         if (isSettingsOrDeviceManager(pkg, appLabel)) {
             return true;
@@ -454,24 +517,34 @@ public final class AppClassifier {
             return true;
         }
 
-        // STAGE 2 — APP CLASSIFIER GATE: Category Game, Category Social & Negative Distraction Heuristics can NEVER be whitelisted!
-        if (isForbiddenDistraction(context, pkg)) {
-            return true;
-        }
-
-        // STAGE 2b: Explicit User Whitelist from AppSettings (Unified Whitelist)
-        // (Allows user/forks to whitelist tools, audio, or video apps like YouTube if explicitly selected!)
-        if (userWhitelist != null && userWhitelist.contains(pkg)) {
-            return false;
-        }
-
         // Check in-memory decision cache
         Boolean cached = decisionCache.get(pkg);
         if (cached != null) {
             return cached;
         }
 
-        // Evaluate and store
+        // ── STAGE 2 — INITIAL APP POLICY EVALUATION (MSG_GATE -> MSG_GATE2 -> MSG_GATE3) ──
+        boolean isDistracting = KnownDistracting.isKnownDistracting(pkg, appLabel); // MSG_GATE
+        boolean isSafe = isKnownSafe(context, pkg, userWhitelist);                  // MSG_GATE2
+
+        // MSG_GATE3: Initial App Policy Result Classifier
+        if (isDistracting && isSafe) {
+            // YES KnownDistracting + KnownSafe -> ALLOW (e.g. YouTube whitelisted in UI)
+            decisionCache.put(pkg, false);
+            return false;
+        }
+        if (isDistracting && !isSafe) {
+            // YES KnownDistracting, NO KnownSafe -> BLOCK (e.g. TikTok, Netflix, Mobile Legends)
+            decisionCache.put(pkg, true);
+            return true;
+        }
+        if (!isDistracting && isSafe) {
+            // NO KnownDistracting, YES KnownSafe -> ALLOW (e.g. user-whitelisted study app / keyboard)
+            decisionCache.put(pkg, false);
+            return false;
+        }
+
+        // MSG_GATE3: NO — Not KnownDistracting, not KnownSafe -> Proceed to Secondary App Classifier (NO)
         boolean blocked = evaluatePackage(context, pkg);
         decisionCache.put(pkg, blocked);
         return blocked;
@@ -631,29 +704,17 @@ public final class AppClassifier {
             return false;
         }
 
-        // ── Layer 4c: SIM Card Toolkit (STK), MMS & Carrier Services ──
-        if (isSimOrCarrierService(pkg, appLabel)) {
-            Log.d(TAG, "Allowed as SIM toolkit / Carrier / MMS service: " + pkg + " (" + appLabel + ")");
-            return false;
-        }
-
-        // ── Layer 4d: Standalone Universal Android Debloater (UAD-NG) System Allowlist ──
-        if (SystemUadAllowlist.isUadSystemAllowed(pkg, appLabel)) {
-            Log.d(TAG, "Allowed by UAD-NG System Allowlist: " + pkg + " (" + appLabel + ")");
-            return false;
-        }
-
-        // ── Stage 2: Universal System Partition Gateway ──
+        // ── STAGE 3 — UNIVERSAL SYSTEM GATEWAY (SYSALLOW) ──
         // If it is on the system partition (pre-installed by OEM in /system, /vendor, /product)
         // and has passed all Stage 1 Master Veto checks above (not YouTube, not social, not game, not settings/manager),
-        // it is a verified legitimate OEM hardware tool or sub-APK!
+        // it is a verified legitimate OEM hardware tool, SIM/STK, Telephony, or system utility!
         if (appInfo != null) {
             boolean isSystemApp = (appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ||
                                   (appInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
             if (isSystemApp) {
                 // Guard: Ensure general web browsers still route through WebClassifier URL inspection
                 if (!lowerPkg.contains("browser") && !lowerPkg.contains("chrome") && !lowerPkg.contains("firefox")) {
-                    Log.d(TAG, "Allowed by Universal System Partition Gateway: " + pkg + " (" + appLabel + ")");
+                    Log.d(TAG, "Allowed by Stage 3 Universal System Gateway (SYSALLOW): " + pkg + " (" + appLabel + ")");
                     return false;
                 }
             }

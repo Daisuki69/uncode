@@ -3,8 +3,6 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ===== Permissions ===== -->
-    <!-- Usage Stats: Identify top 10 most used apps for study detention anti-evasion -->
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <!-- Network: Gemini API + OCR.space -->
     <uses-permission android:name="android.permission.INTERNET" />
 
