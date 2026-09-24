@@ -516,6 +516,8 @@ public class LockPlugin extends Plugin {
                 obj.put("displayName", svc.getDisplayName());
                 obj.put("description", svc.getDescription());
                 obj.put("badge", svc.getBadge());
+                obj.put("iconName", svc.getIconName());
+                obj.put("themeColor", svc.getThemeColor());
 
                 JSArray pkgArr = new JSArray();
                 for (String p : svc.getPackages()) {
@@ -587,25 +589,6 @@ public class LockPlugin extends Plugin {
         }
     }
 
-    @PluginMethod
-    public void setYoutubePolicy(PluginCall call) {
-        try {
-            String policy = call.getString("policy", "academic");
-            boolean allow = "academic".equalsIgnoreCase(policy) || "unrestricted".equalsIgnoreCase(policy);
-            prefs.edit()
-                .putString("youtube_policy", policy)
-                .putBoolean("allow_youtube", allow)
-                .apply();
-            AppClassifier.clearCache();
-            Log.i(TAG, "YouTube policy set to: " + policy + " (allow_youtube=" + allow + ")");
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setYoutubePolicy failed", e);
-            call.reject("setYoutubePolicy failed: " + e.getMessage());
-        }
-    }
 
     @PluginMethod
     public void requestVpnPermission(PluginCall call) {
@@ -828,7 +811,7 @@ public class LockPlugin extends Plugin {
                         boolean isStudentApp = isStudentAppKeywords(pkg, appLabel);
                         boolean isAi = isAiAppKeywords(pkg, appLabel);
                         boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
-                        boolean isHardcoded = isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp || isAi;
+                        boolean isHardcoded = isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp;
 
                         addedPackages.add(pkg);
 

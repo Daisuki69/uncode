@@ -257,22 +257,6 @@ public class LockAccessibilityService extends AccessibilityService {
         "com.github.android"
     ));
 
-    /**
-     * Known AI Assistants & Research tools permanently allowed for study assistance.
-     */
-    private static final Set<String> KNOWN_AI_APPS = new HashSet<>(Arrays.asList(
-        "com.google.android.apps.bard",
-        "com.google.android.apps.gemini",
-        "com.google.android.apps.googleassistant",
-        "com.openai.chatgpt",
-        "com.anthropic.claude",
-        "com.microsoft.copilot",
-        "ai.perplexity.app.android",
-        "com.deepseek.chat",
-        "com.quora.poe.android",
-        "com.poe.android",
-        "ai.inflection.pi"
-    ));
 
     /**
      * Legitimate App Store and Package Installer services.
@@ -586,11 +570,10 @@ public class LockAccessibilityService extends AccessibilityService {
                 }
             } catch (Exception ignore) {}
 
-            // Add authenticators, notes, student apps, and AI assistants to dynamic exemptions
+            // Add authenticators, notes, and student apps to dynamic exemptions
             dynamicExemptPackages.addAll(KNOWN_AUTHENTICATORS);
             dynamicExemptPackages.addAll(KNOWN_NOTES_APPS);
             dynamicExemptPackages.addAll(KNOWN_STUDENT_APPS);
-            dynamicExemptPackages.addAll(KNOWN_AI_APPS);
 
             // Dynamically discover all installed Home Launchers (CATEGORY_HOME)
             try {
@@ -672,20 +655,6 @@ public class LockAccessibilityService extends AccessibilityService {
                lower.contains("dropbox") ||
                lower.contains("readera") ||
                lower.contains("wps");
-    }
-
-    private boolean isAiApp(String pkg) {
-        if (pkg == null) return false;
-        if (KNOWN_AI_APPS.contains(pkg)) return true;
-        String lower = pkg.toLowerCase();
-        return lower.contains("chatgpt") || 
-               lower.contains("bard") || 
-               lower.contains("gemini") || 
-               lower.contains("claude") || 
-               lower.contains("copilot") || 
-               lower.contains("perplexity") || 
-               lower.contains("deepseek") || 
-               lower.contains(".poe");
     }
 
     public static boolean isKeyboardPackage(Context context, String pkg) {
@@ -1247,9 +1216,7 @@ public class LockAccessibilityService extends AccessibilityService {
                 return; // ALLOW_SEARCH: Research is 100% immune, browsing continues uninterrupted
             }
 
-            boolean allowYoutube = prefs != null && (prefs.getBoolean("allow_youtube", false) ||
-                "academic".equalsIgnoreCase(prefs.getString("youtube_policy", "")) ||
-                "unrestricted".equalsIgnoreCase(prefs.getString("youtube_policy", "")));
+            boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
 
             Set<String> activeServices = prefs != null ? prefs.getStringSet("active_unified_services", new HashSet<>()) : new HashSet<>();
             Set<String> allowedDomains = new HashSet<>(UnifiedPolicyRegistry.getDomainsForServices(activeServices));

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react';
-import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp, UNIFIED_SERVICES } from './types';
+import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp } from './types';
 import { Dashboard } from './components/Dashboard';
 import { LockScreen } from './components/LockScreen';
 import { EvaluationResult } from './components/EvaluationResult';
@@ -1188,9 +1188,15 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
                       setEnforceSafeSearch(updates.enforceSafeSearch);
                     }
                     if (updates.activeServices !== undefined) {
-                      for (const s of ['youtube', 'gemini', 'openai', 'claude']) {
-                        setServicePolicy(s, updates.activeServices.includes(s));
-                      }
+                      getRegisteredServices().then(services => {
+                        for (const svc of services) {
+                          setServicePolicy(svc.id, updates.activeServices!.includes(svc.id)).catch(() => {});
+                        }
+                      }).catch(() => {
+                        for (const s of updates.activeServices || []) {
+                          setServicePolicy(s, true).catch(() => {});
+                        }
+                      });
                     }
                     setSettings(prev => ({ ...prev, ...updates }));
                     navigate('dashboard', 'backward');
