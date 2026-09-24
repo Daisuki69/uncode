@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search, Sparkles, Bot } from 'lucide-react';
-import { AppSettings, LogEntry, SavedResource, AllowedApp, UNIFIED_SERVICES, UnifiedServiceDefinition } from '../types';
+import { AppSettings, LogEntry, SavedResource, AllowedApp, UnifiedServiceDefinition } from '../types';
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
 import { loadData, saveData } from '../storage';
@@ -17,6 +17,40 @@ interface SettingsOverlayProps {
   onClose: () => void;
   isLockActive?: boolean;
 }
+
+const renderServiceIcon = (iconName?: string) => {
+  switch ((iconName || '').toLowerCase()) {
+    case 'video':
+      return <Video className="w-3.5 h-3.5" />;
+    case 'sparkles':
+      return <Sparkles className="w-3.5 h-3.5" />;
+    case 'bot':
+      return <Bot className="w-3.5 h-3.5" />;
+    case 'cpu':
+      return <Cpu className="w-3.5 h-3.5" />;
+    case 'layers':
+      return <Layers className="w-3.5 h-3.5" />;
+    default:
+      return <Globe className="w-3.5 h-3.5" />;
+  }
+};
+
+const getServiceThemeClasses = (themeColor?: string, isAllowed?: boolean) => {
+  const color = (themeColor || 'indigo').toLowerCase();
+  const themeMap: Record<string, { iconBg: string; activeSwitch: string }> = {
+    red: { iconBg: 'bg-red-100 text-red-600', activeSwitch: 'bg-red-600' },
+    purple: { iconBg: 'bg-purple-100 text-purple-600', activeSwitch: 'bg-purple-600' },
+    blue: { iconBg: 'bg-blue-100 text-blue-600', activeSwitch: 'bg-blue-600' },
+    amber: { iconBg: 'bg-amber-100 text-amber-600', activeSwitch: 'bg-amber-600' },
+    emerald: { iconBg: 'bg-emerald-100 text-emerald-600', activeSwitch: 'bg-emerald-600' },
+    indigo: { iconBg: 'bg-indigo-100 text-indigo-600', activeSwitch: 'bg-indigo-600' }
+  };
+  const theme = themeMap[color] || themeMap.indigo;
+  return {
+    iconBg: theme.iconBg,
+    switchBg: isAllowed ? theme.activeSwitch : 'bg-gray-300'
+  };
+};
 
 export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, isLockActive = false }: SettingsOverlayProps) {
   const isLockedOrConsequence = isLockActive || !!settings.consequenceActive;
@@ -36,11 +70,11 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
       ? settings.webProtectionMode
       : 'accessibility'
   );
-  const [allowYoutube, setAllowYoutubeState] = useState<boolean>(settings.allowYoutube || false);
   const [activeServices, setActiveServicesState] = useState<string[]>(
     settings.activeServices || (settings.allowYoutube ? ['youtube'] : [])
   );
-  const [availableServices, setAvailableServices] = useState<UnifiedServiceDefinition[]>(UNIFIED_SERVICES);
+  const allowYoutube = activeServices.includes('youtube');
+  const [availableServices, setAvailableServices] = useState<UnifiedServiceDefinition[]>([]);
   const blockWebGames = true; // Permanently active & cannot be turned off
   const [webError, setWebError] = useState<string | null>(null);
   
@@ -137,9 +171,6 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
       ? Array.from(new Set([...activeServices, serviceId]))
       : activeServices.filter(s => s !== serviceId);
     setActiveServicesState(next);
-    if (serviceId === 'youtube') {
-      setAllowYoutubeState(allowed);
-    }
     try {
       await setServicePolicy(serviceId, allowed);
     } catch (e) {
@@ -793,26 +824,13 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {availableServices.map((svc) => {
                       const isAllowed = activeServices.includes(svc.id);
+                      const theme = getServiceThemeClasses(svc.themeColor, isAllowed);
                       return (
                         <div key={svc.id} className="bg-white p-3 rounded-xl border border-gray-200/80 flex flex-col justify-between shadow-xs">
                           <div className="flex items-start justify-between gap-2.5 mb-2">
                             <div className="flex items-start gap-2">
-                              <div className={`p-1.5 rounded-lg mt-0.5 ${
-                                svc.id === 'youtube'
-                                  ? 'bg-red-100 text-red-600'
-                                  : svc.id === 'gemini'
-                                    ? 'bg-blue-100 text-blue-600'
-                                    : svc.id === 'openai'
-                                      ? 'bg-emerald-100 text-emerald-600'
-                                      : svc.id === 'claude'
-                                        ? 'bg-purple-100 text-purple-600'
-                                        : 'bg-indigo-100 text-indigo-600'
-                              }`}>
-                                {svc.id === 'youtube' && <Video className="w-3.5 h-3.5" />}
-                                {svc.id === 'gemini' && <Sparkles className="w-3.5 h-3.5" />}
-                                {svc.id === 'openai' && <Bot className="w-3.5 h-3.5" />}
-                                {svc.id === 'claude' && <Cpu className="w-3.5 h-3.5" />}
-                                {!['youtube', 'gemini', 'openai', 'claude'].includes(svc.id) && <Globe className="w-3.5 h-3.5" />}
+                              <div className={`p-1.5 rounded-lg mt-0.5 ${theme.iconBg}`}>
+                                {renderServiceIcon(svc.iconName)}
                               </div>
                               <div>
                                 <div className="flex items-center gap-1.5">
@@ -833,11 +851,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                               aria-checked={isAllowed}
                               onClick={() => handleToggleService(svc.id, !isAllowed)}
                               disabled={isLockedOrConsequence}
-                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                isAllowed
-                                  ? (svc.id === 'youtube' ? 'bg-red-600' : svc.id === 'gemini' ? 'bg-blue-600' : svc.id === 'openai' ? 'bg-emerald-600' : svc.id === 'claude' ? 'bg-purple-600' : 'bg-indigo-600')
-                                  : 'bg-gray-300'
-                              } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${theme.switchBg} ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               <span
                                 className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${

@@ -16,6 +16,8 @@ data class UnifiedService(
     val displayName: String,
     val description: String = "",
     val badge: String = "App + Web",
+    val iconName: String = "Globe",
+    val themeColor: String = "indigo",
     val packages: Set<String> = emptySet(),
     val domains: Set<String> = emptySet()
 )
@@ -29,6 +31,8 @@ object UnifiedPolicyRegistry {
             displayName = "YouTube",
             description = "Allows YouTube application and YouTube web browser domains.",
             badge = "App + Web",
+            iconName = "Video",
+            themeColor = "red",
             packages = setOf(
                 "com.google.android.youtube",
                 "com.google.android.youtube.tv",
@@ -45,45 +49,41 @@ object UnifiedPolicyRegistry {
                 "m.youtube.com"
             )
         ),
-        "gemini" to UnifiedService(
-            id = "gemini",
-            displayName = "Google Gemini",
-            description = "Allows Gemini application and Google AI web domains (gemini.google.com).",
+        "ai" to UnifiedService(
+            id = "ai",
+            displayName = "AI",
+            description = "Allows AI assistant applications (Gemini, ChatGPT, Claude, etc.) and web domains.",
             badge = "App + Web",
+            iconName = "Sparkles",
+            themeColor = "purple",
             packages = setOf(
                 "com.google.android.apps.gemini",
-                "com.google.android.apps.bard"
+                "com.google.android.apps.bard",
+                "com.openai.chatgpt",
+                "com.anthropic.claude",
+                "ai.perplexity.app",
+                "ai.perplexity.app.android",
+                "com.microsoft.copilot",
+                "com.poe.android",
+                "com.quora.poe.android",
+                "com.characterai.chat",
+                "com.deepseek.chat",
+                "ai.inflection.pi"
             ),
             domains = setOf(
                 "gemini.google.com",
-                "bard.google.com"
-            )
-        ),
-        "openai" to UnifiedService(
-            id = "openai",
-            displayName = "ChatGPT / OpenAI",
-            description = "Allows ChatGPT app and web domains (chatgpt.com, openai.com).",
-            badge = "App + Web",
-            packages = setOf(
-                "com.openai.chatgpt"
-            ),
-            domains = setOf(
+                "bard.google.com",
                 "chatgpt.com",
                 "chat.openai.com",
-                "openai.com"
-            )
-        ),
-        "claude" to UnifiedService(
-            id = "claude",
-            displayName = "Claude AI",
-            description = "Allows Claude app and web domains (claude.ai, anthropic.com).",
-            badge = "App + Web",
-            packages = setOf(
-                "com.anthropic.claude"
-            ),
-            domains = setOf(
+                "openai.com",
                 "claude.ai",
-                "anthropic.com"
+                "anthropic.com",
+                "perplexity.ai",
+                "copilot.microsoft.com",
+                "poe.com",
+                "character.ai",
+                "deepseek.com",
+                "pi.ai"
             )
         )
     )

@@ -29,7 +29,7 @@ import {
   Cpu,
   Layers
 } from 'lucide-react';
-import { AppSettings, UNIFIED_SERVICES, UnifiedServiceDefinition } from '../types';
+import { AppSettings, UnifiedServiceDefinition } from '../types';
 import { 
   checkPermissions, 
   openAccessibilitySettings, 
@@ -45,6 +45,40 @@ import {
 interface OnboardingProps {
   onComplete: (config?: Partial<AppSettings>) => void;
 }
+
+const renderServiceIcon = (iconName?: string) => {
+  switch ((iconName || '').toLowerCase()) {
+    case 'video':
+      return <Video className="w-3.5 h-3.5" />;
+    case 'sparkles':
+      return <Sparkles className="w-3.5 h-3.5" />;
+    case 'bot':
+      return <Bot className="w-3.5 h-3.5" />;
+    case 'cpu':
+      return <Cpu className="w-3.5 h-3.5" />;
+    case 'layers':
+      return <Layers className="w-3.5 h-3.5" />;
+    default:
+      return <Globe className="w-3.5 h-3.5" />;
+  }
+};
+
+const getServiceThemeClasses = (themeColor?: string, isAllowed?: boolean) => {
+  const color = (themeColor || 'indigo').toLowerCase();
+  const themeMap: Record<string, { iconBg: string; activeSwitch: string }> = {
+    red: { iconBg: 'bg-red-500/20 text-red-400', activeSwitch: 'bg-red-600' },
+    purple: { iconBg: 'bg-purple-500/20 text-purple-400', activeSwitch: 'bg-purple-600' },
+    blue: { iconBg: 'bg-blue-500/20 text-blue-400', activeSwitch: 'bg-blue-600' },
+    amber: { iconBg: 'bg-amber-500/20 text-amber-400', activeSwitch: 'bg-amber-600' },
+    emerald: { iconBg: 'bg-emerald-500/20 text-emerald-400', activeSwitch: 'bg-emerald-600' },
+    indigo: { iconBg: 'bg-indigo-500/20 text-indigo-400', activeSwitch: 'bg-indigo-600' }
+  };
+  const theme = themeMap[color] || themeMap.indigo;
+  return {
+    iconBg: theme.iconBg,
+    switchBg: isAllowed ? theme.activeSwitch : 'bg-gray-700'
+  };
+};
 
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
@@ -135,9 +169,9 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [showOcrKey, setShowOcrKey] = useState(false);
   const [operatingMode, setOperatingModeState] = useState<'safemode' | 'hardcore'>('safemode');
   const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dual_hybrid'>('accessibility');
-  const [availableServices, setAvailableServices] = useState<UnifiedServiceDefinition[]>(UNIFIED_SERVICES);
+  const [availableServices, setAvailableServices] = useState<UnifiedServiceDefinition[]>([]);
   const [activeServices, setActiveServicesState] = useState<string[]>([]);
-  const [allowYoutube, setAllowYoutubeState] = useState(false);
+  const allowYoutube = activeServices.includes('youtube');
 
   useEffect(() => {
     getRegisteredServices().then(services => {
@@ -149,14 +183,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const handleToggleService = (serviceId: string, allowed: boolean) => {
     setActiveServicesState(prev => {
-      const next = allowed
+      return allowed
         ? Array.from(new Set([...prev, serviceId]))
         : prev.filter(id => id !== serviceId);
-      return next;
     });
-    if (serviceId === 'youtube') {
-      setAllowYoutubeState(allowed);
-    }
   };
 
   // Modals & Feedback
@@ -962,6 +992,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {availableServices.map((svc) => {
                       const isAllowed = activeServices.includes(svc.id);
+                      const theme = getServiceThemeClasses(svc.themeColor, isAllowed);
                       return (
                         <div
                           key={svc.id}
@@ -974,22 +1005,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                         >
                           <div className="flex items-start justify-between gap-2 mb-2">
                             <div className="flex items-start gap-2">
-                              <div className={`p-1.5 rounded-lg mt-0.5 ${
-                                svc.id === 'youtube'
-                                  ? 'bg-red-500/20 text-red-400'
-                                  : svc.id === 'gemini'
-                                    ? 'bg-blue-500/20 text-blue-400'
-                                    : svc.id === 'openai'
-                                      ? 'bg-emerald-500/20 text-emerald-400'
-                                      : svc.id === 'claude'
-                                        ? 'bg-purple-500/20 text-purple-400'
-                                        : 'bg-indigo-500/20 text-indigo-400'
-                              }`}>
-                                {svc.id === 'youtube' && <Video className="w-3.5 h-3.5" />}
-                                {svc.id === 'gemini' && <Sparkles className="w-3.5 h-3.5" />}
-                                {svc.id === 'openai' && <Bot className="w-3.5 h-3.5" />}
-                                {svc.id === 'claude' && <Cpu className="w-3.5 h-3.5" />}
-                                {!['youtube', 'gemini', 'openai', 'claude'].includes(svc.id) && <Globe className="w-3.5 h-3.5" />}
+                              <div className={`p-1.5 rounded-lg mt-0.5 ${theme.iconBg}`}>
+                                {renderServiceIcon(svc.iconName)}
                               </div>
                               <div>
                                 <div className="flex items-center gap-1.5">
@@ -1012,11 +1029,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                                 e.stopPropagation();
                                 handleToggleService(svc.id, !isAllowed);
                               }}
-                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                isAllowed
-                                  ? (svc.id === 'youtube' ? 'bg-red-600' : svc.id === 'gemini' ? 'bg-blue-600' : svc.id === 'openai' ? 'bg-emerald-600' : svc.id === 'claude' ? 'bg-purple-600' : 'bg-indigo-600')
-                                  : 'bg-gray-700'
-                              }`}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${theme.switchBg}`}
                             >
                               <span
                                 className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${

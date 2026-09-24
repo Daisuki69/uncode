@@ -29,6 +29,10 @@ object KnownDistracting {
         "com.google.android.youtube.tv",
         "com.google.android.apps.youtube.unplugged", // YouTube TV
         "com.google.android.apps.youtube.kids",      // YouTube Kids
+        "app.revanced.android.youtube",
+        "org.schabi.newpipe",
+        "app.libre_tube",
+        "org.polymc.tubular",
         "com.netflix.mediaclient",
         "com.netflix.ninja",
         "tv.twitch.android.app",
@@ -45,6 +49,20 @@ object KnownDistracting {
         "com.ss.android.ugc.aweme",                  // Douyin
         "com.kwai.video",                            // Kuaishou / Kwai
         "video.like",                                // Likee
+
+        // ── AI Chatbots & Virtual Assistants ──
+        "com.google.android.apps.gemini",            // Google Gemini
+        "com.google.android.apps.bard",
+        "com.openai.chatgpt",                        // ChatGPT / OpenAI
+        "com.anthropic.claude",                      // Claude AI
+        "ai.perplexity.app",                         // Perplexity AI
+        "ai.perplexity.app.android",
+        "com.microsoft.copilot",                     // Microsoft Copilot
+        "com.poe.android",                           // Poe AI
+        "com.quora.poe.android",
+        "com.characterai.chat",                      // Character.ai
+        "com.deepseek.chat",                         // DeepSeek
+        "ai.inflection.pi",                          // Pi AI
 
         // ── Short-Drama Streaming & Web Novels / Manga / Comics ──
         "com.cd.shortdrama",                         // ReelShort

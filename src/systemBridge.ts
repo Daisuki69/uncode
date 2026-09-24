@@ -477,6 +477,8 @@ export const getRegisteredServices = async (): Promise<UnifiedServiceDefinition[
         name: s.name || s.displayName || s.id,
         description: s.description || `Allows ${s.name || s.id} application and web domains.`,
         badge: s.badge || 'App + Web',
+        iconName: s.iconName || 'Globe',
+        themeColor: s.themeColor || 'indigo',
         packages: Array.isArray(s.packages) ? s.packages : [],
         domains: Array.isArray(s.domains) ? s.domains : []
       }));
@@ -484,6 +486,6 @@ export const getRegisteredServices = async (): Promise<UnifiedServiceDefinition[
   } catch (e) {
     console.warn('getRegisteredServices failed, using fallback', e);
   }
-  return UNIFIED_SERVICES;
+  return [];
 };
 

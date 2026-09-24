@@ -434,6 +434,13 @@ public final class WebClassifier {
             }
         }
 
+        // AI assistant web domain check (Unified Policy Registry: blocked unless enabled in Layer 1)
+        if (UnifiedPolicyRegistry.isDomainAllowedByService(cleanUrl, java.util.Collections.singleton("ai"))) {
+            ClassificationResult res = ClassificationResult.blocked("AI assistants are blocked during focus mode");
+            decisionCache.put(cleanUrl, res);
+            return res;
+        }
+
         // ── LAYER 3: Multi-Genre Threat Category Evaluation ──
         ClassificationResult categoryCheck = evaluateMultiGenreCategories(cleanUrl);
         if (categoryCheck.isBlocked) {
@@ -506,6 +513,13 @@ public final class WebClassifier {
                 decisionCache.put(lower, res);
                 return res;
             }
+        }
+
+        // AI assistant web domain check (Unified Policy Registry: blocked unless enabled in Layer 1)
+        if (UnifiedPolicyRegistry.isDomainAllowedByService(lower, java.util.Collections.singleton("ai"))) {
+            ClassificationResult res = ClassificationResult.blocked("AI assistants are blocked during focus mode");
+            decisionCache.put(lower, res);
+            return res;
         }
 
         // DoH canary & endpoints

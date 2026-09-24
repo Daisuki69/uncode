@@ -397,54 +397,20 @@ public final class AppClassifier {
     }
 
     /**
-     * Recognized YouTube application packages.
-     */
-    public static final Set<String> YOUTUBE_PACKAGES = new HashSet<>(Arrays.asList(
-        "com.google.android.youtube",
-        "com.google.android.youtube.tv",
-        "com.google.android.apps.youtube.unplugged", // YouTube TV
-        "com.google.android.apps.youtube.kids",
-        "app.revanced.android.youtube",
-        "org.schabi.newpipe",
-        "app.libre_tube",
-        "org.polymc.tubular"
-    ));
-
     public static boolean isYoutubePackage(String pkg) {
         if (pkg == null) return false;
-        String lower = pkg.toLowerCase(Locale.ROOT).trim();
-        return YOUTUBE_PACKAGES.contains(lower);
-    }
-
-    /**
-     * Checks if YouTube package is permitted by user policy configured in AppSettings UI.
-     * Evaluates both boolean 'allow_youtube' and string 'youtube_policy' ("academic", "unrestricted").
-     */
-    public static boolean isYoutubeAllowedByPolicy(Context context, String pkg) {
-        if (!isYoutubePackage(pkg) || context == null) {
-            return false;
-        }
-        try {
-            SharedPreferences prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE);
-            if (prefs != null) {
-                if (prefs.getBoolean("allow_youtube", false)) return true;
-                Set<String> activeServices = prefs.getStringSet("active_unified_services", null);
-                if (activeServices != null && activeServices.contains("youtube")) return true;
-                String policy = prefs.getString("youtube_policy", "");
-                if ("academic".equalsIgnoreCase(policy) || "unrestricted".equalsIgnoreCase(policy)) {
-                    return true;
-                }
-            }
-        } catch (Exception ignore) {}
-        return false;
+        UnifiedService yt = UnifiedPolicyRegistry.SERVICES.get("youtube");
+        return yt != null && yt.getPackages().contains(pkg.toLowerCase(Locale.ROOT).trim());
     }
 
     /**
      * Evaluates whether a package is recognized in KnownSafe (MSG_GATE2):
      * 1. QIEZKA itself
      * 2. User-configured UI Allowed Apps whitelist
-     * 3. User-configured in APP UI YouTube Policy / Unified Service Policy
-     * 4. Active & installed keyboard / Input Method Editors (IMEs)
+     * 3. Active & installed keyboard / Input Method Editors (IMEs)
+     *
+     * Note: YouTube and AI are NEVER in KnownSafe. They reside in KnownDistracting,
+     * and their execution is governed by UnifiedPolicyRegistry.
      */
     public static boolean isKnownSafe(Context context, String pkg, Set<String> userWhitelist) {
         if (pkg == null || pkg.trim().isEmpty()) {
@@ -458,26 +424,31 @@ public final class AppClassifier {
         if (userWhitelist != null && userWhitelist.contains(pkg)) {
             return true;
         }
-        // User-configured in APP UI YouTube Policy (MSG_GATE2)
-        if (isYoutubeAllowedByPolicy(context, pkg)) {
-            return true;
-        }
-        // Unified Service Policies (e.g. YouTube, Gemini, OpenAI, Claude)
-        if (context != null) {
-            try {
-                SharedPreferences prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE);
-                if (prefs != null) {
-                    Set<String> activeServices = prefs.getStringSet("active_unified_services", null);
-                    if (UnifiedPolicyRegistry.isPackageAllowedByService(pkg, activeServices)) {
-                        return true;
-                    }
-                }
-            } catch (Exception ignore) {}
-        }
         // Keyboards / IMEs
         if (LockAccessibilityService.isKeyboardPackage(context, pkg)) {
             return true;
         }
+        return false;
+    }
+
+    /**
+     * Evaluates whether a package is allowed by the user via the Unified Policy Registry.
+     */
+    public static boolean isPackageAllowedByUnifiedPolicy(Context context, String pkg) {
+        if (context == null || pkg == null || pkg.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            SharedPreferences prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE);
+            if (prefs != null) {
+                Set<String> activeServices = prefs.getStringSet("active_unified_services", null);
+                Set<String> effectiveServices = activeServices != null ? new HashSet<>(activeServices) : new HashSet<>();
+                if (prefs.getBoolean("allow_youtube", false)) {
+                    effectiveServices.add("youtube");
+                }
+                return UnifiedPolicyRegistry.isPackageAllowedByService(pkg, effectiveServices);
+            }
+        } catch (Exception ignore) {}
         return false;
     }
 
@@ -536,28 +507,36 @@ public final class AppClassifier {
             return cached;
         }
 
-        // ── STAGE 2 — INITIAL APP POLICY EVALUATION (MSG_GATE -> MSG_GATE2 -> MSG_GATE3) ──
+        // ── STAGE 2 — INITIAL APP POLICY EVALUATION (Truth Table) ──
         boolean isDistracting = KnownDistracting.isKnownDistracting(pkg, appLabel); // MSG_GATE
         boolean isSafe = isKnownSafe(context, pkg, userWhitelist);                  // MSG_GATE2
+        boolean isAllowedByPolicy = isPackageAllowedByUnifiedPolicy(context, pkg);
 
-        // MSG_GATE3: Initial App Policy Result Classifier
-        if (isDistracting && isSafe) {
-            // YES KnownDistracting + KnownSafe -> ALLOW (e.g. YouTube whitelisted in UI)
+        // 1. Unified Policy Registry override -> ALLOW (e.g. YouTube or AI enabled by user in Unified Policy)
+        if (isAllowedByPolicy) {
             decisionCache.put(pkg, false);
             return false;
         }
+
+        // 2. KnownDistracting + KnownSafe (explicit user whitelist in Allowed Apps UI) -> ALLOW
+        if (isDistracting && isSafe) {
+            decisionCache.put(pkg, false);
+            return false;
+        }
+
+        // 3. KnownDistracting + NOT KnownSafe -> BLOCK (e.g. TikTok, Netflix, or disabled YouTube/AI)
         if (isDistracting && !isSafe) {
-            // YES KnownDistracting, NO KnownSafe -> BLOCK (e.g. TikTok, Netflix, Mobile Legends)
             decisionCache.put(pkg, true);
             return true;
         }
+
+        // 4. NOT KnownDistracting + KnownSafe -> ALLOW (e.g. user-whitelisted study app / keyboard)
         if (!isDistracting && isSafe) {
-            // NO KnownDistracting, YES KnownSafe -> ALLOW (e.g. user-whitelisted study app / keyboard)
             decisionCache.put(pkg, false);
             return false;
         }
 
-        // MSG_GATE3: NO — Not KnownDistracting, not KnownSafe -> Proceed to Secondary App Classifier (NO)
+        // 5. Fallback: NOT KnownDistracting + NOT KnownSafe -> Proceed to Secondary App Classifier heuristics
         boolean blocked = evaluatePackage(context, pkg);
         decisionCache.put(pkg, blocked);
         return blocked;

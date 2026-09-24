@@ -455,8 +455,7 @@ export function isHardcodedApp(app: AllowedApp): boolean {
     app.isCamera || 
     app.isAuthenticator || 
     app.isNotes || 
-    app.isStudentApp || 
-    app.isAi
+    app.isStudentApp
   ) {
     return true;
   }
@@ -465,8 +464,7 @@ export function isHardcodedApp(app: AllowedApp): boolean {
          isCameraPackage(app.id, app.name) || 
          isAuthenticatorPackage(app.id, app.name) ||
          isNotesPackage(app.id, app.name) ||
-         isStudentPackage(app.id, app.name) ||
-         isAiPackage(app.id, app.name);
+         isStudentPackage(app.id, app.name);
 }
 
 /**
@@ -483,8 +481,6 @@ export const DEFAULT_HARDCODED_APPS: AllowedApp[] = [
   { id: 'com.google.android.keep', name: 'Keep Notes', iconName: 'FileText', isHardcoded: true, isNotes: true },
   { id: 'com.google.android.apps.classroom', name: 'Classroom', iconName: 'BookOpen', isHardcoded: true, isStudentApp: true },
   { id: 'com.google.android.apps.docs', name: 'Drive', iconName: 'BookOpen', isHardcoded: true, isStudentApp: true },
-  { id: 'com.openai.chatgpt', name: 'ChatGPT', iconName: 'Sparkles', isHardcoded: true, isAi: true },
-  { id: 'com.google.android.apps.bard', name: 'Gemini', iconName: 'Sparkles', isHardcoded: true, isAi: true },
 ];
 
 export const HARDCODED_SYSTEM_ALLOWED = DEFAULT_HARDCODED_APPS;
