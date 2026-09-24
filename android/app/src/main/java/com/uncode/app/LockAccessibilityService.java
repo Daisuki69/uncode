@@ -772,8 +772,12 @@ public class LockAccessibilityService extends AccessibilityService {
             String pkgStr = pkgChar.toString();
             if ((eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
                  eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
-                 eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED) && !isSystemOrLauncher(pkgStr)) {
-                lastForegroundPackage = pkgStr;
+                 eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED)) {
+                if (isGeminiActive(pkgStr, event.getClassName() != null ? event.getClassName().toString() : null, event.getSource()) && !isGeminiAllowed()) {
+                    lastForegroundPackage = "com.google.android.apps.bard";
+                } else if (!isSystemOrLauncher(pkgStr)) {
+                    lastForegroundPackage = pkgStr;
+                }
             }
         }
 
@@ -922,6 +926,16 @@ public class LockAccessibilityService extends AccessibilityService {
         // Never inspect or block QIEZKA itself
         if (pkg.equals(getPackageName())) return;
 
+        // Gemini interception inside com.google.android.googlequicksearchbox or entry stub
+        String eventCls = event.getClassName() != null ? event.getClassName().toString() : null;
+        if (isGeminiActive(pkg, eventCls, event.getSource())) {
+            if (!isGeminiAllowed()) {
+                Log.w(TAG, "Blocked Gemini Robin UI inside " + pkg + " (" + eventCls + ") — AI policy disabled during lockdown/consequence");
+                enforceBlock("com.google.android.apps.bard");
+                return;
+            }
+        }
+
         // ── SystemUI handling ──
         if (pkg.equals("com.android.systemui")) {
             handleSystemUiEvent(event);
@@ -1039,12 +1053,66 @@ public class LockAccessibilityService extends AccessibilityService {
         return lower.contains("browser") || lower.contains("chrome") || lower.contains("firefox");
     }
 
+    public boolean isGeminiAllowed() {
+        return AppClassifier.isPackageAllowedByUnifiedPolicy(this, "com.google.android.apps.gemini");
+    }
+
+    public boolean isGeminiActive(String pkg, String className, AccessibilityNodeInfo root) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT);
+        if (lowerPkg.equals("com.google.android.apps.bard") || lowerPkg.equals("com.google.android.apps.gemini")) {
+            return true;
+        }
+        if (lowerPkg.equals("com.google.android.googlequicksearchbox")) {
+            if (className != null) {
+                String lowerCls = className.toLowerCase(Locale.ROOT);
+                if (lowerCls.contains(".robin.") || lowerCls.contains(".gemini.") ||
+                    lowerCls.contains("geminigatewayactivity") || lowerCls.contains("robinentrypointactivity")) {
+                    return true;
+                }
+            }
+            if (lastBrowserEventClass != null) {
+                String lowerLast = lastBrowserEventClass.toLowerCase(Locale.ROOT);
+                if (lowerLast.contains(".robin.") || lowerLast.contains(".gemini.")) {
+                    return true;
+                }
+            }
+            AccessibilityNodeInfo activeRoot = root;
+            boolean shouldRecycle = false;
+            try {
+                if (activeRoot == null) {
+                    activeRoot = getRootInActiveWindow();
+                    shouldRecycle = (activeRoot != null);
+                }
+                if (activeRoot != null) {
+                    List<AccessibilityNodeInfo> nodes = activeRoot.findAccessibilityNodeInfosByViewId("com.google.android.googlequicksearchbox:id/assistant_robin_chat_header_container");
+                    if (nodes != null && !nodes.isEmpty()) return true;
+                    nodes = activeRoot.findAccessibilityNodeInfosByViewId("com.google.android.googlequicksearchbox:id/assistant_robin_chat_compose_toolbar");
+                    if (nodes != null && !nodes.isEmpty()) return true;
+                    List<AccessibilityNodeInfo> textNodes = activeRoot.findAccessibilityNodeInfosByText("Open Gemini Live");
+                    if (textNodes != null && !textNodes.isEmpty()) return true;
+                }
+            } catch (Exception ignore) {
+            } finally {
+                if (shouldRecycle && activeRoot != null) {
+                    try { activeRoot.recycle(); } catch (Exception ignore) {}
+                }
+            }
+        }
+        return false;
+    }
+
     private boolean isSystemOrLauncher(String pkg) {
         if (pkg == null) return false;
         if (pkg.contains("permissioncontroller")) {
             return false;
         }
-        if (pkg.equals("com.android.systemui") || isLauncherApp(this, pkg) || SystemUadAllowlist.isUadSystemAllowed(pkg)) {
+        if (pkg.equals("com.google.android.googlequicksearchbox") && isGeminiActive(pkg, lastBrowserEventClass, null)) {
+            if (!isGeminiAllowed()) {
+                return false;
+            }
+        }
+        if (pkg.equals("com.android.systemui") || isLauncherApp(this, pkg)) {
             return true;
         }
         // Universal System Partition Gateway for non-browser, non-settings system overlays
@@ -1054,7 +1122,7 @@ public class LockAccessibilityService extends AccessibilityService {
                 android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
                 if ((ai.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
                     (ai.flags & android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) {
-                    if (!isBrowserPackage(pkg) && !AppClassifier.isSettingsOrDeviceManager(pkg, null)) {
+                    if (!isBrowserPackage(pkg) && !AppClassifier.isSettingsOrDeviceManager(pkg, null) && !AppClassifier.isStage1Bloat(pkg, null)) {
                         return true;
                     }
                 }
@@ -1132,6 +1200,26 @@ public class LockAccessibilityService extends AccessibilityService {
      * a search query, or active typing in the search box.
      * Research is 100% immune; browsing continues uninterrupted.
      */
+    private static boolean isSearchEngineHost(String host) {
+        if (host == null || host.isEmpty()) return false;
+        if (host.equals("gemini.google.com") || host.equals("bard.google.com")) {
+            return false; // Gemini and Bard are conversational AI assistants, NOT search engines!
+        }
+        if (host.equals("google.com") || host.equals("www.google.com")) {
+            return true;
+        }
+        if ((host.startsWith("google.") || host.startsWith("www.google.")) && !host.contains("gemini") && !host.contains("bard")) {
+            return true;
+        }
+        return host.equals("bing.com") || host.equals("www.bing.com") ||
+               host.equals("duckduckgo.com") || host.equals("www.duckduckgo.com") ||
+               host.equals("search.yahoo.com") || host.equals("ecosia.org") || host.equals("www.ecosia.org") ||
+               host.equals("qwant.com") || host.equals("www.qwant.com") ||
+               host.equals("baidu.com") || host.equals("www.baidu.com") ||
+               host.equals("yandex.com") || host.equals("www.yandex.com") ||
+               host.equals("startpage.com") || host.equals("www.startpage.com");
+    }
+
     private boolean isBrowserSearch(String url, AccessibilityNodeInfo root) {
         if (url != null && !url.trim().isEmpty()) {
             String lowerUrl = url.trim().toLowerCase(Locale.US);
@@ -1139,12 +1227,8 @@ public class LockAccessibilityService extends AccessibilityService {
             // If it is a destination URL that is NOT a search engine host, it is NEVER a search results page!
             if (WebClassifier.isDestinationUrl(url)) {
                 String host = WebBlocklistConstants.extractHost(lowerUrl);
-                if (!host.contains("google.") && !host.contains("bing.com") &&
-                    !host.contains("duckduckgo.com") && !host.contains("search.yahoo.com") &&
-                    !host.contains("ecosia.org") && !host.contains("qwant.com") &&
-                    !host.contains("baidu.com") && !host.contains("yandex.com") &&
-                    !host.contains("startpage.com")) {
-                    return false; // Destination page! E.g. y8.com, youtube.com, etc.
+                if (!isSearchEngineHost(host)) {
+                    return false; // Destination page! E.g. gemini.google.com, chatgpt.com, y8.com, etc.
                 }
             }
 
@@ -1154,7 +1238,8 @@ public class LockAccessibilityService extends AccessibilityService {
             }
 
             // Check if it is a search engine URL with query parameters
-            if (lowerUrl.contains("google.") && (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
+            String host = WebBlocklistConstants.extractHost(lowerUrl);
+            if (isSearchEngineHost(host) && (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
                 return true;
             }
             if (lowerUrl.contains("bing.com/search") || lowerUrl.contains("duckduckgo.com") ||
@@ -1341,7 +1426,13 @@ public class LockAccessibilityService extends AccessibilityService {
             });
         }
 
-        // 2. Primary Remediation: Auto-Back (Hits 1 and 2)
+        // 2. Custom Tab Remediation: If opened inside a Chrome Custom Tab, close it directly via close_button
+        if (closeCustomTab(root, pkg)) {
+            Log.i(TAG, "remediateBlockedBrowserTab: closed CustomTab via close_button");
+            return;
+        }
+
+        // 3. Primary Remediation: Auto-Back (Hits 1 and 2)
         // Reverses browser history to the prior safe page (e.g. GitHub, Wikipedia, Google, New Tab Page).
         // With 2200ms cooldown, Chrome has sufficient time to complete the back navigation without stutter.
         if (consecutiveBlockedUrlHits <= 2) {
@@ -1350,7 +1441,7 @@ public class LockAccessibilityService extends AccessibilityService {
             return;
         }
 
-        // 3. Secondary Remediation: Repeat hit after multiple backs means no back history in this tab or JS trap — reset tab in-place via Home button
+        // 4. Secondary Remediation: Repeat hit after multiple backs means no back history in this tab or JS trap — reset tab in-place via Home button
         Log.i(TAG, "remediateBlockedBrowserTab: repeat hit detected after auto-back, resetting tab in-place via home button");
         boolean homeClicked = clickBrowserHomeButton(root, pkg);
         if (homeClicked) {
@@ -1358,10 +1449,57 @@ public class LockAccessibilityService extends AccessibilityService {
             return;
         }
 
-        // 4. Tertiary Remediation: Reusable safe tab via Intent
+        // 5. Tertiary Remediation: Reusable safe tab via Intent (Redirect to clean Google Search page)
         Log.w(TAG, "remediateBlockedBrowserTab: home button unavailable, falling back to reused safe tab intent");
         navigateBrowserToSafeBlank(pkg);
         consecutiveBlockedUrlHits = 0;
+    }
+
+    private boolean closeCustomTab(AccessibilityNodeInfo passedRoot, String pkg) {
+        AccessibilityNodeInfo root = passedRoot;
+        boolean shouldRecycleRoot = false;
+        if (root == null) {
+            try {
+                root = getRootInActiveWindow();
+                shouldRecycleRoot = true;
+            } catch (Exception ignore) {}
+        }
+        if (root == null) return false;
+
+        try {
+            String[] closeButtonIds = {
+                "com.android.chrome:id/close_button",
+                "org.chromium.chrome:id/close_button",
+                "com.sec.android.app.sbrowser:id/close_button"
+            };
+            for (String closeId : closeButtonIds) {
+                List<AccessibilityNodeInfo> closeNodes = root.findAccessibilityNodeInfosByViewId(closeId);
+                if (closeNodes != null && !closeNodes.isEmpty()) {
+                    for (AccessibilityNodeInfo node : closeNodes) {
+                        if (node != null) {
+                            try {
+                                if (node.isClickable()) {
+                                    boolean clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                                    Log.i(TAG, "closeCustomTab: ACTION_CLICK on " + closeId + " -> " + clicked);
+                                    if (clicked) return true;
+                                }
+                            } catch (Exception e) {
+                                Log.e(TAG, "Failed close button click on " + closeId + ": " + e.getMessage());
+                            } finally {
+                                node.recycle();
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "closeCustomTab error: " + e.getMessage());
+        } finally {
+            if (shouldRecycleRoot && root != null) {
+                root.recycle();
+            }
+        }
+        return false;
     }
 
     private boolean clickBrowserHomeButton(AccessibilityNodeInfo passedRoot, String pkg) {
@@ -1417,7 +1555,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private void navigateBrowserToSafeBlank(String pkg) {
         try {
-            Intent safeIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("about:blank"));
+            Intent safeIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"));
             safeIntent.setPackage(pkg);
             // CRITICAL: DO NOT pass 'pkg' ("com.android.chrome") as EXTRA_APPLICATION_ID!
             // Passing Chrome's own package name triggers Chromium's DONT_CLOBBER_TABS_WITH_CHROME_APP_ID,
@@ -1438,8 +1576,8 @@ public class LockAccessibilityService extends AccessibilityService {
     private String extractUrlFromBrowser(AccessibilityNodeInfo root, String pkg) {
         if (root == null) return null;
 
-        // Layer 1: Input Focus Guard. If any address bar or search input is actively focused by the user,
-        // typing or autocomplete is in progress. Eviction must NEVER occur during active typing.
+        // Layer 1: Input Focus Guard. If the address bar or search input is actively focused by the user,
+        // and does NOT contain a completed destination URL, typing or autocomplete is in progress.
         AccessibilityNodeInfo focusNode = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
         if (focusNode != null) {
             try {
@@ -1451,12 +1589,14 @@ public class LockAccessibilityService extends AccessibilityService {
                             lowerFocusId.contains("search") || lowerFocusId.contains("toolbar") ||
                             lowerFocusId.contains("address") || lowerFocusId.contains("omnibox") ||
                             lowerFocusId.contains("line_1")) {
-                            return null; // User is actively typing in the address bar
+                            CharSequence focusText = focusNode.getText();
+                            String textStr = focusText != null ? focusText.toString().trim() : "";
+                            // If the text in the address bar is already a complete, valid destination URL without spaces,
+                            // it has been submitted/loaded. Only suppress extraction if user is actively typing unsubmitted text.
+                            if (textStr.isEmpty() || textStr.contains(" ") || !WebClassifier.isDestinationUrl(textStr)) {
+                                return null; // User is actively typing in the address bar
+                            }
                         }
-                    }
-                    CharSequence focusClass = focusNode.getClassName();
-                    if (focusClass != null && focusClass.toString().toLowerCase(Locale.US).contains("edittext")) {
-                        return null; // Active input focus in an editable text field
                     }
                 }
             } finally {
@@ -1464,27 +1604,32 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
-        // 1. Chrome / Chromium family: Query multiple known address bar view IDs
+        // 1. Chrome / Chromium family: Query multiple known address bar & Custom Tab view IDs
         String[] chromeViewIds = {
             "com.android.chrome:id/url_bar",
+            "com.android.chrome:id/title_url",
             "com.android.chrome:id/search_box_text",
             "com.android.chrome:id/location_bar",
             "com.android.chrome:id/toolbar",
             "com.android.chrome:id/omnibox_text_field",
-            "org.chromium.chrome:id/url_bar"
+            "org.chromium.chrome:id/url_bar",
+            "org.chromium.chrome:id/title_url"
         };
         for (String id : chromeViewIds) {
             List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
-                        if (node.isFocused()) {
-                            return null; // Active typing or autocomplete in progress
-                        }
                         CharSequence text = node.getText();
-                        if (text != null && text.length() > 0) return text.toString();
                         CharSequence desc = node.getContentDescription();
-                        if (desc != null && desc.length() > 0) return desc.toString();
+                        String val = text != null && text.length() > 0 ? text.toString().trim() :
+                                    (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
+                        if (node.isFocused()) {
+                            if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
+                                continue; // Active typing or autocomplete in progress
+                            }
+                        }
+                        if (val != null && val.length() > 0) return val;
                     }
                 }
             }
@@ -1501,13 +1646,16 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
-                        if (node.isFocused()) {
-                            return null; // Active typing or autocomplete in progress
-                        }
                         CharSequence text = node.getText();
-                        if (text != null && text.length() > 0) return text.toString();
                         CharSequence desc = node.getContentDescription();
-                        if (desc != null && desc.length() > 0) return desc.toString();
+                        String val = text != null && text.length() > 0 ? text.toString().trim() :
+                                    (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
+                        if (node.isFocused()) {
+                            if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
+                                continue; // Active typing or autocomplete in progress
+                            }
+                        }
+                        if (val != null && val.length() > 0) return val;
                     }
                 }
             }
@@ -1524,11 +1672,14 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
-                        if (node.isFocused()) {
-                            return null; // Active typing or autocomplete in progress
-                        }
                         CharSequence text = node.getText();
-                        if (text != null && text.length() > 0) return text.toString();
+                        String val = text != null && text.length() > 0 ? text.toString().trim() : null;
+                        if (node.isFocused()) {
+                            if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
+                                continue;
+                            }
+                        }
+                        if (val != null && val.length() > 0) return val;
                     }
                 }
             }
@@ -1539,13 +1690,16 @@ public class LockAccessibilityService extends AccessibilityService {
         if (nodes != null && !nodes.isEmpty()) {
             for (AccessibilityNodeInfo node : nodes) {
                 if (node != null) {
-                    if (node.isFocused()) {
-                        return null; // Active typing or autocomplete in progress
-                    }
                     CharSequence text = node.getText();
-                    if (text != null && text.length() > 0) return text.toString();
                     CharSequence desc = node.getContentDescription();
-                    if (desc != null && desc.length() > 0) return desc.toString();
+                    String val = text != null && text.length() > 0 ? text.toString().trim() :
+                                (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
+                    if (node.isFocused()) {
+                        if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
+                            continue;
+                        }
+                    }
+                    if (val != null && val.length() > 0) return val;
                 }
             }
         }
@@ -1555,13 +1709,16 @@ public class LockAccessibilityService extends AccessibilityService {
         if (nodes != null && !nodes.isEmpty()) {
             for (AccessibilityNodeInfo node : nodes) {
                 if (node != null) {
-                    if (node.isFocused()) {
-                        return null; // Active typing or autocomplete in progress
-                    }
                     CharSequence text = node.getText();
-                    if (text != null && text.length() > 0) return text.toString();
                     CharSequence desc = node.getContentDescription();
-                    if (desc != null && desc.length() > 0) return desc.toString();
+                    String val = text != null && text.length() > 0 ? text.toString().trim() :
+                                (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
+                    if (node.isFocused()) {
+                        if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
+                            continue;
+                        }
+                    }
+                    if (val != null && val.length() > 0) return val;
                 }
             }
         }
@@ -1579,7 +1736,8 @@ public class LockAccessibilityService extends AccessibilityService {
             String lowerResId = resId.toLowerCase(Locale.US);
             if (lowerResId.contains("url_bar") || lowerResId.contains("location_bar") || 
                 lowerResId.contains("address_bar") || lowerResId.contains("omnibar") ||
-                lowerResId.contains("url_field")) {
+                lowerResId.contains("url_field") || lowerResId.contains("title_url") ||
+                lowerResId.contains("custom_tab_toolbar")) {
                 isAddressOrInput = true;
             }
         }
@@ -1588,22 +1746,17 @@ public class LockAccessibilityService extends AccessibilityService {
         // We explicitly do NOT match anonymous EditText or editable nodes without a toolbar/url resource ID,
         // because those represent in-page HTML form fields (such as Wikipedia search, login forms, etc.).
         if (isAddressOrInput) {
-            if (node.isFocused()) {
-                return null; // Active typing or autocomplete in progress
-            }
             CharSequence text = node.getText();
-            if (text != null && text.length() > 0) {
-                String t = text.toString().trim();
-                if (t.contains(".") || t.startsWith("http://") || t.startsWith("https://") || t.contains("/")) {
-                    return t;
+            CharSequence desc = node.getContentDescription();
+            String val = text != null && text.length() > 0 ? text.toString().trim() :
+                        (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
+            if (node.isFocused()) {
+                if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
+                    return null; // Active typing in progress
                 }
             }
-            CharSequence desc = node.getContentDescription();
-            if (desc != null && desc.length() > 0) {
-                String d = desc.toString().trim();
-                if (d.contains(".") || d.startsWith("http://") || d.startsWith("https://") || d.contains("/")) {
-                    return d;
-                }
+            if (val != null && (val.contains(".") || val.startsWith("http://") || val.startsWith("https://") || val.contains("/"))) {
+                return val;
             }
         }
 
@@ -1652,6 +1805,11 @@ public class LockAccessibilityService extends AccessibilityService {
         if (isBrowserPackage(pkg)) return false;
         if (isKeyboardApp(pkg)) return false;
         if (isLauncherApp(this, pkg)) return false;
+
+        // Gemini / Robin active inside Google App
+        if (pkg.equals("com.google.android.googlequicksearchbox") && isGeminiActive(pkg, lastBrowserEventClass, null)) {
+            return !isGeminiAllowed();
+        }
 
         Set<String> whitelist = prefs != null ? prefs.getStringSet("whitelist", new HashSet<>()) : new HashSet<>();
 
@@ -1851,12 +2009,19 @@ public class LockAccessibilityService extends AccessibilityService {
                         }
 
                         // STAGE 2 & 3: Only when Lockdown or Consequence is Active
-                        if (isEnforcing && !isSystemOrLauncher(rootPkg)) {
-                            if (isBrowserPackage(rootPkg)) {
-                                inspectBrowserWindow(activeRoot, rootPkg, true);
-                            } else if (isPackageBlocked(rootPkg)) {
-                                enforceBlock(rootPkg);
+                        if (isEnforcing) {
+                            if (isGeminiActive(rootPkg, null, activeRoot) && !isGeminiAllowed()) {
+                                Log.w(TAG, "Ticker: detected Gemini active in foreground while AI policy is disabled");
+                                enforceBlock("com.google.android.apps.bard");
                                 return;
+                            }
+                            if (!isSystemOrLauncher(rootPkg)) {
+                                if (isBrowserPackage(rootPkg)) {
+                                    inspectBrowserWindow(activeRoot, rootPkg, true);
+                                } else if (isPackageBlocked(rootPkg)) {
+                                    enforceBlock(rootPkg);
+                                    return;
+                                }
                             }
                         }
                     }
@@ -2025,6 +2190,10 @@ public class LockAccessibilityService extends AccessibilityService {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
+                                    if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
+                                        lastForegroundPackage = "com.google.android.apps.bard";
+                                        return "com.google.android.apps.bard";
+                                    }
                                     if (!isSystemOrLauncher(pkg) && isPackageBlocked(pkg)) {
                                         lastForegroundPackage = pkg;
                                         return pkg;
@@ -2047,6 +2216,10 @@ public class LockAccessibilityService extends AccessibilityService {
                 activeRoot.recycle();
                 if (p != null) {
                     String rootPkg = p.toString();
+                    if ("com.google.android.googlequicksearchbox".equals(rootPkg) && isGeminiActive(rootPkg, null, null) && !isGeminiAllowed()) {
+                        lastForegroundPackage = "com.google.android.apps.bard";
+                        return "com.google.android.apps.bard";
+                    }
                     if (!isSystemOrLauncher(rootPkg)) {
                         lastForegroundPackage = rootPkg;
                         return rootPkg;
@@ -2079,6 +2252,10 @@ public class LockAccessibilityService extends AccessibilityService {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
+                                    if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
+                                        lastForegroundPackage = "com.google.android.apps.bard";
+                                        return "com.google.android.apps.bard";
+                                    }
                                     if (!isSystemOrLauncher(pkg)) {
                                         lastForegroundPackage = pkg;
                                         return pkg;
@@ -2099,6 +2276,10 @@ public class LockAccessibilityService extends AccessibilityService {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
+                                    if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
+                                        lastForegroundPackage = "com.google.android.apps.bard";
+                                        return "com.google.android.apps.bard";
+                                    }
                                     if (!isSystemOrLauncher(pkg)) {
                                         lastForegroundPackage = pkg;
                                         return pkg;

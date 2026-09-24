@@ -159,7 +159,9 @@ public class LockPlugin extends Plugin {
             if (allowedAppIds != null) {
                 for (int i = 0; i < allowedAppIds.length(); i++) {
                     String appId = allowedAppIds.getString(i);
-                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null)) {
+                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null) &&
+                        !UnifiedPolicyRegistry.isPackageRegisteredInAnyService(appId) &&
+                        !appId.equals("com.google.android.googlequicksearchbox")) {
                         whitelist.add(appId);
                     }
                 }
@@ -262,7 +264,14 @@ public class LockPlugin extends Plugin {
                 editor.putString("consequence_schedule_id", scheduleId);
             }
             if (whitelist != null && !whitelist.isEmpty()) {
-                editor.putStringSet("whitelist", whitelist);
+                Set<String> cleanWhitelist = new HashSet<>();
+                for (String p : whitelist) {
+                    if (p != null && !UnifiedPolicyRegistry.isPackageRegisteredInAnyService(p) &&
+                        !p.equals("com.google.android.googlequicksearchbox")) {
+                        cleanWhitelist.add(p);
+                    }
+                }
+                editor.putStringSet("whitelist", cleanWhitelist);
             }
             editor.apply();
 
@@ -831,7 +840,8 @@ public class LockPlugin extends Plugin {
                         else if (isStudentApp) iconName = "BookOpen";
                         else if (isMessaging || isSimOrCarrier) iconName = "MessageSquare";
 
-                        boolean isAutoAllowed = isHardcoded || isMessaging || isSimOrCarrier || !AppClassifier.isPackageBlocked(getActivity(), pkg, null);
+                        boolean isUnifiedService = UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg);
+                        boolean isAutoAllowed = !isUnifiedService && !pkg.equals("com.google.android.googlequicksearchbox") && (isHardcoded || isMessaging || isSimOrCarrier || !AppClassifier.isPackageBlocked(getActivity(), pkg, null));
                         if (!isHardcoded && !isSimOrCarrier && isAutoAllowed && "LayoutGrid".equals(iconName)) {
                             iconName = "BookOpen";
                         }
@@ -1477,24 +1487,11 @@ public class LockPlugin extends Plugin {
                     continue;
                 }
 
-                // Stage 2: Policy & Distraction Checks
-                // Check if package belongs to any Unified Policy Service (e.g. YouTube, Gemini, OpenAI, Claude)
-                boolean isPolicyServicePackage = false;
-                for (UnifiedService svc : UnifiedPolicyRegistry.SERVICES.values()) {
-                    if (svc.getPackages().contains(pkg.toLowerCase(Locale.US))) {
-                        isPolicyServicePackage = true;
-                        break;
-                    }
-                }
-
-                if (isPolicyServicePackage) {
-                    // Check if this policy service is explicitly enabled in imported activeServices
-                    if (UnifiedPolicyRegistry.isPackageAllowedByService(pkg, activeServiceIds)) {
-                        cleanPackageIds.put(pkg);
-                    } else {
-                        // Service policy is disabled -> purge package from allowed apps
-                        purgedPackageIds.put(pkg);
-                    }
+                // Check if package belongs to any Unified Policy Service (e.g. YouTube, AI) or is Google App
+                if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || pkg.equals("com.google.android.googlequicksearchbox")) {
+                    // Unified service packages are governed exclusively by UnifiedPolicyRegistry
+                    // and must not inhabit the custom allowed apps whitelist.
+                    purgedPackageIds.put(pkg);
                     continue;
                 }
 

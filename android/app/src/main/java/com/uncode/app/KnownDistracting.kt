@@ -63,6 +63,7 @@ object KnownDistracting {
         "com.characterai.chat",                      // Character.ai
         "com.deepseek.chat",                         // DeepSeek
         "ai.inflection.pi",                          // Pi AI
+        "ai.x.grok",                                 // xAI Grok
 
         // ── Short-Drama Streaming & Web Novels / Manga / Comics ──
         "com.cd.shortdrama",                         // ReelShort

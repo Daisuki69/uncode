@@ -313,7 +313,8 @@ export function isAiPackage(packageId?: string | null, appName?: string | null):
       lowerId.includes('perplexity') ||
       lowerId.includes('deepseek') ||
       lowerId.includes('bard') ||
-      lowerId.includes('poe.android')
+      lowerId.includes('poe.android') ||
+      lowerId.includes('grok')
     ) {
       return true;
     }
@@ -326,7 +327,8 @@ export function isAiPackage(packageId?: string | null, appName?: string | null):
       lowerName.includes('claude') ||
       lowerName.includes('copilot') ||
       lowerName.includes('perplexity') ||
-      lowerName.includes('deepseek')
+      lowerName.includes('deepseek') ||
+      lowerName.includes('grok')
     ) {
       return true;
     }
@@ -417,7 +419,8 @@ export function isHiddenSystemExemptApp(packageId?: string | null, appName?: str
       lowerId.includes('lenslauncher') ||
       lowerId.includes('aperturelenslauncher') ||
       lowerId.includes('opensourcemusicplayer') ||
-      lowerId.includes('androidopensourcemusicplayer')
+      lowerId.includes('androidopensourcemusicplayer') ||
+      lowerId === 'com.google.android.googlequicksearchbox'
     ) {
       return true;
     }
