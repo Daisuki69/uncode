@@ -14,6 +14,8 @@ import java.util.Locale
 data class UnifiedService(
     val id: String,
     val displayName: String,
+    val description: String = "",
+    val badge: String = "App + Web",
     val packages: Set<String> = emptySet(),
     val domains: Set<String> = emptySet()
 )
@@ -25,12 +27,17 @@ object UnifiedPolicyRegistry {
         "youtube" to UnifiedService(
             id = "youtube",
             displayName = "YouTube",
+            description = "Allows YouTube application and YouTube web browser domains.",
+            badge = "App + Web",
             packages = setOf(
                 "com.google.android.youtube",
                 "com.google.android.youtube.tv",
+                "com.google.android.apps.youtube.unplugged",
+                "com.google.android.apps.youtube.kids",
                 "app.revanced.android.youtube",
                 "org.schabi.newpipe",
-                "app.libre_tube"
+                "app.libre_tube",
+                "org.polymc.tubular"
             ),
             domains = setOf(
                 "youtube.com",
@@ -41,6 +48,8 @@ object UnifiedPolicyRegistry {
         "gemini" to UnifiedService(
             id = "gemini",
             displayName = "Google Gemini",
+            description = "Allows Gemini application and Google AI web domains (gemini.google.com).",
+            badge = "App + Web",
             packages = setOf(
                 "com.google.android.apps.gemini",
                 "com.google.android.apps.bard"
@@ -53,6 +62,8 @@ object UnifiedPolicyRegistry {
         "openai" to UnifiedService(
             id = "openai",
             displayName = "ChatGPT / OpenAI",
+            description = "Allows ChatGPT app and web domains (chatgpt.com, openai.com).",
+            badge = "App + Web",
             packages = setOf(
                 "com.openai.chatgpt"
             ),
@@ -65,6 +76,8 @@ object UnifiedPolicyRegistry {
         "claude" to UnifiedService(
             id = "claude",
             displayName = "Claude AI",
+            description = "Allows Claude app and web domains (claude.ai, anthropic.com).",
+            badge = "App + Web",
             packages = setOf(
                 "com.anthropic.claude"
             ),

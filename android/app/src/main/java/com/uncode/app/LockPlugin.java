@@ -43,6 +43,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.OutputStream;
 import java.io.InputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import android.view.accessibility.AccessibilityManager;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.pm.ResolveInfo;
@@ -499,6 +502,41 @@ public class LockPlugin extends Plugin {
         } catch (Exception e) {
             Log.e(TAG, "getActiveServices failed", e);
             call.reject("getActiveServices failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getRegisteredServices(PluginCall call) {
+        try {
+            JSArray servicesArr = new JSArray();
+            for (UnifiedService svc : UnifiedPolicyRegistry.SERVICES.values()) {
+                JSObject obj = new JSObject();
+                obj.put("id", svc.getId());
+                obj.put("name", svc.getDisplayName());
+                obj.put("displayName", svc.getDisplayName());
+                obj.put("description", svc.getDescription());
+                obj.put("badge", svc.getBadge());
+
+                JSArray pkgArr = new JSArray();
+                for (String p : svc.getPackages()) {
+                    pkgArr.put(p);
+                }
+                obj.put("packages", pkgArr);
+
+                JSArray domainArr = new JSArray();
+                for (String d : svc.getDomains()) {
+                    domainArr.put(d);
+                }
+                obj.put("domains", domainArr);
+
+                servicesArr.put(obj);
+            }
+            JSObject ret = new JSObject();
+            ret.put("services", servicesArr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "getRegisteredServices failed", e);
+            call.reject("getRegisteredServices failed: " + e.getMessage());
         }
     }
 
@@ -1318,7 +1356,7 @@ public class LockPlugin extends Plugin {
 
     @ActivityCallback
     private void exportBackupResult(PluginCall call, ActivityResult result) {
-        if (result.getResultCode() == android.app.Activity.RESULT_OK) {
+        if (result != null && result.getResultCode() == android.app.Activity.RESULT_OK) {
             Intent data = result.getData();
             if (data != null && data.getData() != null) {
                 Uri uri = data.getData();
@@ -1350,15 +1388,61 @@ public class LockPlugin extends Plugin {
                     
                     tempFile.delete();
                     
-                    call.resolve();
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    call.resolve(ret);
                 } catch (Exception e) {
-                    call.reject("Failed to copy file", e);
+                    call.reject("Failed to copy file: " + e.getMessage(), e);
                 }
             } else {
                 call.reject("No URI returned");
             }
         } else {
-            call.reject("User canceled");
+            JSObject ret = new JSObject();
+            ret.put("canceled", true);
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void importBackup(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        String[] mimeTypes = {"application/json", "text/plain", "application/octet-stream", "*/*"};
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+
+        startActivityForResult(call, intent, "importBackupResult");
+    }
+
+    @ActivityCallback
+    private void importBackupResult(PluginCall call, ActivityResult result) {
+        if (result != null && result.getResultCode() == android.app.Activity.RESULT_OK) {
+            Intent data = result.getData();
+            if (data != null && data.getData() != null) {
+                Uri uri = data.getData();
+                try (InputStream in = getContext().getContentResolver().openInputStream(uri);
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        sb.append(line).append("\n");
+                    }
+                    JSObject ret = new JSObject();
+                    ret.put("content", sb.toString());
+                    ret.put("success", true);
+                    call.resolve(ret);
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to read imported backup", e);
+                    call.reject("Failed to read file: " + e.getMessage(), e);
+                }
+            } else {
+                call.reject("No file selected");
+            }
+        } else {
+            JSObject ret = new JSObject();
+            ret.put("canceled", true);
+            call.resolve(ret);
         }
     }
 
@@ -1368,6 +1452,92 @@ public class LockPlugin extends Plugin {
 
     public void triggerBackPressed() {
         notifyListeners("backPressed", new JSObject());
+    }
+
+    @PluginMethod
+    public void sanitizeImportApps(PluginCall call) {
+        JSArray candidateArray = call.getArray("candidatePackageIds");
+        JSArray activeServicesArray = call.getArray("activeServices");
+
+        Set<String> activeServiceIds = new HashSet<>();
+        if (activeServicesArray != null) {
+            for (int i = 0; i < activeServicesArray.length(); i++) {
+                try {
+                    String s = activeServicesArray.getString(i);
+                    if (s != null && !s.trim().isEmpty()) {
+                        activeServiceIds.add(s.trim().toLowerCase(Locale.US));
+                    }
+                } catch (Exception ignore) {}
+            }
+        }
+
+        JSArray cleanPackageIds = new JSArray();
+        JSArray purgedPackageIds = new JSArray();
+        Set<String> processed = new HashSet<>();
+
+        if (candidateArray != null) {
+            for (int i = 0; i < candidateArray.length(); i++) {
+                String pkg;
+                try {
+                    pkg = candidateArray.getString(i);
+                } catch (Exception e) {
+                    continue;
+                }
+                if (pkg == null) continue;
+                pkg = pkg.trim();
+                if (pkg.isEmpty() || processed.contains(pkg)) continue;
+                processed.add(pkg);
+
+                // Stage 1: Master Veto Gate (Settings, Device Admins, Bloatware)
+                if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || AppClassifier.isStage1Bloat(pkg, null)) {
+                    purgedPackageIds.put(pkg);
+                    continue;
+                }
+
+                // Stage 2: Policy & Distraction Checks
+                // Check if package belongs to any Unified Policy Service (e.g. YouTube, Gemini, OpenAI, Claude)
+                boolean isPolicyServicePackage = false;
+                for (UnifiedService svc : UnifiedPolicyRegistry.SERVICES.values()) {
+                    if (svc.getPackages().contains(pkg.toLowerCase(Locale.US))) {
+                        isPolicyServicePackage = true;
+                        break;
+                    }
+                }
+
+                if (isPolicyServicePackage) {
+                    // Check if this policy service is explicitly enabled in imported activeServices
+                    if (UnifiedPolicyRegistry.isPackageAllowedByService(pkg, activeServiceIds)) {
+                        cleanPackageIds.put(pkg);
+                    } else {
+                        // Service policy is disabled -> purge package from allowed apps
+                        purgedPackageIds.put(pkg);
+                    }
+                    continue;
+                }
+
+                // Check KnownDistracting & ForbiddenDistraction (Games, TikTok, Social, Screen shares)
+                if (KnownDistracting.KNOWN_DISTRACTING_PACKAGES.contains(pkg) ||
+                    AppClassifier.isForbiddenDistraction(getContext(), pkg)) {
+                    purgedPackageIds.put(pkg);
+                    continue;
+                }
+
+                // Check Hidden Infrastructure (camera lens proxy, internal installers)
+                if (isHiddenInfrastructureApp(pkg, null)) {
+                    purgedPackageIds.put(pkg);
+                    continue;
+                }
+
+                // S3: Safe / Permitted Study App
+                cleanPackageIds.put(pkg);
+            }
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("cleanPackageIds", cleanPackageIds);
+        ret.put("purgedPackageIds", purgedPackageIds);
+        ret.put("purgedCount", purgedPackageIds.length());
+        call.resolve(ret);
     }
 
     @PluginMethod

@@ -1,5 +1,5 @@
 import { registerPlugin } from '@capacitor/core';
-import { AllowedApp } from './types';
+import { AllowedApp, UNIFIED_SERVICES, UnifiedServiceDefinition } from './types';
 
 interface LockPluginInterface {
   startLockdown(options: {
@@ -26,15 +26,29 @@ interface LockPluginInterface {
   requestBatteryOptimization(): Promise<void>;
   requestNotificationPermission(): Promise<void>;
   openNotificationSettings(): Promise<void>;
-  exportBackup(options: { tempFileName: string; defaultName: string }): Promise<void>;
+  exportBackup(options: { tempFileName: string; defaultName: string }): Promise<{ success?: boolean; canceled?: boolean }>;
+  importBackup(): Promise<{ content?: string; success?: boolean; canceled?: boolean }>;
+  sanitizeImportApps(options: {
+    candidatePackageIds: string[];
+    activeServices?: string[];
+  }): Promise<{
+    cleanPackageIds: string[];
+    purgedPackageIds: string[];
+    purgedCount: number;
+  }>;
+  addListener(eventName: string, listenerFunc: Function): Promise<any>;
   syncSchedules(options: { schedules: any[]; allowedAppIds: string[] }): Promise<void>;
   syncTimeOffset(options: { timeOffset: number }): Promise<void>;
   setConsequenceActive(options: { active: boolean; scheduleId?: string; whitelist?: string[] }): Promise<void>;
   setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
   setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }): Promise<{ success: boolean }>;
   setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
+  setBlockWebGames(options: { block: boolean }): Promise<{ success: boolean }>;
+  setDnsFilterProfile(options: { profile: string }): Promise<{ success: boolean }>;
+  setEnforceSafeSearch(options: { enforce: boolean }): Promise<{ success: boolean }>;
   setServicePolicy(options: { serviceId: string; allowed: boolean }): Promise<{ success: boolean; activeServices?: string[] }>;
   getActiveServices(): Promise<{ activeServices: string[] }>;
+  getRegisteredServices(): Promise<{ services: any[] }>;
   requestVpnPermission(): Promise<{ granted: boolean }>;
   getLockStatus(): Promise<{
     isLockActive: boolean;
@@ -82,11 +96,24 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
       console.log('[Dev] Simulating setAllowYoutube:', opts);
       return { success: true };
     },
+    setBlockWebGames: async (opts: { block: boolean }) => {
+      console.log('[Dev] Simulating setBlockWebGames:', opts);
+      return { success: true };
+    },
+    setDnsFilterProfile: async (opts: { profile: string }) => {
+      console.log('[Dev] Simulating setDnsFilterProfile:', opts);
+      return { success: true };
+    },
+    setEnforceSafeSearch: async (opts: { enforce: boolean }) => {
+      console.log('[Dev] Simulating setEnforceSafeSearch:', opts);
+      return { success: true };
+    },
     setServicePolicy: async (opts: { serviceId: string; allowed: boolean }) => {
       console.log('[Dev] Simulating setServicePolicy:', opts);
       return { success: true, activeServices: [opts.serviceId] };
     },
     getActiveServices: async () => ({ activeServices: [] }),
+    getRegisteredServices: async () => ({ services: UNIFIED_SERVICES }),
     requestVpnPermission: async () => {
       console.log('[Dev] Simulating requestVpnPermission: granted');
       return { granted: true };
@@ -127,7 +154,34 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
     requestBatteryOptimization: async () => console.log('[Dev] Requesting Battery Optimization'),
     requestNotificationPermission: async () => console.log('[Dev] Requesting Notification Permission'),
     openNotificationSettings: async () => console.log('[Dev] Opening Notification Settings'),
-    exportBackup: async (opts: { tempFileName: string; defaultName: string }) => console.log('[Dev] Exporting backup', opts),
+    exportBackup: async (opts: { tempFileName: string; defaultName: string }) => {
+      console.log('[Dev] Exporting backup', opts);
+      return { success: true };
+    },
+    importBackup: async () => {
+      console.log('[Dev] Importing backup');
+      return { canceled: true };
+    },
+    sanitizeImportApps: async ({ candidatePackageIds, activeServices }: { candidatePackageIds: string[]; activeServices?: string[] }) => {
+      const activeSet = new Set(activeServices || []);
+      const cleanPackageIds: string[] = [];
+      const purgedPackageIds: string[] = [];
+      for (const pkg of candidatePackageIds) {
+        const lower = pkg.toLowerCase();
+        if (lower.includes('setting') || lower.includes('security') || lower.includes('joyose') || lower.includes('cloner')) {
+          purgedPackageIds.push(pkg);
+        } else if (lower.includes('youtube')) {
+          if (activeSet.has('youtube')) cleanPackageIds.push(pkg);
+          else purgedPackageIds.push(pkg);
+        } else if (lower.includes('tiktok') || lower.includes('genshin') || lower.includes('game') || lower.includes('instagram')) {
+          purgedPackageIds.push(pkg);
+        } else {
+          cleanPackageIds.push(pkg);
+        }
+      }
+      return { cleanPackageIds, purgedPackageIds, purgedCount: purgedPackageIds.length };
+    },
+    addListener: async () => ({ remove: () => {} }),
   },
 });
 
@@ -231,10 +285,12 @@ export const startLockdown = (
   });
 };
 
-export const endLockdown = () => {
-  LockPlugin.endLockdown().catch(e => {
+export const endLockdown = async (): Promise<void> => {
+  try {
+    await LockPlugin.endLockdown();
+  } catch (e) {
     console.error('endLockdown failed', e);
-  });
+  }
 };
 
 export const syncSchedules = async (schedules: any[], allowedAppIds: string[]): Promise<void> => {
@@ -275,8 +331,31 @@ export const getLockStatus = async (): Promise<{
   }
 };
 
-export const exportBackup = async (tempFileName: string, defaultName: string): Promise<void> => {
-  await LockPlugin.exportBackup({ tempFileName, defaultName });
+export const exportBackup = async (
+  tempFileName: string,
+  defaultName: string
+): Promise<{ success?: boolean; canceled?: boolean }> => {
+  return await LockPlugin.exportBackup({ tempFileName, defaultName });
+};
+
+export const importBackup = async (): Promise<{
+  content?: string;
+  success?: boolean;
+  canceled?: boolean;
+}> => {
+  return await LockPlugin.importBackup();
+};
+
+export const sanitizeImportApps = async (
+  candidatePackageIds: string[],
+  activeServices?: string[]
+): Promise<{ cleanPackageIds: string[]; purgedPackageIds: string[]; purgedCount: number }> => {
+  try {
+    return await LockPlugin.sanitizeImportApps({ candidatePackageIds, activeServices });
+  } catch (e) {
+    console.error('sanitizeImportApps failed', e);
+    return { cleanPackageIds: candidatePackageIds, purgedPackageIds: [], purgedCount: 0 };
+  }
 };
 
 export const exitToHome = async (): Promise<void> => {
@@ -387,5 +466,24 @@ export const getActiveServices = async (): Promise<string[]> => {
     console.error('getActiveServices failed', e);
     return [];
   }
+};
+
+export const getRegisteredServices = async (): Promise<UnifiedServiceDefinition[]> => {
+  try {
+    const res = await LockPlugin.getRegisteredServices();
+    if (res?.services && Array.isArray(res.services) && res.services.length > 0) {
+      return res.services.map((s: any) => ({
+        id: s.id,
+        name: s.name || s.displayName || s.id,
+        description: s.description || `Allows ${s.name || s.id} application and web domains.`,
+        badge: s.badge || 'App + Web',
+        packages: Array.isArray(s.packages) ? s.packages : [],
+        domains: Array.isArray(s.domains) ? s.domains : []
+      }));
+    }
+  } catch (e) {
+    console.warn('getRegisteredServices failed, using fallback', e);
+  }
+  return UNIFIED_SERVICES;
 };
 
