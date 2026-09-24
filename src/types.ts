@@ -12,7 +12,7 @@ export interface ScheduleData {
   id: string;
   title?: string;
   homeworkContent: string;
-  rubricMode: 'ai' | 'manual';
+  rubricMode: 'ai' | 'manual' | 'points';
   rubricContent: string;
   selectedResourceIds?: string[];
   activationTime: string; // HH:mm

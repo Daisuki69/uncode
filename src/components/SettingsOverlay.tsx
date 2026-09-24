@@ -4,9 +4,10 @@ import { AppSettings, LogEntry, SavedResource, AllowedApp, UNIFIED_SERVICES, Uni
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
 import { loadData, saveData } from '../storage';
-import { exportBackup, setServicePolicy, getActiveServices } from '../systemBridge';
+import { exportBackup, importBackup, sanitizeImportApps, setServicePolicy, getActiveServices, getRegisteredServices } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
+import { isHardcodedApp, isHiddenSystemExemptApp } from '../constants/allowedApps';
 
 interface SettingsOverlayProps {
   settings: AppSettings;
@@ -39,6 +40,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   const [activeServices, setActiveServicesState] = useState<string[]>(
     settings.activeServices || (settings.allowYoutube ? ['youtube'] : [])
   );
+  const [availableServices, setAvailableServices] = useState<UnifiedServiceDefinition[]>(UNIFIED_SERVICES);
   const blockWebGames = true; // Permanently active & cannot be turned off
   const [webError, setWebError] = useState<string | null>(null);
   
@@ -49,6 +51,11 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   useEffect(() => {
     // Load directly from imported file for static/Vercel environments
     setDefaultPrompts(staticDefaultPrompts);
+    getRegisteredServices().then(services => {
+      if (services && services.length > 0) {
+        setAvailableServices(services);
+      }
+    }).catch(() => {});
     getActiveServices().then(res => {
       if (res && res.length > 0) {
         setActiveServicesState(prev => Array.from(new Set([...prev, ...res])));
@@ -197,21 +204,173 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
       });
 
       // Hand off to native SAF picker
-      await exportBackup(tempFileName, defaultName);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to export data.");
+      const result = await exportBackup(tempFileName, defaultName);
+      if (result && result.canceled) {
+        console.log('[Export] User canceled document creation');
+        return;
+      }
+      alert("Backup exported successfully!");
+    } catch (err: any) {
+      console.error('Export error:', err);
+      const msg = err && err.message ? err.message : String(err);
+      if (msg.includes('canceled') || msg.includes('Canceled')) {
+        return;
+      }
+      alert("Failed to export data: " + msg);
     }
   };
 
-  const handleImport = () => {
+  const applyImportData = async (data: any) => {
+    try {
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid backup file format.');
+      }
+
+      let totalPurgedCount = 0;
+      const allPurgedPackages: string[] = [];
+
+      if (data.settings) {
+        const rawAllowed = data.customApps || data.allowedApps || data.settings.allowedApps;
+        if (rawAllowed && Array.isArray(rawAllowed)) {
+          const candidatePackageIds: string[] = rawAllowed
+            .map((a: any) => (typeof a === 'string' ? a : a?.id))
+            .filter(Boolean);
+
+          const activeServices: string[] = data.settings.activeServices || (data.settings.allowYoutube ? ['youtube'] : []);
+
+          // Run candidate apps through native classifier (S1 -> S2 -> S3)
+          const sanitizeRes = await sanitizeImportApps(candidatePackageIds, activeServices);
+          const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
+
+          data.settings.allowedApps = rawAllowed.filter(
+            (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name)
+          );
+          data.settings.allowedAppsInitialized = true;
+
+          if (sanitizeRes.purgedCount > 0) {
+            totalPurgedCount += sanitizeRes.purgedCount;
+            allPurgedPackages.push(...(sanitizeRes.purgedPackageIds || []));
+            console.warn('[Import Sanitization] Purged unauthorized packages:', sanitizeRes.purgedPackageIds);
+          }
+        }
+        await saveData('studom_settings', data.settings);
+
+        // Synchronize with native SharedPreferences
+        try {
+          const { 
+            endLockdown, 
+            setConsequenceActive, 
+            syncSchedules,
+            setOperatingMode,
+            setWebProtectionMode,
+            setAllowYoutube,
+            setServicePolicy,
+            setBlockWebGames,
+            syncTimeOffset
+          } = await import('../systemBridge');
+
+          if (data.timeOffset !== undefined) {
+            await syncTimeOffset(data.timeOffset);
+          }
+          if (data.settings.operatingMode) {
+            await setOperatingMode(data.settings.operatingMode);
+          }
+          if (data.settings.webProtectionMode) {
+            await setWebProtectionMode(data.settings.webProtectionMode);
+          }
+          if (data.settings.allowYoutube !== undefined) {
+            await setAllowYoutube(data.settings.allowYoutube);
+          }
+          if (data.settings.activeServices && Array.isArray(data.settings.activeServices)) {
+            for (const s of availableServices) {
+              const allowed = data.settings.activeServices.includes(s.id);
+              await setServicePolicy(s.id, allowed);
+            }
+          }
+          await setBlockWebGames(true);
+
+          const safeAllowed = (data.settings.allowedApps || []).map((a: AllowedApp) => a.id);
+          if (data.settings.schedules) {
+            await syncSchedules(data.settings.schedules, safeAllowed);
+          }
+
+          if (data.settings.consequenceActive) {
+            await setConsequenceActive(true, data.settings.consequenceScheduleId, safeAllowed);
+          } else {
+            await endLockdown();
+            await setConsequenceActive(false);
+          }
+        } catch (nativeErr) {
+          console.warn('Failed to sync native settings on import', nativeErr);
+        }
+      } else if (data.customApps || data.allowedApps) {
+        const currentSettings = await loadData<AppSettings>('studom_settings', settings);
+        const rawAllowed = data.customApps || data.allowedApps;
+        const candidatePackageIds: string[] = rawAllowed
+          .map((a: any) => (typeof a === 'string' ? a : a?.id))
+          .filter(Boolean);
+
+        const activeServices: string[] = currentSettings.activeServices || (currentSettings.allowYoutube ? ['youtube'] : []);
+        const sanitizeRes = await sanitizeImportApps(candidatePackageIds, activeServices);
+        const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
+
+        currentSettings.allowedApps = rawAllowed.filter(
+          (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name)
+        );
+        currentSettings.allowedAppsInitialized = true;
+
+        if (sanitizeRes.purgedCount > 0) {
+          totalPurgedCount += sanitizeRes.purgedCount;
+          allPurgedPackages.push(...(sanitizeRes.purgedPackageIds || []));
+          console.warn('[Import Sanitization] Purged unauthorized packages:', sanitizeRes.purgedPackageIds);
+        }
+        await saveData('studom_settings', currentSettings);
+      }
+      if (data.resources) await saveData('studom_resources', data.resources);
+      if (data.logs) await saveData('studom_logs', data.logs);
+      if (data.completedHomeworks) await saveData('studom_completed_homeworks', data.completedHomeworks);
+      if (data.timeOffset !== undefined) await saveData('studom_timeOffset', data.timeOffset);
+      
+      if (totalPurgedCount > 0) {
+        alert(`Import successful! The app will now reload.\n\n🛡️ Sanitization Guard: Removed ${totalPurgedCount} unauthorized package(s) (e.g. system settings, games, or forbidden distractions) from allowed apps.`);
+      } else {
+        alert("Import successful! The app will now reload.");
+      }
+      window.location.reload();
+    } catch (err: any) {
+      console.error('Import processing error:', err);
+      alert("Failed to parse JSON backup: " + (err?.message || String(err)));
+    }
+  };
+
+  const handleImport = async () => {
     if (isLockedOrConsequence) {
       alert("Backup import is disabled during active lockdown or consequence mode. Complete and pass your homework session first.");
       return;
     }
+
+    // Try native SAF import first (Android)
+    try {
+      const res = await importBackup();
+      if (res) {
+        if (res.canceled) {
+          console.log('[Import] User canceled file selection');
+          return;
+        }
+        if (res.content) {
+          const data = JSON.parse(res.content);
+          await applyImportData(data);
+          return;
+        }
+      }
+    } catch (nativeErr) {
+      console.warn('Native importBackup failed or unavailable, falling back to web file input', nativeErr);
+    }
+
+    // Web Fallback (HTML input)
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json';
+    input.accept = '.json,application/json,text/plain,*/*';
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
@@ -220,75 +379,9 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
         try {
           const text = e2.target?.result as string;
           const data = JSON.parse(text);
-          if (data.settings) {
-            const rawAllowed = data.customApps || data.allowedApps || data.settings.allowedApps;
-            if (rawAllowed && Array.isArray(rawAllowed)) {
-              data.settings.allowedApps = rawAllowed.filter(
-                (a: AllowedApp) => a && a.id && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name)
-              );
-              data.settings.allowedAppsInitialized = true;
-            }
-            await saveData('studom_settings', data.settings);
-
-            // Synchronize with native SharedPreferences
-            try {
-              const { 
-                endLockdown, 
-                setConsequenceActive, 
-                syncSchedules,
-                setOperatingMode,
-                setWebProtectionMode,
-                setAllowYoutube,
-                setBlockWebGames,
-                syncTimeOffset
-              } = await import('../systemBridge');
-
-              if (data.timeOffset !== undefined) {
-                await syncTimeOffset(data.timeOffset);
-              }
-              if (data.settings.operatingMode) {
-                await setOperatingMode(data.settings.operatingMode);
-              }
-              if (data.settings.webProtectionMode) {
-                await setWebProtectionMode(data.settings.webProtectionMode);
-              }
-              if (data.settings.allowYoutube !== undefined) {
-                await setAllowYoutube(data.settings.allowYoutube);
-              }
-              await setBlockWebGames(true);
-
-              const safeAllowed = (data.settings.allowedApps || []).map((a: AllowedApp) => a.id);
-              if (data.settings.schedules) {
-                await syncSchedules(data.settings.schedules, safeAllowed);
-              }
-
-              if (data.settings.consequenceActive) {
-                await setConsequenceActive(true, data.settings.consequenceScheduleId, safeAllowed);
-              } else {
-                endLockdown();
-                await setConsequenceActive(false);
-              }
-            } catch (nativeErr) {
-              console.warn('Failed to sync native settings on import', nativeErr);
-            }
-          } else if (data.customApps || data.allowedApps) {
-            const currentSettings = await loadData<AppSettings>('studom_settings', settings);
-            const rawAllowed = data.customApps || data.allowedApps;
-            currentSettings.allowedApps = rawAllowed.filter(
-              (a: AllowedApp) => a && a.id && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name)
-            );
-            currentSettings.allowedAppsInitialized = true;
-            await saveData('studom_settings', currentSettings);
-          }
-          if (data.resources) await saveData('studom_resources', data.resources);
-          if (data.logs) await saveData('studom_logs', data.logs);
-          if (data.completedHomeworks) await saveData('studom_completed_homeworks', data.completedHomeworks);
-          if (data.timeOffset !== undefined) await saveData('studom_timeOffset', data.timeOffset);
-          
-          alert("Import successful! The app will now reload.");
-          window.location.reload();
-        } catch (err) {
-          alert("Failed to parse JSON backup.");
+          await applyImportData(data);
+        } catch (err: any) {
+          alert("Failed to parse JSON backup: " + (err?.message || String(err)));
         }
       };
       reader.readAsText(file);
@@ -698,7 +791,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {UNIFIED_SERVICES.map((svc) => {
+                    {availableServices.map((svc) => {
                       const isAllowed = activeServices.includes(svc.id);
                       return (
                         <div key={svc.id} className="bg-white p-3 rounded-xl border border-gray-200/80 flex flex-col justify-between shadow-xs">
@@ -711,12 +804,15 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                                     ? 'bg-blue-100 text-blue-600'
                                     : svc.id === 'openai'
                                       ? 'bg-emerald-100 text-emerald-600'
-                                      : 'bg-purple-100 text-purple-600'
+                                      : svc.id === 'claude'
+                                        ? 'bg-purple-100 text-purple-600'
+                                        : 'bg-indigo-100 text-indigo-600'
                               }`}>
                                 {svc.id === 'youtube' && <Video className="w-3.5 h-3.5" />}
                                 {svc.id === 'gemini' && <Sparkles className="w-3.5 h-3.5" />}
                                 {svc.id === 'openai' && <Bot className="w-3.5 h-3.5" />}
                                 {svc.id === 'claude' && <Cpu className="w-3.5 h-3.5" />}
+                                {!['youtube', 'gemini', 'openai', 'claude'].includes(svc.id) && <Globe className="w-3.5 h-3.5" />}
                               </div>
                               <div>
                                 <div className="flex items-center gap-1.5">
@@ -739,7 +835,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                               disabled={isLockedOrConsequence}
                               className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                                 isAllowed
-                                  ? (svc.id === 'youtube' ? 'bg-red-600' : svc.id === 'gemini' ? 'bg-blue-600' : svc.id === 'openai' ? 'bg-emerald-600' : 'bg-purple-600')
+                                  ? (svc.id === 'youtube' ? 'bg-red-600' : svc.id === 'gemini' ? 'bg-blue-600' : svc.id === 'openai' ? 'bg-emerald-600' : svc.id === 'claude' ? 'bg-purple-600' : 'bg-indigo-600')
                                   : 'bg-gray-300'
                               } ${isLockedOrConsequence ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
@@ -754,6 +850,12 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                           <p className="text-[10.5px] text-gray-500 leading-tight">
                             {svc.description}
                           </p>
+
+                          <div className="mt-2 pt-1.5 border-t border-gray-100 flex flex-wrap gap-x-2 gap-y-0.5 text-[9.5px] text-gray-400 font-mono">
+                            <span>{svc.packages[0] || 'app whitelist'}</span>
+                            <span>•</span>
+                            <span>{svc.domains[0] || 'domain whitelist'}</span>
+                          </div>
                         </div>
                       );
                     })}

@@ -23,9 +23,13 @@ import {
   Bell,
   BatteryCharging,
   AlertTriangle,
-  RotateCw
+  RotateCw,
+  Video,
+  Bot,
+  Cpu,
+  Layers
 } from 'lucide-react';
-import { AppSettings } from '../types';
+import { AppSettings, UNIFIED_SERVICES, UnifiedServiceDefinition } from '../types';
 import { 
   checkPermissions, 
   openAccessibilitySettings, 
@@ -34,7 +38,8 @@ import {
   openAppInfo, 
   requestBatteryOptimization, 
   requestNotificationPermission, 
-  requestVpnPermission 
+  requestVpnPermission,
+  getRegisteredServices
 } from '../systemBridge';
 
 interface OnboardingProps {
@@ -130,7 +135,29 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [showOcrKey, setShowOcrKey] = useState(false);
   const [operatingMode, setOperatingModeState] = useState<'safemode' | 'hardcore'>('safemode');
   const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dual_hybrid'>('accessibility');
+  const [availableServices, setAvailableServices] = useState<UnifiedServiceDefinition[]>(UNIFIED_SERVICES);
+  const [activeServices, setActiveServicesState] = useState<string[]>([]);
   const [allowYoutube, setAllowYoutubeState] = useState(false);
+
+  useEffect(() => {
+    getRegisteredServices().then(services => {
+      if (services && services.length > 0) {
+        setAvailableServices(services);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleToggleService = (serviceId: string, allowed: boolean) => {
+    setActiveServicesState(prev => {
+      const next = allowed
+        ? Array.from(new Set([...prev, serviceId]))
+        : prev.filter(id => id !== serviceId);
+      return next;
+    });
+    if (serviceId === 'youtube') {
+      setAllowYoutubeState(allowed);
+    }
+  };
 
   // Modals & Feedback
   const [showHardcoreModal, setShowHardcoreModal] = useState(false);
@@ -174,6 +201,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         operatingMode: 'safemode',
         webProtectionMode: 'accessibility',
         allowYoutube: false,
+        activeServices: [],
       });
     } else {
       onComplete({
@@ -182,7 +210,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         simpleOcrKey: simpleOcrKey.trim() || undefined,
         operatingMode,
         webProtectionMode,
-        allowYoutube,
+        allowYoutube: activeServices.includes('youtube'),
+        activeServices,
       });
     }
   };
@@ -918,19 +947,99 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   </div>
                 )}
 
-                {/* YouTube Toggle */}
-                <label className="flex items-center justify-between pt-2 border-t border-gray-700/50 cursor-pointer">
-                  <div>
-                    <span className="text-xs font-bold text-gray-200 block">Allow YouTube</span>
-                    <span className="text-[11px] text-gray-400">Allows YouTube application and YouTube web browser domains.</span>
+                {/* Unified Service Policy Engine */}
+                <div className="pt-3 mt-3 border-t border-gray-700/50">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-bold text-gray-200">Unified Service Policy Engine</span>
+                    <span className="text-[10px] text-gray-400 bg-gray-900/80 px-2 py-0.5 rounded-full border border-gray-700/60">
+                      App + Web Domain Sync
+                    </span>
                   </div>
-                  <input
-                    type="checkbox"
-                    checked={allowYoutube}
-                    onChange={(e) => setAllowYoutubeState(e.target.checked)}
-                    className="w-4 h-4 accent-red-600 rounded cursor-pointer shrink-0 ml-3"
-                  />
-                </label>
+                  <p className="text-[11px] text-gray-400 mb-3 leading-relaxed">
+                    Select services to allow during focus sessions. Toggling simultaneously updates both the native application access and web browser domain filters.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {availableServices.map((svc) => {
+                      const isAllowed = activeServices.includes(svc.id);
+                      return (
+                        <div
+                          key={svc.id}
+                          onClick={() => handleToggleService(svc.id, !isAllowed)}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                            isAllowed
+                              ? 'bg-gray-900/90 border-red-500/60 shadow-sm'
+                              : 'bg-gray-900/40 border-gray-700/60 hover:border-gray-600'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-start gap-2">
+                              <div className={`p-1.5 rounded-lg mt-0.5 ${
+                                svc.id === 'youtube'
+                                  ? 'bg-red-500/20 text-red-400'
+                                  : svc.id === 'gemini'
+                                    ? 'bg-blue-500/20 text-blue-400'
+                                    : svc.id === 'openai'
+                                      ? 'bg-emerald-500/20 text-emerald-400'
+                                      : svc.id === 'claude'
+                                        ? 'bg-purple-500/20 text-purple-400'
+                                        : 'bg-indigo-500/20 text-indigo-400'
+                              }`}>
+                                {svc.id === 'youtube' && <Video className="w-3.5 h-3.5" />}
+                                {svc.id === 'gemini' && <Sparkles className="w-3.5 h-3.5" />}
+                                {svc.id === 'openai' && <Bot className="w-3.5 h-3.5" />}
+                                {svc.id === 'claude' && <Cpu className="w-3.5 h-3.5" />}
+                                {!['youtube', 'gemini', 'openai', 'claude'].includes(svc.id) && <Globe className="w-3.5 h-3.5" />}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-xs text-gray-100">{svc.name}</span>
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                    isAllowed ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60' : 'bg-gray-800 text-gray-400'
+                                  }`}>
+                                    {isAllowed ? 'Allowed' : 'Blocked'}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-indigo-400 font-semibold">{svc.badge}</span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={isAllowed}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleService(svc.id, !isAllowed);
+                              }}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                isAllowed
+                                  ? (svc.id === 'youtube' ? 'bg-red-600' : svc.id === 'gemini' ? 'bg-blue-600' : svc.id === 'openai' ? 'bg-emerald-600' : svc.id === 'claude' ? 'bg-purple-600' : 'bg-indigo-600')
+                                  : 'bg-gray-700'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                  isAllowed ? 'translate-x-4' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <p className="text-[10.5px] text-gray-400 leading-tight">
+                            {svc.description}
+                          </p>
+
+                          <div className="mt-2 pt-1.5 border-t border-gray-800/80 flex flex-wrap gap-x-2 gap-y-0.5 text-[9.5px] text-gray-500 font-mono">
+                            <span>{svc.packages[0] || 'app whitelist'}</span>
+                            <span>•</span>
+                            <span>{svc.domains[0] || 'domain whitelist'}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1004,9 +1113,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </div>
 
               <div className="flex items-center justify-between pb-2 border-b border-gray-700/50">
-                <span className="text-gray-400 font-medium">YouTube Policy</span>
-                <span className="font-bold text-gray-200">
-                  {allowYoutube ? 'Allowed (App + Web)' : 'Completely Blocked'}
+                <span className="text-gray-400 font-medium">Unified Service Policy</span>
+                <span className="font-bold text-gray-200 text-right">
+                  {activeServices.length > 0
+                    ? activeServices.map(id => availableServices.find(s => s.id === id)?.name || id).join(', ')
+                    : 'Strict Lockdown (All Blocked)'}
                 </span>
               </div>
 

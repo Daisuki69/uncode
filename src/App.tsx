@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react';
-import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp } from './types';
+import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp, UNIFIED_SERVICES } from './types';
 import { Dashboard } from './components/Dashboard';
 import { LockScreen } from './components/LockScreen';
 import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch, setServicePolicy } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch, setServicePolicy, getRegisteredServices } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
@@ -298,6 +298,12 @@ export default function App() {
         : 'accessibility';
       setWebProtectionMode(safeWebMode);
       setAllowYoutube(loadedSettings.allowYoutube ?? false);
+      const activeServices = loadedSettings.activeServices || (loadedSettings.allowYoutube ? ['youtube'] : []);
+      const registered = await getRegisteredServices();
+      for (const s of registered) {
+        const allowed = activeServices.includes(s.id);
+        setServicePolicy(s.id, allowed).catch(() => {});
+      }
       setBlockWebGames(true);
       setResources(loadedResources);
       setLogs(loadedLogs);
@@ -743,6 +749,13 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
     }
     if (config?.allowYoutube !== undefined) {
       setAllowYoutube(config.allowYoutube);
+    }
+    if (config?.activeServices && Array.isArray(config.activeServices)) {
+      const registered = await getRegisteredServices();
+      for (const svc of registered) {
+        const allowed = config.activeServices.includes(svc.id);
+        setServicePolicy(svc.id, allowed).catch(() => {});
+      }
     }
 
     navigate('dashboard', 'forward');
