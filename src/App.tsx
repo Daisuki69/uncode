@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch, setServicePolicy, getRegisteredServices } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
-import { isMessagingPackage, isHiddenSystemExemptApp } from './constants/allowedApps';
+import { isMessagingPackage, isHiddenSystemExemptApp, isLauncherPackage } from './constants/allowedApps';
 
 // Code-split secondary views to keep initial bundle ultra-lightweight and fast to load
 const CreateSchedule = React.lazy(() => import('./components/CreateSchedule').then(m => ({ default: m.CreateSchedule })));
@@ -279,12 +279,23 @@ export default function App() {
       }
 
       if (loadedSettings.allowedApps) {
-        loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => 
+          !isAppBlacklisted(a.id) && 
+          !isHiddenSystemExemptApp(a.id, a.name) &&
+          !isLauncherPackage(a.id, a.name) &&
+          !a.isLauncher
+        );
       }
 
       // Check cached installed apps for initial messaging app auto-population if needed
       if (!loadedSettings.allowedAppsInitialized && installedApps.length > 0) {
-        const messagingApps = installedApps.filter(a => isMessagingPackage(a.id, a.name) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        const messagingApps = installedApps.filter(a => 
+          isMessagingPackage(a.id, a.name) && 
+          !isAppBlacklisted(a.id) && 
+          !isHiddenSystemExemptApp(a.id, a.name) &&
+          !isLauncherPackage(a.id, a.name) &&
+          !a.isLauncher
+        );
         if (messagingApps.length > 0) {
           loadedSettings.allowedApps = messagingApps;
         }
@@ -366,13 +377,21 @@ export default function App() {
             const autoAllowedCustom = installed.filter(a => 
               a.isAutoAllowed && 
               !a.isHardcoded && 
+              !a.isLauncher &&
+              !isLauncherPackage(a.id, a.name) &&
               !isAppBlacklisted(a.id) && 
               !isHiddenSystemExemptApp(a.id, a.name) && 
               !existingIds.has(a.id)
             );
 
             if (!prev.allowedAppsInitialized) {
-              const messagingApps = installed.filter(a => isMessagingPackage(a.id, a.name) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+              const messagingApps = installed.filter(a => 
+                isMessagingPackage(a.id, a.name) && 
+                !isAppBlacklisted(a.id) && 
+                !isHiddenSystemExemptApp(a.id, a.name) &&
+                !isLauncherPackage(a.id, a.name) &&
+                !a.isLauncher
+              );
               const combined = [...(prev.allowedApps || [])];
               for (const a of [...messagingApps, ...autoAllowedCustom]) {
                 if (!combined.some(c => c.id === a.id)) combined.push(a);

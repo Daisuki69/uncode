@@ -36,6 +36,7 @@ export interface AllowedApp {
   isNotes?: boolean;
   isStudentApp?: boolean;
   isAi?: boolean;
+  isLauncher?: boolean;
 }
 
 export interface AppSettings {

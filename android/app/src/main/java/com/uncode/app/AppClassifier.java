@@ -309,6 +309,9 @@ public final class AppClassifier {
         "hypercasual", "survivor", "arena", "runner", "crafting", "tower defense", "mahjong", "bingo",
         "gacha", "otome", "visual novel", "tamagotchi", "virtual pet", "block craft", "zombie", "shooter",
         "sniper", "defense", "multiplayer", "board game", "card game", "minigame",
+        // Rhythm Games & Tap Games
+        "rhythm game", "coxeta", "costheta", "phigros", "arcaea", "cytus", "deemo", "dynamix",
+        "kalpa", "lanota", "rotaeno", "musedash", "muse dash", "project sekai",
 
         // Remote Desktop, Screen Share & VNC Workarounds
         "teamviewer", "anydesk", "rustdesk", "remote desktop", "screen share", "screen mirror",
@@ -342,6 +345,9 @@ public final class AppClassifier {
         ".game.", ".games.", ".gaming.", ".casino.", ".poker.", ".slots.", ".bet.",
         ".arcade.", ".simulator.", ".tycoon.", ".dating.", ".hookup.", ".cheat.",
         ".cloner.", ".dualspace.", ".parallel.", ".vmos.", ".virtual.",
+        // Rhythm Game Signatures
+        ".costheta.", ".coxeta.", ".phigros.", ".arcaea.", ".cytus.", ".dynamix.",
+        ".musedash.", ".teamrhythmicals.", ".rhythm.",
         // Remote Desktop, Screen Share & VNC Workarounds
         ".teamviewer.", ".anydesk.", ".rustdesk.", ".remotedesktop.", ".screenshare.",
         ".screenmirror.", ".screenstream.", ".splashtop.", ".parsec.", ".airdroid.",
@@ -793,16 +799,97 @@ public final class AppClassifier {
         return false;
     }
 
+    /**
+     * Identifies core OEM hardware and system utilities (Phone dialer, Clock/Alarms,
+     * Calendar, Contacts, Email, STK, SystemUI).
+     * These apps are handled natively by Stage 3 Universal System Gateway (SYSALLOW)
+     * and do not need to clutter the user-configurable Allowed Apps UI.
+     */
+    public static boolean isSystemUtility(String pkg, String appLabel) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
+        if (lowerPkg.equals("com.android.systemui") ||
+            lowerPkg.contains("stk") ||
+            lowerPkg.contains("simappdialog") ||
+            lowerPkg.contains(".carrier") ||
+            lowerPkg.contains(".telecom") ||
+            lowerPkg.contains(".teleservice") ||
+            lowerPkg.contains(".incallui") ||
+            lowerPkg.contains("dialer") ||
+            lowerPkg.contains("deskclock") ||
+            lowerPkg.contains("clockpackage") ||
+            lowerPkg.contains(".calendar") ||
+            lowerPkg.contains(".contacts") ||
+            lowerPkg.contains("addressbook") ||
+            lowerPkg.equals("com.google.android.gm") ||
+            lowerPkg.contains(".email") ||
+            lowerPkg.contains(".mail")) {
+            return true;
+        }
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
+            if (lowerLabel.equals("phone") || lowerLabel.equals("dialer") ||
+                lowerLabel.equals("clock") || lowerLabel.equals("alarm") ||
+                lowerLabel.equals("calendar") || lowerLabel.equals("contacts") ||
+                lowerLabel.equals("gmail") || lowerLabel.equals("email") ||
+                lowerLabel.equals("sim toolkit")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Evaluates whether an application qualifies as an allowed Stage 3 Universal System Gateway (SYSALLOW) app.
+     * If an app is on the system partition (pre-installed by OEM in /system, /vendor, /product) and passed all
+     * Stage 1 Master Veto checks (not settings/device manager, not bloatware, not games, not distracting video/social,
+     * not a general web browser), it is already permitted dynamically by the operating system during lockdown.
+     *
+     * In accordance with UI declutter architecture, apps that pass Stage 3 SYSALLOW must NOT be rendered
+     * at the UI (they are hidden from candidate selection and user whitelist).
+     */
+    public static boolean isPassedStage3SystemAllow(ApplicationInfo appInfo, String pkg, String appLabel) {
+        if (appInfo == null || pkg == null) return false;
+        boolean isSystemApp = (appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                              (appInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+        if (!isSystemApp) return false;
+
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
+        String lowerLabel = appLabel != null ? appLabel.toLowerCase(Locale.ROOT).trim() : "";
+
+        // Web browsers must NOT be treated as invisible system utilities; they require WebClassifier URL inspection
+        if (lowerPkg.contains("browser") || lowerPkg.contains("chrome") || lowerPkg.contains("firefox") || lowerPkg.contains("opera")) {
+            return false;
+        }
+
+        // Must not be anti-tamper settings or device managers (Stage 1)
+        if (isSettingsOrDeviceManager(pkg, appLabel)) return false;
+
+        // Must not be hardware bloatware or game boosters (Stage 1)
+        if (isStage1Bloat(pkg, appLabel)) return false;
+
+        // Must not be a known distraction or game
+        if (KnownDistracting.isKnownDistracting(pkg, appLabel)) return false;
+
+        // Negative distraction heuristics (games, gambling, social feeds)
+        if (hasNegativeDistractionSignals(lowerLabel, lowerPkg)) return false;
+
+        // Verified legitimate OEM system partition tool!
+        return true;
+    }
+
     public static boolean isForbiddenDistraction(Context context, String pkg) {
         if (pkg == null || context == null) return false;
         if (pkg.equals("com.android.settings") || isSettingsOrDeviceManager(pkg, null)) return true;
         if (isStage1Bloat(pkg, null)) return true;
+        if (KnownDistracting.isKnownDistracting(pkg)) return true;
         try {
             PackageManager pm = context.getPackageManager();
             if (pm == null) return false;
             ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
             CharSequence labelChar = pm.getApplicationLabel(appInfo);
             String appLabel = labelChar != null ? labelChar.toString() : "";
+            if (KnownDistracting.isKnownDistracting(pkg, appLabel)) return true;
             String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
             String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
 

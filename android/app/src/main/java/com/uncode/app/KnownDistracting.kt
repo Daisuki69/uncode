@@ -143,6 +143,24 @@ object KnownDistracting {
         "com.valvesoftware.android.steam.community", // Steam Mobile
         "com.epicgames.portal",                      // Epic Games Store
 
+        // ── Rhythm Games & Mobile Games ──
+        "com.teamrhythmicals.costheta",               // Coxeta
+        "com.PigeonGames.Phigros",                   // Phigros
+        "low.moe.arcarea",                           // Arcaea
+        "com.rayark.cytus2",                         // Cytus II
+        "com.rayark.cytus.l",                        // Cytus
+        "com.rayark.deemo",                          // Deemo
+        "com.c4cat.dynamix",                         // Dynamix
+        "com.PigeonGames.KALPA",                     // KALPA
+        "com.PigeonGames.Rizline",                   // Rizline
+        "com.Noxygames.Lanota",                      // Lanota
+        "com.DreamEngine.Rotaeno",                   // Rotaeno
+        "com.chuxin.musedash",                       // Muse Dash
+        "games.wispsoft.orzu",                       // Orzmic
+        "com.sega.pjsekai",                          // Project Sekai
+        "com.bushiroad.en.bangdream",                // BanG Dream!
+        "jp.co.coconuts.d4dj",                       // D4DJ
+
         // ── Remote Desktop, Screen Share & VNC Workarounds ──
         "com.teamviewer.teamviewer.market.mobile",
         "com.teamviewer.quicksupport.market",
@@ -260,7 +278,16 @@ object KnownDistracting {
                lower.contains(".rustdesk.") ||
                lower.contains(".remotedesktop.") ||
                lower.contains(".screenshare.") ||
-               lower.contains(".screenmirror.")
+               lower.contains(".screenmirror.") ||
+               lower.contains(".costheta.") ||
+               lower.contains(".coxeta.") ||
+               lower.contains(".phigros.") ||
+               lower.contains(".arcaea.") ||
+               lower.contains(".cytus.") ||
+               lower.contains(".dynamix.") ||
+               lower.contains(".musedash.") ||
+               lower.contains(".teamrhythmicals.") ||
+               lower.contains(".rhythm.")
     }
 
     private fun hasDistractingLabelSignature(lowerLabel: String): Boolean {
@@ -288,6 +315,16 @@ object KnownDistracting {
                lowerLabel.contains("kisskh") ||
                lowerLabel.contains("remote desktop") ||
                lowerLabel.contains("screen mirror") ||
-               lowerLabel.contains("screen share")
+               lowerLabel.contains("screen share") ||
+               lowerLabel.contains("coxeta") ||
+               lowerLabel.contains("phigros") ||
+               lowerLabel.contains("arcaea") ||
+               lowerLabel.contains("cytus") ||
+               lowerLabel.contains("deemo") ||
+               lowerLabel.contains("dynamix") ||
+               lowerLabel.contains("lanota") ||
+               lowerLabel.contains("rotaeno") ||
+               lowerLabel.contains("muse dash") ||
+               lowerLabel.contains("rhythm game")
     }
 }

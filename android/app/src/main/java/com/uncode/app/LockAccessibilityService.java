@@ -390,7 +390,7 @@ public class LockAccessibilityService extends AccessibilityService {
             } catch (Exception e) {
                 Log.e(TAG, "Ticker error: " + e.getMessage());
             } finally {
-                tickerHandler.postDelayed(this, 1000L);
+                tickerHandler.postDelayed(this, 300L);
             }
         }
     };
@@ -441,7 +441,7 @@ public class LockAccessibilityService extends AccessibilityService {
         info.flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS |
                      AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS |
                      AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
-        info.notificationTimeout = 50;
+        info.notificationTimeout = 0;
         setServiceInfo(info);
 
         refreshDynamicExemptPackages();
@@ -751,6 +751,17 @@ public class LockAccessibilityService extends AccessibilityService {
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
+
+        // Ultra-Fast Path: Master Veto Default Home Launcher role & switch attempt (0ms latency, pre-emptive)
+        if (isFastHomeRoleEvent(event)) {
+            AccessibilityNodeInfo source = event.getSource();
+            evictHomeLauncherChange(source);
+            if (source != null) {
+                try { source.recycle(); } catch (Exception ignore) {}
+            }
+            return;
+        }
+
         if (prefs == null) {
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         }
@@ -2451,12 +2462,74 @@ public class LockAccessibilityService extends AccessibilityService {
         return false;
     }
 
+    /**
+     * Ultra-Fast Path: Evaluates whether an AccessibilityEvent represents an attempt to change
+     * the default home launcher or interact with a launcher selection role dialog (0ms latency).
+     */
+    private boolean isFastHomeRoleEvent(AccessibilityEvent event) {
+        if (event == null) return false;
 
+        CharSequence pkgChar = event.getPackageName();
+        String pkgStr = pkgChar != null ? pkgChar.toString().toLowerCase(Locale.US) : "";
+
+        CharSequence clsChar = event.getClassName();
+        String clsStr = clsChar != null ? clsChar.toString().toLowerCase(Locale.US) : "";
+
+        // 1. Direct class name match (sub-microsecond memory check)
+        if (clsStr.contains("requestroleactivity") || clsStr.contains("defaultappactivity") ||
+            clsStr.contains("homesettingsactivity") || clsStr.contains("rolesearchactivity") ||
+            clsStr.contains("specialappaccessactivity") ||
+            (clsStr.contains("resolveractivity") && !clsStr.contains("chooseractivity"))) {
+            return true;
+        }
+
+        // 2. PermissionController or Android role/dialog event
+        if (pkgStr.contains("permissioncontroller") || pkgStr.equals("android") || pkgStr.contains("settings")) {
+            if (clsStr.contains("role") || clsStr.contains("alertdialog") || clsStr.contains("dialog")) {
+                List<CharSequence> texts = event.getText();
+                if (texts != null) {
+                    for (CharSequence t : texts) {
+                        if (t != null && isHomeAppSelectionTitle(t.toString())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // Fast-click defense: If any view is clicked inside permissioncontroller while role activity is active
+            if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_CLICKED && pkgStr.contains("permissioncontroller")) {
+                return true;
+            }
+        }
+
+        // 3. Proactive tap interception: User taps "Not set as default" or "Nova is not default launcher" in launcher settings
+        if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            List<CharSequence> texts = event.getText();
+            if (texts != null) {
+                for (CharSequence t : texts) {
+                    if (t != null) {
+                        String txt = t.toString().toLowerCase(Locale.US);
+                        if (txt.contains("not set as default") || 
+                            txt.contains("default launcher") ||
+                            (txt.contains("set as default") && txt.contains("home"))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            CharSequence cd = event.getContentDescription();
+            if (cd != null) {
+                String cStr = cd.toString().toLowerCase(Locale.US);
+                if (cStr.contains("not set as default") || cStr.contains("default launcher")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 
     /**
-     * Intercepts default home launcher selection screens, popups, and role requests
-     * (e.g. from PermissionController, Nova Launcher, RoleManager, or ResolverActivity).
-     * Flowchart: Home Launcher Selection Dialog (PROCESS EXACTLY, NOT WORD MATCHING) -> BLOCK AND EVICT TO QIEZKA
+     * Stage 1 Master Veto Gate: Home Launcher Selection Dialog -> DISMISS & EVICT TO QIEZKA
      */
     private boolean interceptHomeLauncherChangeAttempt(AccessibilityEvent event, AccessibilityNodeInfo providedRoot, String pkg) {
         String lowerPkg = pkg != null ? pkg.toLowerCase(Locale.US) : "";
@@ -2464,9 +2537,21 @@ public class LockAccessibilityService extends AccessibilityService {
         String classStr = "";
         if (event != null && event.getClassName() != null) {
             classStr = event.getClassName().toString().toLowerCase(Locale.US);
+        } else if (providedRoot != null && providedRoot.getClassName() != null) {
+            classStr = providedRoot.getClassName().toString().toLowerCase(Locale.US);
         }
 
-        // Window title check via getWindows() (crucial for Android 16 sandboxed permissioncontroller or null package events)
+        // 1. Fast Event-level class checks (0ms - instant memory evaluation)
+        if (classStr.contains("defaultappactivity") || classStr.contains("requestroleactivity") || 
+            classStr.contains("homesettingsactivity") || classStr.contains("rolesearchactivity") ||
+            classStr.contains("specialappaccessactivity") ||
+            (classStr.contains("resolveractivity") && !classStr.contains("chooseractivity"))) {
+            AccessibilityNodeInfo rootToDismiss = providedRoot != null ? providedRoot : (event != null ? event.getSource() : null);
+            evictHomeLauncherChange(rootToDismiss);
+            return true;
+        }
+
+        // 2. Window Audit via getWindows() (Essential for Android 14/15/16 sandboxed permissioncontroller modal dialogs)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 List<AccessibilityWindowInfo> windows = getWindows();
@@ -2475,31 +2560,29 @@ public class LockAccessibilityService extends AccessibilityService {
                         if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive() || w.isFocused())) {
                             CharSequence wt = w.getTitle();
                             if (wt != null && isHomeAppSelectionTitle(wt.toString())) {
-                                evictHomeLauncherChange();
+                                AccessibilityNodeInfo wRoot = w.getRoot();
+                                evictHomeLauncherChange(wRoot);
+                                if (wRoot != null) {
+                                    try { wRoot.recycle(); } catch (Exception ignore) {}
+                                }
                                 return true;
+                            }
+                            AccessibilityNodeInfo wRoot = w.getRoot();
+                            if (wRoot != null) {
+                                try {
+                                    CharSequence wp = wRoot.getPackageName();
+                                    if (wp != null && isHomeAppSelectionPackageOrRoot(wp.toString(), wRoot)) {
+                                        evictHomeLauncherChange(wRoot);
+                                        return true;
+                                    }
+                                } finally {
+                                    wRoot.recycle();
+                                }
                             }
                         }
                     }
                 }
             } catch (Exception ignore) {}
-        }
-
-        if (pkg == null) return false;
-
-        // Home selection is hosted by PermissionController, Android framework resolver, Settings, or 3rd-party launchers
-        boolean isPotentialHost = lowerPkg.contains("permissioncontroller") || 
-                                  lowerPkg.contains("settings") ||
-                                  (lowerPkg.equals("android") && (classStr.contains("resolveractivity") || classStr.contains("chooseractivity"))) ||
-                                  (lowerPkg.contains("launcher") && !KNOWN_LAUNCHERS.contains(pkg));
-
-        if (!isPotentialHost) return false;
-
-        // Exact class-level match for Role / Default app activities
-        if (classStr.contains("defaultappactivity") || classStr.contains("requestroleactivity") || 
-            classStr.contains("homesettingsactivity") || classStr.contains("rolesearchactivity") ||
-            classStr.contains("specialappaccessactivity")) {
-            evictHomeLauncherChange();
-            return true;
         }
 
         AccessibilityNodeInfo root = providedRoot;
@@ -2515,27 +2598,21 @@ public class LockAccessibilityService extends AccessibilityService {
 
             if (root == null) return false;
 
-            // Direct check on texts matching Default Home App
-            if (lowerPkg.contains("permissioncontroller") || lowerPkg.contains("settings")) {
-                List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText("Default home app");
-                if (nodes != null && !nodes.isEmpty()) {
-                    evictHomeLauncherChange();
-                    return true;
-                }
-                nodes = root.findAccessibilityNodeInfosByText("Default home");
-                if (nodes != null && !nodes.isEmpty()) {
-                    evictHomeLauncherChange();
-                    return true;
-                }
+            CharSequence rootPkg = root.getPackageName();
+            String effectivePkg = rootPkg != null ? rootPkg.toString() : lowerPkg;
+
+            if (isHomeAppSelectionPackageOrRoot(effectivePkg, root)) {
+                evictHomeLauncherChange(root);
+                return true;
             }
 
             // Third party launchers prompting to set default launcher
-            if (lowerPkg.contains("launcher") && !KNOWN_LAUNCHERS.contains(pkg)) {
+            if (effectivePkg.toLowerCase(Locale.US).contains("launcher") && !KNOWN_LAUNCHERS.contains(effectivePkg)) {
                 List<AccessibilityNodeInfo> defaultHomeNodes = root.findAccessibilityNodeInfosByText("Default");
                 if (defaultHomeNodes != null && !defaultHomeNodes.isEmpty()) {
                     List<AccessibilityNodeInfo> launcherNodes = root.findAccessibilityNodeInfosByText("Launcher");
                     if (launcherNodes != null && !launcherNodes.isEmpty()) {
-                        evictHomeLauncherChange();
+                        evictHomeLauncherChange(root);
                         return true;
                     }
                 }
@@ -2552,15 +2629,134 @@ public class LockAccessibilityService extends AccessibilityService {
         return false;
     }
 
+    private boolean isHomeAppSelectionPackageOrRoot(String pkg, AccessibilityNodeInfo root) {
+        if (pkg == null || root == null) return false;
+        String lower = pkg.toLowerCase(Locale.US);
+        if (!lower.contains("permissioncontroller") && !lower.contains("settings") && !lower.equals("android")) {
+            return false;
+        }
+
+        try {
+            // Check title text in permissioncontroller role UI
+            List<AccessibilityNodeInfo> titleNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/title");
+            if (titleNodes != null && !titleNodes.isEmpty()) {
+                for (AccessibilityNodeInfo t : titleNodes) {
+                    CharSequence txt = t.getText();
+                    if (txt != null && isHomeAppSelectionTitle(txt.toString())) {
+                        return true;
+                    }
+                }
+            }
+            // Check for list of launchers in permissioncontroller
+            List<AccessibilityNodeInfo> listNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/list");
+            if (listNodes != null && !listNodes.isEmpty()) {
+                List<AccessibilityNodeInfo> btn1 = root.findAccessibilityNodeInfosByViewId("android:id/button1");
+                if (btn1 != null && !btn1.isEmpty()) {
+                    for (AccessibilityNodeInfo b : btn1) {
+                        CharSequence bt = b.getText();
+                        if (bt != null && bt.toString().toLowerCase(Locale.US).contains("default")) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            // Substring search on texts
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText("Default home app");
+            if (nodes != null && !nodes.isEmpty()) return true;
+            nodes = root.findAccessibilityNodeInfosByText("Default home");
+            if (nodes != null && !nodes.isEmpty()) return true;
+            nodes = root.findAccessibilityNodeInfosByText("Set as default");
+            if (nodes != null && !nodes.isEmpty()) {
+                List<AccessibilityNodeInfo> homeNodes = root.findAccessibilityNodeInfosByText("home");
+                if (homeNodes != null && !homeNodes.isEmpty()) return true;
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
+    private boolean clickCancelOnNode(AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        try {
+            List<AccessibilityNodeInfo> cancelButtons = root.findAccessibilityNodeInfosByViewId("android:id/button2");
+            if (cancelButtons != null && !cancelButtons.isEmpty()) {
+                for (AccessibilityNodeInfo btn : cancelButtons) {
+                    if (btn != null && btn.isClickable() && btn.isEnabled()) {
+                        btn.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                        Log.i(TAG, "Dismissed home launcher dialog by clicking Cancel button (android:id/button2)");
+                        return true;
+                    }
+                }
+            }
+            List<AccessibilityNodeInfo> textCancel = root.findAccessibilityNodeInfosByText("Cancel");
+            if (textCancel != null && !textCancel.isEmpty()) {
+                for (AccessibilityNodeInfo btn : textCancel) {
+                    if (btn != null && btn.isClickable() && btn.isEnabled()) {
+                        btn.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                        Log.i(TAG, "Dismissed home launcher dialog by clicking text 'Cancel'");
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
     private void evictHomeLauncherChange() {
-        Log.w(TAG, "🛡️ Intercepted Default Home App / Launcher change attempt! Evicting directly to QIEZKA.");
+        evictHomeLauncherChange(null);
+    }
+
+    private void evictHomeLauncherChange(AccessibilityNodeInfo dialogRoot) {
+        Log.w(TAG, "🛡️ Intercepted Default Home App / Launcher change attempt! Dismissing dialog and evicting to QIEZKA.");
+        
+        // 1. Instant native Back action to dismiss dialog immediately (0ms)
+        performGlobalAction(GLOBAL_ACTION_BACK);
+
+        // 2. Programmatically click "Cancel" (android:id/button2) on dialogRoot
+        clickCancelOnNode(dialogRoot);
+
+        // 3. Fallback: query active window root if dialogRoot was null
+        if (dialogRoot == null) {
+            try {
+                AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
+                if (activeRoot != null) {
+                    clickCancelOnNode(activeRoot);
+                    activeRoot.recycle();
+                }
+            } catch (Exception ignore) {}
+        }
+
+        // 4. Rapid-burst retries (25ms, 60ms, 120ms) to defeat fast clicks if window was inflating
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                AccessibilityNodeInfo r = getRootInActiveWindow();
+                if (r != null) {
+                    clickCancelOnNode(r);
+                    r.recycle();
+                }
+                performGlobalAction(GLOBAL_ACTION_BACK);
+            } catch (Exception ignore) {}
+        }, 25L);
+
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                performGlobalAction(GLOBAL_ACTION_BACK);
+            } catch (Exception ignore) {}
+        }, 60L);
+
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                performGlobalAction(GLOBAL_ACTION_BACK);
+            } catch (Exception ignore) {}
+        }, 120L);
+
+        // 5. Anti-Tamper Toast feedback
         new Handler(Looper.getMainLooper()).post(() -> {
             Toast.makeText(getApplicationContext(),
                 "🛡️ Changing default home launcher is restricted by QIEZKA",
                 Toast.LENGTH_SHORT).show();
         });
 
-        // Flowchart: BLOCK AND EVICT TO QIEZKA (not route EVICT TO HOMESCREEN, and NO Back key)
+        // 6. Re-assert QIEZKA Lock overlay
         launchLockOverlay();
     }
 
@@ -2570,6 +2766,8 @@ public class LockAccessibilityService extends AccessibilityService {
         return lower.equals("default home app") || lower.contains("default home") ||
                lower.contains("choose home") || lower.contains("select a home") ||
                lower.contains("use as home") || lower.equals("home app") ||
+               lower.contains("requestroleactivity") || lower.contains("defaultappactivity") ||
+               (lower.contains("default") && lower.contains("home")) ||
                (lower.contains("home") && lower.contains("launcher"));
     }
 
