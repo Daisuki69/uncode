@@ -68,7 +68,8 @@ object UnifiedPolicyRegistry {
                 "com.quora.poe.android",
                 "com.characterai.chat",
                 "com.deepseek.chat",
-                "ai.inflection.pi"
+                "ai.inflection.pi",
+                "ai.x.grok"
             ),
             domains = setOf(
                 "gemini.google.com",
@@ -83,10 +84,40 @@ object UnifiedPolicyRegistry {
                 "poe.com",
                 "character.ai",
                 "deepseek.com",
-                "pi.ai"
+                "pi.ai",
+                "grok.com",
+                "x.ai",
+                "oaistatic.com",
+                "oaiusercontent.com",
+                "claudeusercontent.com",
+                "pplx.ai"
             )
         )
     )
+
+    @JvmStatic
+    fun isPackageRegisteredInAnyService(pkg: String?): Boolean {
+        if (pkg == null) return false
+        val lowerPkg = pkg.lowercase(Locale.US).trim()
+        for (service in SERVICES.values) {
+            if (service.packages.contains(lowerPkg)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    @JvmStatic
+    fun getServiceForPackage(pkg: String?): UnifiedService? {
+        if (pkg == null) return null
+        val lowerPkg = pkg.lowercase(Locale.US).trim()
+        for (service in SERVICES.values) {
+            if (service.packages.contains(lowerPkg)) {
+                return service
+            }
+        }
+        return null
+    }
 
     @JvmStatic
     fun getPackagesForServices(activeServiceIds: Set<String>?): Set<String> {
@@ -127,12 +158,13 @@ object UnifiedPolicyRegistry {
     @JvmStatic
     fun isDomainAllowedByService(host: String?, activeServiceIds: Set<String>?): Boolean {
         if (host == null || activeServiceIds.isNullOrEmpty()) return false
-        val lowerHost = host.lowercase(Locale.US).trim()
+        val cleanHost = WebBlocklistConstants.extractHost(host)
+        if (cleanHost.isEmpty()) return false
         for (id in activeServiceIds) {
             val key = id.lowercase(Locale.US).trim()
             val service = SERVICES[key] ?: continue
             for (domain in service.domains) {
-                if (lowerHost == domain || lowerHost.endsWith(".$domain")) {
+                if (cleanHost == domain || cleanHost.endsWith(".$domain")) {
                     return true
                 }
             }

@@ -435,7 +435,7 @@ public final class WebClassifier {
         }
 
         // AI assistant web domain check (Unified Policy Registry: blocked unless enabled in Layer 1)
-        if (UnifiedPolicyRegistry.isDomainAllowedByService(cleanUrl, java.util.Collections.singleton("ai"))) {
+        if (UnifiedPolicyRegistry.isDomainAllowedByService(host, java.util.Collections.singleton("ai"))) {
             ClassificationResult res = ClassificationResult.blocked("AI assistants are blocked during focus mode");
             decisionCache.put(cleanUrl, res);
             return res;
@@ -516,7 +516,8 @@ public final class WebClassifier {
         }
 
         // AI assistant web domain check (Unified Policy Registry: blocked unless enabled in Layer 1)
-        if (UnifiedPolicyRegistry.isDomainAllowedByService(lower, java.util.Collections.singleton("ai"))) {
+        String host = WebBlocklistConstants.extractHost(lower);
+        if (UnifiedPolicyRegistry.isDomainAllowedByService(host, java.util.Collections.singleton("ai"))) {
             ClassificationResult res = ClassificationResult.blocked("AI assistants are blocked during focus mode");
             decisionCache.put(lower, res);
             return res;
@@ -623,8 +624,9 @@ public final class WebClassifier {
         }
 
         // Genre 10: Suspicious gTLDs (.casino, .bet, .poker, .adult, .porn, .xxx, .sex, .cam)
+        String canonicalHost = WebBlocklistConstants.extractHost(text);
         for (String gtld : SUSPICIOUS_GTLDS) {
-            if (text.endsWith(gtld) || text.contains(gtld + "/")) {
+            if (canonicalHost.endsWith(gtld)) {
                 return ClassificationResult.blocked("Restricted domain category blocked during focus mode: " + gtld);
             }
         }

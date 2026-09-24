@@ -416,6 +416,11 @@ public final class AppClassifier {
         if (pkg == null || pkg.trim().isEmpty()) {
             return false;
         }
+        // Packages belonging to UnifiedPolicyRegistry services (e.g. YouTube, AI)
+        // are NEVER KnownSafe via user whitelist; their execution is strictly governed by UnifiedPolicyRegistry.
+        if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg)) {
+            return false;
+        }
         // QIEZKA itself is always KnownSafe
         if (context != null && pkg.equals(context.getPackageName())) {
             return true;
@@ -518,13 +523,20 @@ public final class AppClassifier {
             return false;
         }
 
-        // 2. KnownDistracting + KnownSafe (explicit user whitelist in Allowed Apps UI) -> ALLOW
+        // 2. Strict Unified Master Rule -> BLOCK (when disabled by user in Unified Policy)
+        // Packages registered in UnifiedPolicyRegistry CANNOT be allowed by userWhitelist.
+        if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg)) {
+            decisionCache.put(pkg, true);
+            return true;
+        }
+
+        // 3. KnownDistracting + KnownSafe (explicit user whitelist in Allowed Apps UI for non-unified apps) -> ALLOW
         if (isDistracting && isSafe) {
             decisionCache.put(pkg, false);
             return false;
         }
 
-        // 3. KnownDistracting + NOT KnownSafe -> BLOCK (e.g. TikTok, Netflix, or disabled YouTube/AI)
+        // 4. KnownDistracting + NOT KnownSafe -> BLOCK (e.g. TikTok, Netflix)
         if (isDistracting && !isSafe) {
             decisionCache.put(pkg, true);
             return true;
