@@ -7,7 +7,7 @@ import { loadData, saveData } from '../storage';
 import { exportBackup, importBackup, sanitizeImportApps, setServicePolicy, getActiveServices, getRegisteredServices } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
-import { isHardcodedApp, isHiddenSystemExemptApp } from '../constants/allowedApps';
+import { isHardcodedApp, isHiddenSystemExemptApp, isLauncherPackage } from '../constants/allowedApps';
 
 interface SettingsOverlayProps {
   settings: AppSettings;
@@ -274,7 +274,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
           const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
 
           data.settings.allowedApps = rawAllowed.filter(
-            (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name)
+            (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name) && !isLauncherPackage(a.id, a.name) && !a.isLauncher
           );
           data.settings.allowedAppsInitialized = true;
 
@@ -346,7 +346,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
         const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
 
         currentSettings.allowedApps = rawAllowed.filter(
-          (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name)
+          (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name) && !isLauncherPackage(a.id, a.name) && !a.isLauncher
         );
         currentSettings.allowedAppsInitialized = true;
 

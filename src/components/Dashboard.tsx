@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, BookOpen, Trash2, Plus, Sparkles, Pencil, Upload, Loader2, Settings, ShieldAlert, X, GitMerge, FileText, Calculator, Music, Globe, MessageSquare, MonitorPlay, Check, LayoutGrid, Camera, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Clock, BookOpen, Trash2, Plus, Sparkles, Pencil, Upload, Loader2, Settings, ShieldAlert, X, GitMerge, FileText, Calculator, Music, Globe, MessageSquare, MonitorPlay, Check, LayoutGrid, Camera, ShieldCheck, AlertTriangle, Home } from 'lucide-react';
 import { AppSettings, SavedResource, ScheduleData, AllowedApp } from '../types';
 import { getInstalledApps } from '../systemBridge';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
@@ -8,6 +8,7 @@ import {
   DEFAULT_HARDCODED_APPS, 
   isHardcodedApp, 
   isHiddenSystemExemptApp,
+  isLauncherPackage,
   isBrowserPackage,
   isMusicPackage,
   isCameraPackage,
@@ -957,7 +958,8 @@ export function Dashboard({
 
           const renderAppItem = (app: AllowedApp, isHardcoded: boolean) => {
             let FallbackIcon = iconMap[app.iconName] || LayoutGrid;
-            if (isBrowserPackage(app.id)) FallbackIcon = Globe;
+            if (isLauncherPackage(app.id, app.name) || app.isLauncher) FallbackIcon = Home;
+            else if (isBrowserPackage(app.id)) FallbackIcon = Globe;
             else if (isMusicPackage(app.id, app.name)) FallbackIcon = Music;
             else if (isCameraPackage(app.id, app.name)) FallbackIcon = Camera;
             else if (isAuthenticatorPackage(app.id, app.name)) FallbackIcon = ShieldCheck;
@@ -1057,7 +1059,13 @@ export function Dashboard({
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-y-6 gap-x-4 overflow-y-auto py-2 flex-1 pr-1">
                   {availableApps
-                    .filter((simApp) => !isAppBlacklisted(simApp.id) && !isHardcodedApp(simApp) && !isHiddenSystemExemptApp(simApp.id, simApp.name))
+                    .filter((simApp) => 
+                      !isAppBlacklisted(simApp.id) && 
+                      !isHardcodedApp(simApp) && 
+                      !simApp.isLauncher &&
+                      !isLauncherPackage(simApp.id, simApp.name) &&
+                      !isHiddenSystemExemptApp(simApp.id, simApp.name)
+                    )
                     .map((simApp) => {
                     const iconMap: Record<string, React.ElementType> = {
                       'Calculator': Calculator,

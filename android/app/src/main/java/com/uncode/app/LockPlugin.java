@@ -797,8 +797,14 @@ public class LockPlugin extends Plugin {
                     if (pkg == null || pkg.equals(myPkg) || addedPackages.contains(pkg)) {
                         continue;
                     }
-                    if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || AppClassifier.isStage1Bloat(pkg, null) || AppClassifier.isForbiddenDistraction(getActivity(), pkg)) {
+                    if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || 
+                        AppClassifier.isStage1Bloat(pkg, null) || 
+                        AppClassifier.isForbiddenDistraction(getActivity(), pkg) ||
+                        KnownDistracting.isKnownDistracting(pkg)) {
                         continue; // Strictly omit anti-tamper, bloatware, games, and social media from candidate selection
+                    }
+                    if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || isAiAppKeywords(pkg, null)) {
+                        continue; // Governed strictly via Unified Service Policy Engine in Settings
                     }
                     if (keyboardPackages.contains(pkg) || isKeyboardAppKeywords(pkg)) {
                         continue; // Keyboards are silently exempted in lockdown, hidden from whitelist UI
@@ -811,7 +817,21 @@ public class LockPlugin extends Plugin {
                         if (isHiddenInfrastructureApp(pkg, appLabel)) {
                             continue; // Hide camera extension proxies, aperture lens launchers, etc.
                         }
+                        if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || 
+                            AppClassifier.isStage1Bloat(pkg, appLabel) || 
+                            KnownDistracting.isKnownDistracting(pkg, appLabel) || 
+                            isAiAppKeywords(pkg, appLabel)) {
+                            continue;
+                        }
 
+                        boolean isLauncher = LockAccessibilityService.isLauncherApp(getActivity(), pkg);
+
+                        // Stage 3 Universal System Gateway (SYSALLOW) UI Non-Rendering Principle:
+                        // Anything that passed Stage 3 as allow is already allowed dynamically by the OS during lockdown.
+                        // Do NOT render them at the UI! (Launchers are exempted so they render in 'Always Allowed by System')
+                        if (!isLauncher && AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) {
+                            continue;
+                        }
                         boolean isBrowser = browserPackages.contains(pkg) || isBrowserAppKeywords(pkg);
                         boolean isMusic = musicPackages.contains(pkg) || isMusicAppKeywords(pkg);
                         boolean isCamera = cameraPackages.contains(pkg) || isCameraAppKeywords(pkg);
@@ -820,7 +840,7 @@ public class LockPlugin extends Plugin {
                         boolean isStudentApp = isStudentAppKeywords(pkg, appLabel);
                         boolean isAi = isAiAppKeywords(pkg, appLabel);
                         boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
-                        boolean isHardcoded = isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp;
+                        boolean isHardcoded = isLauncher || isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp;
 
                         addedPackages.add(pkg);
 
@@ -831,7 +851,8 @@ public class LockPlugin extends Plugin {
                         boolean isSimOrCarrier = LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
 
                         String iconName = "LayoutGrid";
-                        if (isBrowser) iconName = "Globe";
+                        if (isLauncher) iconName = "Home";
+                        else if (isBrowser) iconName = "Globe";
                         else if (isMusic) iconName = "Music";
                         else if (isCamera) iconName = "Camera";
                         else if (isAuthenticator) iconName = "ShieldCheck";
@@ -840,14 +861,11 @@ public class LockPlugin extends Plugin {
                         else if (isStudentApp) iconName = "BookOpen";
                         else if (isMessaging || isSimOrCarrier) iconName = "MessageSquare";
 
-                        boolean isUnifiedService = UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg);
-                        boolean isAutoAllowed = !isUnifiedService && !pkg.equals("com.google.android.googlequicksearchbox") && (isHardcoded || isMessaging || isSimOrCarrier || !AppClassifier.isPackageBlocked(getActivity(), pkg, null));
-                        if (!isHardcoded && !isSimOrCarrier && isAutoAllowed && "LayoutGrid".equals(iconName)) {
-                            iconName = "BookOpen";
-                        }
+                        boolean isAutoAllowed = !isHardcoded && !isLauncher && (isMessaging || isStudentApp);
 
                         app.put("iconName", iconName);
                         app.put("isHardcoded", isHardcoded);
+                        app.put("isLauncher", isLauncher);
                         app.put("isAutoAllowed", isAutoAllowed);
                         app.put("isMessaging", isMessaging);
                         app.put("isBrowser", isBrowser);

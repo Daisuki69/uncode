@@ -402,14 +402,134 @@ export function isInstallerOrStorePackage(packageId?: string | null, appName?: s
 }
 
 /**
+ * Android Home Launcher detection helper.
+ */
+export function isLauncherPackage(packageId?: string | null, appName?: string | null): boolean {
+  if (packageId) {
+    const lowerId = packageId.trim().toLowerCase();
+    if (
+      lowerId.includes('launcher') ||
+      lowerId.includes('.home') ||
+      lowerId.includes('nexuslauncher') ||
+      lowerId.includes('lawnchair') ||
+      lowerId.includes('miui.home') ||
+      lowerId.includes('sec.android.app.launcher') ||
+      lowerId.includes('bitpit.launcher') ||
+      lowerId.includes('flowerfree')
+    ) {
+      return true;
+    }
+  }
+  if (appName) {
+    const lowerName = appName.trim().toLowerCase();
+    if (lowerName.includes('launcher') || lowerName.includes('home app') || lowerName.includes('home screen')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Core OEM System Utilities (Phone dialer, Clock/Alarms, Calendar, Contacts, Email, STK).
+ * Stage 3 Universal System Gateway (SYSALLOW) already handles these natively during lockdown.
+ * They are hidden from the user-configurable UI to prevent cluttering study whitelist.
+ */
+export function isSystemUtilityPackage(packageId?: string | null, appName?: string | null): boolean {
+  if (packageId) {
+    const lowerId = packageId.trim().toLowerCase();
+    if (
+      lowerId.includes('dialer') ||
+      lowerId.includes('.telecom') ||
+      lowerId.includes('.teleservice') ||
+      lowerId.includes('.incallui') ||
+      lowerId.includes('deskclock') ||
+      lowerId.includes('clockpackage') ||
+      lowerId.includes('.calendar') ||
+      lowerId.includes('.contacts') ||
+      lowerId.includes('addressbook') ||
+      lowerId === 'com.google.android.gm' ||
+      lowerId.includes('.email') ||
+      lowerId.includes('.mail') ||
+      lowerId.includes('stk') ||
+      lowerId.includes('simappdialog') ||
+      lowerId.includes('.carrier') ||
+      lowerId === 'com.android.systemui' ||
+      lowerId === 'com.android.phone'
+    ) {
+      return true;
+    }
+  }
+  if (appName) {
+    const lowerName = appName.trim().toLowerCase();
+    if (
+      lowerName === 'phone' ||
+      lowerName === 'dialer' ||
+      lowerName === 'clock' ||
+      lowerName === 'alarm' ||
+      lowerName === 'calendar' ||
+      lowerName === 'contacts' ||
+      lowerName === 'gmail' ||
+      lowerName === 'email' ||
+      lowerName === 'sim toolkit' ||
+      lowerName === 'system ui'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Unified Policy Services detection helper (YouTube and AI Chatbots).
+ * These services have dedicated policy toggles in Settings and must not be shown in Allowed Apps.
+ */
+export function isUnifiedPolicyPackage(packageId?: string | null, appName?: string | null): boolean {
+  if (packageId) {
+    const lowerId = packageId.trim().toLowerCase();
+    if (
+      lowerId.includes('youtube') ||
+      lowerId.includes('revanced') ||
+      lowerId.includes('newpipe') ||
+      lowerId.includes('chatgpt') ||
+      lowerId.includes('claude') ||
+      lowerId.includes('gemini') ||
+      lowerId.includes('deepseek') ||
+      lowerId.includes('copilot') ||
+      lowerId.includes('perplexity') ||
+      lowerId.includes('poe.android') ||
+      lowerId.includes('characterai')
+    ) {
+      return true;
+    }
+  }
+  if (appName) {
+    const lowerName = appName.trim().toLowerCase();
+    if (
+      lowerName.includes('youtube') ||
+      lowerName.includes('chatgpt') ||
+      lowerName.includes('claude') ||
+      lowerName.includes('gemini') ||
+      lowerName.includes('deepseek') ||
+      lowerName.includes('copilot') ||
+      lowerName.includes('perplexity')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Returns true if an application is an internal OS infrastructure exemption
- * (keyboards, camera extension proxies, lens launchers, stub players, document pickers, package installers).
+ * (keyboards, camera extension proxies, lens launchers, stub players, document pickers, package installers, system utilities, unified services).
  * These apps are completely allowed during lockdown, but their icons are hidden from the UI.
  */
 export function isHiddenSystemExemptApp(packageId?: string | null, appName?: string | null): boolean {
   if (isKeyboardPackage(packageId, appName)) return true;
   if (isDocumentPickerPackage(packageId, appName)) return true;
   if (isInstallerOrStorePackage(packageId, appName)) return true;
+  if (isSystemUtilityPackage(packageId, appName)) return true;
+  if (isUnifiedPolicyPackage(packageId, appName)) return true;
 
   if (packageId) {
     const lowerId = packageId.trim().toLowerCase();
@@ -445,12 +565,14 @@ export function isHiddenSystemExemptApp(packageId?: string | null, appName?: str
 }
 
 /**
- * Returns true if an app is a displayable hardcoded exemption (browser, music player, camera, authenticator, notes, student apps, or AI assistants).
- * Internal infrastructure exemptions (keyboards, proxies, lens launchers) are strictly excluded.
+ * Returns true if an app is a displayable hardcoded exemption (browser, music player, camera, authenticator, notes, student apps, or home launchers).
+ * Internal infrastructure exemptions (keyboards, proxies, lens launchers, system utilities) and Unified Services (AI/YouTube) are strictly excluded.
  */
 export function isHardcodedApp(app: AllowedApp): boolean {
   if (isHiddenSystemExemptApp(app.id, app.name)) return false;
   if (isMessagingPackage(app.id, app.name)) return false;
+  if (isAiPackage(app.id, app.name) || isUnifiedPolicyPackage(app.id, app.name)) return false;
+  if (app.isLauncher || isLauncherPackage(app.id, app.name)) return true;
   if (
     app.isHardcoded || 
     app.isBrowser || 
@@ -478,7 +600,6 @@ export function isHardcodedApp(app: AllowedApp): boolean {
 export const DEFAULT_HARDCODED_APPS: AllowedApp[] = [
   { id: 'com.google.chrome', name: 'Chrome', iconName: 'Globe', isHardcoded: true, isBrowser: true },
   { id: 'com.spotify.music', name: 'Spotify', iconName: 'Music', isHardcoded: true, isMusic: true },
-  { id: 'com.google.android.apps.youtube.music', name: 'YT Music', iconName: 'Music', isHardcoded: true, isMusic: true },
   { id: 'com.sec.android.app.camera', name: 'Camera', iconName: 'Camera', isHardcoded: true, isCamera: true },
   { id: 'com.google.android.apps.authenticator2', name: 'Authenticator', iconName: 'ShieldCheck', isHardcoded: true, isAuthenticator: true },
   { id: 'com.google.android.keep', name: 'Keep Notes', iconName: 'FileText', isHardcoded: true, isNotes: true },
