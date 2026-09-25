@@ -15,6 +15,7 @@ import android.util.Log;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.net.DatagramPacket;
@@ -192,19 +193,25 @@ public class LocalDnsVpnService extends VpnService {
                 builder.addRoute("2620:fe::9", 128);
             } catch (Exception ignore) {}
 
-            // Intercept active network's underlying DNS servers (Wi-Fi router DNS e.g. 192.168.1.1 or carrier IPv6)
+            // Intercept all physical networks' underlying DNS servers (Cellular LTE carrier DNS, Wi-Fi router DNS, etc.)
             try {
                 ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
                 if (cm != null) {
-                    Network activeNet = cm.getActiveNetwork();
-                    if (activeNet != null) {
-                        LinkProperties lp = cm.getLinkProperties(activeNet);
-                        if (lp != null) {
-                            for (InetAddress dns : lp.getDnsServers()) {
-                                if (dns instanceof Inet4Address) {
-                                    builder.addRoute(dns.getHostAddress(), 32);
-                                } else if (dns instanceof Inet6Address) {
-                                    builder.addRoute(dns.getHostAddress(), 128);
+                    Network[] allNets = cm.getAllNetworks();
+                    if (allNets != null) {
+                        for (Network net : allNets) {
+                            NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+                            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                                continue; // Skip VPN interfaces to avoid self-routing loops
+                            }
+                            LinkProperties lp = cm.getLinkProperties(net);
+                            if (lp != null) {
+                                for (InetAddress dns : lp.getDnsServers()) {
+                                    if (dns instanceof Inet4Address) {
+                                        builder.addRoute(dns.getHostAddress(), 32);
+                                    } else if (dns instanceof Inet6Address) {
+                                        builder.addRoute(dns.getHostAddress(), 128);
+                                    }
                                 }
                             }
                         }
@@ -559,17 +566,23 @@ public class LocalDnsVpnService extends VpnService {
         addDnsServer(servers, "2606:4700:4700::1111");
         addDnsServer(servers, "2001:4860:4860::8888");
 
-        // Include underlying network DNS servers if available
+        // Include underlying physical network DNS servers if available
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
-                Network activeNet = cm.getActiveNetwork();
-                if (activeNet != null) {
-                    LinkProperties lp = cm.getLinkProperties(activeNet);
-                    if (lp != null) {
-                        for (InetAddress dns : lp.getDnsServers()) {
-                            if (dns != null && !servers.contains(dns)) {
-                                servers.add(dns);
+                Network[] allNets = cm.getAllNetworks();
+                if (allNets != null) {
+                    for (Network net : allNets) {
+                        NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+                        if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                            continue; // Skip VPN interfaces
+                        }
+                        LinkProperties lp = cm.getLinkProperties(net);
+                        if (lp != null) {
+                            for (InetAddress dns : lp.getDnsServers()) {
+                                if (dns != null && !servers.contains(dns)) {
+                                    servers.add(dns);
+                                }
                             }
                         }
                     }

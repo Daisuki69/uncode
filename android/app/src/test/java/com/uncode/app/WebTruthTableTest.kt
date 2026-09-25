@@ -187,4 +187,34 @@ class WebTruthTableTest {
         val dohDns = WebClassifier.classifyDomain("use-application-dns.net", false)
         assertTrue(dohDns.isBlocked)
     }
+
+    @Test
+    fun testAddressBarCandidateValidation() {
+        // 1. Placeholder hint strings containing spaces must be rejected (returns false)
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Search or type web address"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Search or enter address"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Search or type URL"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Ask Gemini or type a question"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("how to solve differential equations"))
+
+        // 2. Common browser placeholder words without spaces must be rejected
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("search"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Search"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("SEARCH"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("search..."))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("about:blank"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("chrome://newtab"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate(""))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("   "))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate(null))
+
+        // 3. Genuine web URLs and domain navigation targets must be accepted (returns true)
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("chatgpt.com"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("https://chatgpt.com"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("http://192.168.1.1"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("khanacademy.org/math"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("wikipedia.org"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("m.youtube.com"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("canvas.instructure.com/courses/123"))
+    }
 }
