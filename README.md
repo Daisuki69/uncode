@@ -2462,6 +2462,19 @@ flowchart TD
         - **Web Domain Safety (`KnownSafeWeb.kt`)**: Added `gizmo.ai`, `cram.com`, `brainscape.com`, `studysmarter.de` / `.com`, `vaia.com`, `kahoot.it` / `.com`, and `quizizz.com` into `ACADEMIC_EXEMPT_DOMAINS` and `ACADEMIC_KEYWORDS`, preventing browser sinkholing and auto-back.
         - **Positive Academic Keyword Expansion (`AppClassifier.java`)**: Added `"gizmo"`, `"saveall"`, `"quiz"`, `"quizzes"`, `"tutor"`, `"tutoring"`, `"exam"`, `"exams"`, `"testprep"`, `"revision"`, `"spaced repetition"`, `"studysmarter"`, `"kahoot"`, `"quizizz"`, and `"brainscape"` to `POSITIVE_ACADEMIC_KEYWORDS`.
         - **Dashboard Filtering & Student App Badge (`LockPlugin.java`)**: In `getInstalledApps()`, ensured `isBaselineSafe` apps bypass AI keyword filtering (`!isBaselineSafe && isAiAppKeywords(...)`), expanded `isStudentAppKeywords()`, and assigned `isStudentApp = true` so they display with the `BookOpen` icon.
+    - **Home Shell Foundation: Dual App Icons & MainActivity Liveness Delegation**:
+      - **Why this was changed**:
+        - *Foundational Step for Default Home Role & Extreme Anti-Tamper*: As outlined in the Home Shell Architecture, operating as Android's default home app grants QIEZKA native OS uninstall immunity, top-tier process priority (`PROCESS_STATE_HOME`), and liveness hooks on every home press.
+        - *Separation of Concerns (Dual App Icons)*: The architecture requires two distinct entry points in Android:
+          1. **QIEZKA Home (`QiezkaHomeHandlerActivity`)**: Handles the Android `CATEGORY_HOME` role and serves as a diagnostic / delegation launcher.
+          2. **QIEZKA (`MainActivity`)**: The primary React/Capacitor study dashboard and evaluation interface.
+        - *Liveness & Process Auto-Revival*: When `QiezkaHomeHandlerActivity` is invoked, it verifies whether `MainActivity` is currently running. If dormant or killed by Android OS, it displays *"MainActivity is not running, launching it now...."* and automatically starts `MainActivity` to revive focus enforcement and background services. If already running, it displays *"MainActivity is running"* and provides immediate delegation to the user's real launcher.
+      - **Concrete Architectural Fixes Implemented**:
+        - **`QiezkaHomeHandlerActivity.java` Implementation**: Built the native Home handler activity with custom status UI (`activity_home_handler.xml`) displaying real-time process state, detected secondary launcher, and explicit delegation controls.
+        - **Dual Icon Registration in `AndroidManifest.xml`**: Declared `QiezkaHomeHandlerActivity` with `CATEGORY_HOME`, `CATEGORY_DEFAULT`, and `CATEGORY_LAUNCHER` with label `"QIEZKA Home"`, while preserving `MainActivity` with label `"QIEZKA"`.
+        - **Atomic Process Lifecycle Tracking (`MainActivity.java`)**: Added thread-safe `sIsRunning` and `isRunning()` tracking across `onCreate()`, `onResume()`, and `onDestroy()`.
+        - **Self-Exclusion Bugfix in `LockAccessibilityService.java`**: Ensured `isLauncherApp()` and `resolveDynamicExemptions()` explicitly exclude `com.uncode.app`, preventing QIEZKA from accidentally exempting itself as a third-party launcher.
+        - **Native Unit Test Suite (`HomeHandlerTest.kt`)**: Added unit tests validating default lifecycle state, launcher candidate package exclusion, and SharedPreferences key constants.
 
 
 

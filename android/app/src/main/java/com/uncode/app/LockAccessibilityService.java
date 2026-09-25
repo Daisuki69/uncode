@@ -359,6 +359,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     public static boolean isLauncherApp(Context context, String pkg) {
         if (pkg == null) return false;
+        if (context != null && pkg.equals(context.getPackageName())) return false;
         if (KNOWN_LAUNCHERS.contains(pkg) || dynamicLauncherPackages.contains(pkg)) return true;
         if (context != null) {
             try {
@@ -583,7 +584,10 @@ public class LockAccessibilityService extends AccessibilityService {
                 if (homeApps != null) {
                     for (ResolveInfo info : homeApps) {
                         if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                            dynamicLauncherPackages.add(info.activityInfo.packageName);
+                            String pkg = info.activityInfo.packageName;
+                            if (!pkg.equals(getPackageName())) {
+                                dynamicLauncherPackages.add(pkg);
+                            }
                         }
                     }
                 }
