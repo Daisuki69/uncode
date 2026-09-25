@@ -102,6 +102,12 @@ class WebTruthTableTest {
         val desmosResult = WebClassifier.classify("https://www.desmos.com/calculator", null, false)
         assertFalse(desmosResult.isBlocked)
 
+        val gizmoResult = WebClassifier.classify("https://gizmo.ai/deck/12345", null, false)
+        assertFalse(gizmoResult.isBlocked)
+
+        val kahootResult = WebClassifier.classify("https://kahoot.it/challenge/123", null, false)
+        assertFalse(kahootResult.isBlocked)
+
         val blankResult = WebClassifier.classify("about:blank", null, false)
         assertFalse(blankResult.isBlocked)
     }
@@ -182,6 +188,9 @@ class WebTruthTableTest {
 
         val stanfordDns = WebClassifier.classifyDomain("stanford.edu", false)
         assertFalse(stanfordDns.isBlocked)
+
+        val gizmoDns = WebClassifier.classifyDomain("gizmo.ai", false)
+        assertFalse(gizmoDns.isBlocked)
 
         // 5. DoH Canary -> Sinkholed
         val dohDns = WebClassifier.classifyDomain("use-application-dns.net", false)

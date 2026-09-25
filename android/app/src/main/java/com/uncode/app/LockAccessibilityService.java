@@ -1060,7 +1060,10 @@ public class LockAccessibilityService extends AccessibilityService {
 
     public static boolean isBrowserPackage(String pkg) {
         if (pkg == null) return false;
+        // Master Veto: Proxy browsers, cloud renderers, and onion bypasses are NEVER treated as standard browsers
+        if (KnownDistracting.isKnownDistracting(pkg)) return false;
         if (KNOWN_BROWSER_PACKAGES.contains(pkg)) return true;
+        if (pkg.startsWith("idm.internet.download.manager")) return true; // Covers 1DM, 1DM+, 1DM Lite
         String lower = pkg.toLowerCase(Locale.US);
         return lower.contains("browser") || lower.contains("chrome") || lower.contains("firefox");
     }
@@ -1738,10 +1741,12 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
-        // 6. 1DM Browser (idm.internet.download.manager)
+        // 6. 1DM & 1DM+ Browser (idm.internet.download.manager / idm.internet.download.manager.plus)
         String[] idmViewIds = {
+            pkg + ":id/search",
+            pkg + ":id/search_container",
             "idm.internet.download.manager:id/search",
-            "idm.internet.download.manager:id/search_container"
+            "idm.internet.download.manager.plus:id/search"
         };
         for (String id : idmViewIds) {
             nodes = root.findAccessibilityNodeInfosByViewId(id);
