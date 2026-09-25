@@ -1613,4 +1613,17 @@ public class LockPlugin extends Plugin {
             call.resolve();
         }
     }
+
+    @PluginMethod
+    public void getInstalledLaunchers(PluginCall call) {
+        try {
+            JSArray launchers = InstalledLauncherDetector.getInstalledLaunchersJson(getContext());
+            JSObject ret = new JSObject();
+            ret.put("launchers", launchers);
+            call.resolve(ret);
+        } catch (Throwable t) {
+            Log.e(TAG, "getInstalledLaunchers failed: " + t.getMessage(), t);
+            call.reject("Failed to get installed launchers: " + t.getMessage());
+        }
+    }
 }

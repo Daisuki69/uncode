@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search, Sparkles, Bot } from 'lucide-react';
+import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search, Sparkles, Bot, Home } from 'lucide-react';
 import { AppSettings, LogEntry, SavedResource, AllowedApp, UnifiedServiceDefinition } from '../types';
 import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
 import { refinePrompt } from '../api/refinePrompt';
 import { loadData, saveData } from '../storage';
-import { exportBackup, importBackup, sanitizeImportApps, setServicePolicy, getActiveServices, getRegisteredServices } from '../systemBridge';
+import { exportBackup, importBackup, sanitizeImportApps, setServicePolicy, getActiveServices, getRegisteredServices, getInstalledLaunchers, LauncherInfo } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
 
@@ -81,6 +81,9 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   const [customPrompts, setCustomPrompts] = useState<Record<string, string>>(settings.prompts || {});
   const [refiningKey, setRefiningKey] = useState<string | null>(null);
 
+  const [installedLaunchers, setInstalledLaunchers] = useState<LauncherInfo[]>([]);
+  const [loadingLaunchers, setLoadingLaunchers] = useState(false);
+
   useEffect(() => {
     // Load directly from imported file for static/Vercel environments
     setDefaultPrompts(staticDefaultPrompts);
@@ -94,6 +97,15 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
         setActiveServicesState(prev => Array.from(new Set([...prev, ...res])));
       }
     }).catch(() => {});
+
+    setLoadingLaunchers(true);
+    getInstalledLaunchers().then(launchers => {
+      setInstalledLaunchers(launchers);
+      setLoadingLaunchers(false);
+    }).catch(err => {
+      console.warn('Failed to load launchers', err);
+      setLoadingLaunchers(false);
+    });
   }, []);
 
   const hasActiveDaytimeSchedule = (settings.schedules || []).some(s => {
@@ -905,6 +917,85 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Detected Home Launchers Section (Home Shell Architecture) */}
+              <div className="mb-8 border-t border-gray-200 pt-6">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-bold text-gray-700 uppercase tracking-wider flex items-center gap-2">
+                    <Home className="w-4 h-4 text-gray-500" />
+                    Detected Home Launchers
+                  </label>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                    {installedLaunchers.length} Found
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">
+                  Discovered system and third-party launchers on this device. QIEZKA Home acts as an OS-level role anchor and transparently forwards Home navigation to your active launcher.
+                </p>
+
+                {loadingLaunchers ? (
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center gap-2 text-xs text-gray-500">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                    <span>Scanning installed home launchers...</span>
+                  </div>
+                ) : installedLaunchers.length === 0 ? (
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl text-xs text-gray-500 text-center">
+                    No secondary launchers detected on this device.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {installedLaunchers.map((launcher) => (
+                      <div
+                        key={launcher.packageName}
+                        className={`p-3.5 rounded-2xl border transition-all bg-white flex items-center justify-between ${
+                          launcher.isCurrentDefault
+                            ? 'border-emerald-300 ring-1 ring-emerald-200 bg-emerald-50/20'
+                            : 'border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {launcher.icon ? (
+                            <img
+                              src={launcher.icon}
+                              alt={launcher.name}
+                              className="w-9 h-9 rounded-xl object-contain shadow-xs shrink-0 bg-gray-50 border border-gray-100"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                              <Home className="w-5 h-5" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-gray-900 truncate">
+                                {launcher.name}
+                              </span>
+                              {launcher.isCurrentDefault && (
+                                <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 shrink-0">
+                                  Current Default
+                                </span>
+                              )}
+                            </div>
+                            <span className="font-mono text-[10px] text-gray-400 block truncate">
+                              {launcher.packageName}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 ml-3">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            launcher.isSystem
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-purple-50 text-purple-700 border border-purple-200'
+                          }`}>
+                            {launcher.isSystem ? 'System' : '3rd-Party'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="mb-8 border-t border-gray-200 pt-6">
