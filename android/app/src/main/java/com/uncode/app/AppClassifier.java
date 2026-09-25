@@ -641,6 +641,12 @@ public final class AppClassifier {
                 return true;
 
             case CATEGORY_SOCIAL:
+                // Direct messaging applications (WhatsApp, Telegram, Signal, Messenger)
+                // are legitimate communication tools, not infinite-scroll social media feeds.
+                if (isMessagingApp(pkg, appLabel)) {
+                    Log.d(TAG, "Allowed messaging app claiming CATEGORY_SOCIAL: " + pkg);
+                    return false;
+                }
                 Log.i(TAG, "Blocked by CATEGORY_SOCIAL: " + pkg + " (" + appLabel + ")");
                 return true;
 
