@@ -222,7 +222,9 @@ public final class WebClassifier {
 
     public static void clearCache() {
         decisionCache.clear();
-        Log.d(TAG, "WebClassifier decision cache cleared");
+        try {
+            Log.d(TAG, "WebClassifier decision cache cleared");
+        } catch (Throwable ignore) {}
     }
 
     /**
@@ -311,11 +313,22 @@ public final class WebClassifier {
      * Evaluates the window title, manifest app label, and active DOM hierarchy.
      */
     public static ClassificationResult classifyStandalonePwa(String windowTitle, AccessibilityNodeInfo root, boolean allowYoutube) {
+        return classifyStandalonePwa(windowTitle, root, allowYoutube, null);
+    }
+
+    public static ClassificationResult classifyStandalonePwa(String windowTitle, AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
+        Set<String> effectiveAllowed = allowedDomains != null ? new HashSet<>(allowedDomains) : new HashSet<>();
+        if (allowYoutube) {
+            effectiveAllowed.add("youtube.com");
+            effectiveAllowed.add("youtu.be");
+            effectiveAllowed.add("m.youtube.com");
+        }
+
         if (windowTitle != null && !windowTitle.trim().isEmpty()) {
             String cleanTitle = windowTitle.trim();
             String lowerTitle = cleanTitle.toLowerCase(Locale.US);
 
-            if (WebBlocklistConstants.isAcademicExempt(lowerTitle)) {
+            if (KnownSafeWeb.isAcademicExempt(lowerTitle)) {
                 return ClassificationResult.allowed();
             }
 
@@ -323,9 +336,8 @@ public final class WebClassifier {
                 return ClassificationResult.blocked("Distracting PWA app blocked: " + cleanTitle);
             }
 
-            ClassificationResult catRes = evaluateMultiGenreCategories(lowerTitle);
-            if (catRes.isBlocked) {
-                return catRes;
+            if (KnownDistractingWeb.isKnownDistractingWeb(lowerTitle)) {
+                return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(lowerTitle));
             }
         }
 
@@ -333,7 +345,7 @@ public final class WebClassifier {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 try {
                     android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
-                    if (win != null && win.getTitle() != null && WebBlocklistConstants.isAcademicExempt(win.getTitle().toString())) {
+                    if (win != null && win.getTitle() != null && KnownSafeWeb.isAcademicExempt(win.getTitle().toString())) {
                         return ClassificationResult.allowed();
                     }
                 } catch (Exception ignore) {}
@@ -344,14 +356,18 @@ public final class WebClassifier {
             if (domRes.isBlocked) {
                 return domRes;
             }
+            if (stats.academicScore > 0) {
+                return ClassificationResult.allowed("Detected Academic & Productivity");
+            }
         }
 
-        return ClassificationResult.allowed();
+        // Branch 4C Fallback: Unclassified standalone web app restricted during lockdown
+        return ClassificationResult.blocked("Layer 5 Fallback: Unclassified standalone web app restricted during focus lockdown");
     }
 
     /**
      * Main on-device semantic classification entry point for Accessibility Service.
-     * Evaluates destination URLs and DOM content in real-time.
+     * Evaluates destination URLs and DOM content in real-time according to Stage 2 Web Truth Table.
      *
      * @param rawUrl        The extracted address bar string.
      * @param root          The browser window's AccessibilityNodeInfo root.
@@ -365,7 +381,7 @@ public final class WebClassifier {
     public static ClassificationResult classify(String rawUrl, AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
         String cleanUrl = rawUrl != null ? rawUrl.trim().toLowerCase(Locale.US) : "";
 
-        // ── SINGLE GATE: Is this an actual destination website URL? ──
+        // ── 0. SINGLE GATE: Is this an actual destination website URL? ──
         if (!isDestinationUrl(cleanUrl)) {
             return ClassificationResult.allowed();
         }
@@ -376,92 +392,79 @@ public final class WebClassifier {
             return cached;
         }
 
-        // ── LAYER 1: KnownSafeWeb & Academic Safe-List Immunity ──
-        if (WebBlocklistConstants.isAcademicExempt(cleanUrl)) {
+        // Window title academic check (Chromium tabs / CustomTabs)
+        boolean isWindowTitleAcademic = false;
+        if (root != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
+                if (win != null && win.getTitle() != null && KnownSafeWeb.isAcademicExempt(win.getTitle().toString())) {
+                    isWindowTitleAcademic = true;
+                }
+            } catch (Exception ignore) {}
+        }
+
+        // Build effective allowed domains (including allowYoutube flag)
+        Set<String> effectiveAllowed = allowedDomains != null ? new HashSet<>(allowedDomains) : new HashSet<>();
+        if (allowYoutube) {
+            effectiveAllowed.add("youtube.com");
+            effectiveAllowed.add("youtu.be");
+            effectiveAllowed.add("m.youtube.com");
+        }
+
+        // ── STAGE 2 — INITIAL WEB POLICY EVALUATION (Truth Table) ──
+        boolean isSafeWeb = isWindowTitleAcademic || KnownSafeWeb.isKnownSafeWeb(cleanUrl, effectiveAllowed); // WEB_MSG_GATE2
+        boolean isDistractingWeb = KnownDistractingWeb.isKnownDistractingWeb(cleanUrl);                         // WEB_MSG_GATE
+
+        // ── WEB_MSG_GATE3 — Initial Web Policy Result Classifier ──
+
+        // Branch 1: YES KnownDistractingWeb, YES KnownSafeWeb -> WEB_ALLOW_BROWSER (e.g. Whitelisted YouTube / Gemini)
+        if (isDistractingWeb && isSafeWeb) {
+            ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy");
+            decisionCache.put(cleanUrl, res);
+            return res;
+        }
+
+        // Branch 2: NO KnownDistractingWeb, YES KnownSafeWeb -> WEB_ALLOW_BROWSER (e.g. Wikipedia, Docs, Claude)
+        if (!isDistractingWeb && isSafeWeb) {
             ClassificationResult res = ClassificationResult.allowed();
             decisionCache.put(cleanUrl, res);
             return res;
         }
 
-        String host = WebBlocklistConstants.extractHost(cleanUrl);
-        if (allowedDomains != null && !allowedDomains.isEmpty()) {
-            for (String allowedDomain : allowedDomains) {
-                if (host.equals(allowedDomain) || host.endsWith("." + allowedDomain)) {
-                    ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy: " + allowedDomain);
-                    decisionCache.put(cleanUrl, res);
-                    return res;
-                }
-            }
-        }
-
-        if (root != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
-                if (win != null && win.getTitle() != null && WebBlocklistConstants.isAcademicExempt(win.getTitle().toString())) {
-                    ClassificationResult res = ClassificationResult.allowed();
-                    decisionCache.put(cleanUrl, res);
-                    return res;
-                }
-            } catch (Exception ignore) {}
-        }
-
-        // ── LAYER 2: Protocol Schemes & Dedicated Arcade Links ──
-        if (cleanUrl.startsWith("chrome://dino") || cleanUrl.contains("chrome://network-error/-106") ||
-            cleanUrl.startsWith("edge://surf") || cleanUrl.startsWith("opera://game")) {
-            ClassificationResult res = ClassificationResult.blocked("Browser mini-games are blocked during study sessions");
+        // Branch 3: YES KnownDistractingWeb, NO KnownSafeWeb -> WEB_REMEDIATE (e.g. TikTok, KissKH, y8.com)
+        if (isDistractingWeb && !isSafeWeb) {
+            String reason = KnownDistractingWeb.getDistractionReason(cleanUrl);
+            ClassificationResult res = ClassificationResult.blocked(reason);
             decisionCache.put(cleanUrl, res);
             return res;
         }
 
-        if (cleanUrl.contains("/fbx?fbx=") || cleanUrl.contains("snake_arcade")) {
-            ClassificationResult res = ClassificationResult.blocked("Interactive browser game blocked during focus mode");
-            decisionCache.put(cleanUrl, res);
-            return res;
-        }
-
-        // YouTube rules (Broad allow/block without complex DOM checks per user specification)
-        if (cleanUrl.contains("youtube.com") || cleanUrl.contains("youtu.be")) {
-            boolean isYtAllowed = allowYoutube || (allowedDomains != null && (allowedDomains.contains("youtube.com") || allowedDomains.contains("youtu.be")));
-            if (!isYtAllowed) {
-                ClassificationResult res = ClassificationResult.blocked("YouTube is blocked during focus mode");
-                decisionCache.put(cleanUrl, res);
-                return res;
-            } else {
-                // Broad allowance: zero fragile DOM inspection, just allow
-                ClassificationResult res = ClassificationResult.allowed("YouTube allowed broadly");
-                decisionCache.put(cleanUrl, res);
-                return res;
-            }
-        }
-
-        // AI assistant web domain check (Unified Policy Registry: blocked unless enabled in Layer 1)
-        if (UnifiedPolicyRegistry.isDomainAllowedByService(host, java.util.Collections.singleton("ai"))) {
-            ClassificationResult res = ClassificationResult.blocked("AI assistants are blocked during focus mode");
-            decisionCache.put(cleanUrl, res);
-            return res;
-        }
-
-        // ── LAYER 3: Multi-Genre Threat Category Evaluation ──
-        ClassificationResult categoryCheck = evaluateMultiGenreCategories(cleanUrl);
-        if (categoryCheck.isBlocked) {
-            decisionCache.put(cleanUrl, categoryCheck);
-            return categoryCheck;
-        }
-
-        // ── LAYER 4: Real-Time Active Tab DOM Inspection ──
+        // Branch 4: NO KnownDistractingWeb, NO KnownSafeWeb (Unclassified URL) -> WEB_TREE_SCANS
+        // Scan Chromium Accessibility View Tree (Secondary Web Classifier)
         if (root != null) {
             DomScanStats stats = new DomScanStats();
             ClassificationResult domRes = inspectDom(root, 0, stats);
+
+            // Branch 4B: Detected as Distracting Web Category (Games, Video, Social Feeds, Media Players)
             if (domRes.isBlocked) {
                 decisionCache.put(cleanUrl, domRes);
                 return domRes;
             }
+
+            // Branch 4A: Detected Academic & Productivity
+            if (stats.academicScore > 0 || isWindowTitleAcademic) {
+                ClassificationResult res = ClassificationResult.allowed("Detected Academic & Productivity");
+                decisionCache.put(cleanUrl, res);
+                return res;
+            }
         }
 
-        // Default: Safe informational website
-        ClassificationResult allowedRes = ClassificationResult.allowed();
-        decisionCache.put(cleanUrl, allowedRes);
-        return allowedRes;
+        // Branch 4C: ❓ Clean Undefined Web -> WEB_FALLBACK (Layer 5 Fallback: Unknown Web Content) -> WEB_REMEDIATE
+        ClassificationResult fallbackRes = ClassificationResult.blocked(
+            "Layer 5 Fallback: Unknown unclassified web content is restricted during focus lockdown"
+        );
+        decisionCache.put(cleanUrl, fallbackRes);
+        return fallbackRes;
     }
 
     /**
@@ -484,153 +487,55 @@ public final class WebClassifier {
             return cached;
         }
 
-        // Layer 1: Academic Immunity & KnownSafeWeb
-        if (WebBlocklistConstants.isAcademicExempt(lower)) {
+        Set<String> effectiveAllowed = allowedDomains != null ? new HashSet<>(allowedDomains) : new HashSet<>();
+        if (allowYoutube) {
+            effectiveAllowed.add("youtube.com");
+            effectiveAllowed.add("youtu.be");
+            effectiveAllowed.add("m.youtube.com");
+        }
+
+        boolean isSafeWeb = KnownSafeWeb.isKnownSafeWeb(lower, effectiveAllowed);
+        boolean isDistractingWeb = KnownDistractingWeb.isKnownDistractingWeb(lower) || WebBlocklistConstants.isDohEndpointOrCanary(lower);
+
+        // Branch 1: YES KnownDistractingWeb, YES KnownSafeWeb -> ALLOW (e.g. YouTube / Gemini toggled by policy)
+        if (isDistractingWeb && isSafeWeb) {
+            ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy");
+            decisionCache.put(lower, res);
+            return res;
+        }
+
+        // Branch 2: NO KnownDistractingWeb, YES KnownSafeWeb -> ALLOW (e.g. Wikipedia, Docs, Claude)
+        if (!isDistractingWeb && isSafeWeb) {
             ClassificationResult res = ClassificationResult.allowed();
             decisionCache.put(lower, res);
             return res;
         }
 
-        if (allowedDomains != null && !allowedDomains.isEmpty()) {
-            for (String allowedDomain : allowedDomains) {
-                if (lower.equals(allowedDomain) || lower.endsWith("." + allowedDomain)) {
-                    ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy: " + allowedDomain);
-                    decisionCache.put(lower, res);
-                    return res;
-                }
-            }
-        }
-
-        // YouTube handling
-        boolean isYtAllowed = allowYoutube || (allowedDomains != null && (allowedDomains.contains("youtube.com") || allowedDomains.contains("youtu.be")));
-        if (lower.contains("youtube.com") || lower.contains("youtu.be")) {
-            if (!isYtAllowed) {
-                ClassificationResult res = ClassificationResult.blocked("YouTube is blocked during focus mode");
-                decisionCache.put(lower, res);
-                return res;
-            } else {
-                ClassificationResult res = ClassificationResult.allowed("YouTube allowed broadly");
-                decisionCache.put(lower, res);
-                return res;
-            }
-        }
-
-        // AI assistant web domain check (Unified Policy Registry: blocked unless enabled in Layer 1)
-        String host = WebBlocklistConstants.extractHost(lower);
-        if (UnifiedPolicyRegistry.isDomainAllowedByService(host, java.util.Collections.singleton("ai"))) {
-            ClassificationResult res = ClassificationResult.blocked("AI assistants are blocked during focus mode");
+        // Branch 3: YES KnownDistractingWeb, NO KnownSafeWeb -> BLOCK (NXDOMAIN sinkhole)
+        if (isDistractingWeb && !isSafeWeb) {
+            String reason = WebBlocklistConstants.isDohEndpointOrCanary(lower)
+                ? "DoH endpoint sinkholed to enforce local DNS filtering"
+                : KnownDistractingWeb.getDistractionReason(lower);
+            ClassificationResult res = ClassificationResult.blocked(reason);
             decisionCache.put(lower, res);
             return res;
         }
 
-        // DoH canary & endpoints
-        if (WebBlocklistConstants.isDohEndpointOrCanary(lower)) {
-            ClassificationResult res = ClassificationResult.blocked("DoH endpoint sinkholed to enforce local DNS filtering");
-            decisionCache.put(lower, res);
-            return res;
-        }
-
-        // Evaluate across all distraction categories
-        ClassificationResult catResult = evaluateMultiGenreCategories(lower);
-        decisionCache.put(lower, catResult);
-        return catResult;
+        // Branch 4: Unclassified domain at DNS level -> Forward to upstream resolver so browser can fetch
+        // and Accessibility Service can inspect DOM view tree in real-time.
+        ClassificationResult allowedRes = ClassificationResult.allowed();
+        decisionCache.put(lower, allowedRes);
+        return allowedRes;
     }
 
     /**
      * Multi-genre category evaluation across all digital distractions.
+     * Delegates authoritatively to KnownDistractingWeb.
      */
     private static ClassificationResult evaluateMultiGenreCategories(String text) {
-        // Genre 1: Web Games & Portals
-        if (WebBlocklistConstants.isWebGameDomain(text)) {
-            return ClassificationResult.blocked("Web-based game blocked during focus mode");
+        if (KnownDistractingWeb.isKnownDistractingWeb(text)) {
+            return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(text));
         }
-        if (hasGamingUrlSignatures(text)) {
-            return ClassificationResult.blocked("Web-based game path blocked during focus mode");
-        }
-
-        // Genre 2: Gambling & Casino
-        if (WebBlocklistConstants.isGamblingDomain(text)) {
-            return ClassificationResult.blocked("Gambling and casino site blocked during focus mode");
-        }
-        for (String g : GAMBLING_SIGNATURES) {
-            if (text.contains(g)) {
-                return ClassificationResult.blocked("Gambling and casino site blocked during focus mode");
-            }
-        }
-
-        // Genre 3: Adult, Explicit & NSFW
-        if (WebBlocklistConstants.isAdultDomain(text)) {
-            return ClassificationResult.blocked("Adult and explicit content blocked during focus mode");
-        }
-        for (String a : ADULT_SIGNATURES) {
-            if (text.contains(a)) {
-                return ClassificationResult.blocked("Adult and explicit content blocked during focus mode");
-            }
-        }
-
-        // Genre 4: Web Proxies & Filter Bypass Tunnels
-        if (WebBlocklistConstants.isProxyDomain(text)) {
-            return ClassificationResult.blocked("Web proxy and bypass tunnel blocked during focus mode");
-        }
-        for (String p : PROXY_SIGNATURES) {
-            if (text.contains(p)) {
-                return ClassificationResult.blocked("Web proxy and bypass tunnel blocked during focus mode");
-            }
-        }
-
-        // Genre 5: Piracy Streaming, Manga & Short-Dramas
-        if (WebBlocklistConstants.isPiracyOrMediaDomain(text)) {
-            return ClassificationResult.blocked("Entertainment streaming portal blocked during focus mode");
-        }
-        for (String s : PIRACY_AND_DRAMA_SIGNATURES) {
-            if (text.contains(s)) {
-                return ClassificationResult.blocked("Entertainment streaming portal blocked during focus mode");
-            }
-        }
-
-        // Genre 6: Social Media Web Feeds
-        if (WebBlocklistConstants.isBlacklistedDomain(text)) {
-            return ClassificationResult.blocked("Distracting social website blocked during focus mode");
-        }
-
-        // Genre 7: Dating & Video Chat
-        if (WebBlocklistConstants.isDatingDomain(text)) {
-            return ClassificationResult.blocked("Dating and social chat site blocked during focus mode");
-        }
-        for (String d : DATING_SIGNATURES) {
-            if (text.contains(d)) {
-                return ClassificationResult.blocked("Dating and social chat site blocked during focus mode");
-            }
-        }
-
-        // Genre 8: Gossip & Viral Time-Wasters
-        if (WebBlocklistConstants.isTimeWasterDomain(text)) {
-            return ClassificationResult.blocked("Time-wasting clickbait site blocked during focus mode");
-        }
-        for (String t : TIME_WASTER_SIGNATURES) {
-            if (text.contains(t)) {
-                return ClassificationResult.blocked("Time-wasting clickbait site blocked during focus mode");
-            }
-        }
-
-        // Genre 9: Crypto Meme Coin Speculation
-        if (WebBlocklistConstants.isCryptoSpeculationDomain(text)) {
-            return ClassificationResult.blocked("Crypto speculation portal blocked during focus mode");
-        }
-        for (String c : CRYPTO_SPECULATION_SIGNATURES) {
-            if (text.contains(c)) {
-                return ClassificationResult.blocked("Crypto speculation portal blocked during focus mode");
-            }
-        }
-
-        // Genre 10: Suspicious gTLDs (.casino, .bet, .poker, .adult, .porn, .xxx, .sex, .cam)
-        String canonicalHost = WebBlocklistConstants.extractHost(text);
-        for (String gtld : SUSPICIOUS_GTLDS) {
-            if (canonicalHost.endsWith(gtld)) {
-                return ClassificationResult.blocked("Restricted domain category blocked during focus mode: " + gtld);
-            }
-        }
-
         return ClassificationResult.allowed();
     }
 
