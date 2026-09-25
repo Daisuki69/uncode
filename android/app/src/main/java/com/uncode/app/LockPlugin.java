@@ -404,6 +404,8 @@ public class LockPlugin extends Plugin {
                 } else {
                     LocalDnsVpnService.stopVpn(getActivity());
                 }
+            } else {
+                LocalDnsVpnService.stopVpn(getActivity());
             }
 
             JSObject ret = new JSObject();
@@ -804,7 +806,8 @@ public class LockPlugin extends Plugin {
                         KnownDistracting.isKnownDistracting(pkg)) {
                         continue; // Strictly omit anti-tamper, bloatware, games, and social media from candidate selection
                     }
-                    if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || isAiAppKeywords(pkg, null)) {
+                    boolean isBaselineSafe = KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg);
+                    if (!isBaselineSafe && (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || isAiAppKeywords(pkg, null))) {
                         continue; // Governed strictly via Unified Service Policy Engine in Settings
                     }
                     if (keyboardPackages.contains(pkg) || isKeyboardAppKeywords(pkg)) {
@@ -821,7 +824,7 @@ public class LockPlugin extends Plugin {
                         if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || 
                             AppClassifier.isStage1Bloat(pkg, appLabel) || 
                             KnownDistracting.isKnownDistracting(pkg, appLabel) || 
-                            isAiAppKeywords(pkg, appLabel)) {
+                            (!isBaselineSafe && isAiAppKeywords(pkg, appLabel))) {
                             continue;
                         }
 
@@ -838,7 +841,7 @@ public class LockPlugin extends Plugin {
 
                         // Strict Whitelist Invariant: User can ONLY whitelist apps that are in KnownSafe
                         // or detected as safe by the Secondary App Classifier.
-                        if (!isHardcoded && !KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg) && AppClassifier.isPackageBlocked(getActivity(), pkg, null)) {
+                        if (!isHardcoded && !isBaselineSafe && AppClassifier.isPackageBlocked(getActivity(), pkg, null)) {
                             continue; // Omit unverified or distracting third-party apps
                         }
 
@@ -847,7 +850,7 @@ public class LockPlugin extends Plugin {
                         boolean isCamera = cameraPackages.contains(pkg) || isCameraAppKeywords(pkg);
                         boolean isAuthenticator = isAuthenticatorAppKeywords(pkg, appLabel);
                         boolean isNotes = isNotesAppKeywords(pkg, appLabel);
-                        boolean isStudentApp = KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg) || isStudentAppKeywords(pkg, appLabel);
+                        boolean isStudentApp = isBaselineSafe || isStudentAppKeywords(pkg, appLabel);
                         boolean isAi = isAiAppKeywords(pkg, appLabel);
                         boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
 
@@ -954,6 +957,9 @@ public class LockPlugin extends Plugin {
             String lower = packageName.toLowerCase();
             if (lower.contains("classroom") || lower.contains("canvas") || lower.contains("blackboard") ||
                 lower.contains("schoology") || lower.contains("quizlet") || lower.contains("anki") ||
+                lower.contains("gizmo") || lower.contains("saveall") || lower.contains("quiz") ||
+                lower.contains("flashcard") || lower.contains("cram") || lower.contains("brainscape") ||
+                lower.contains("studysmarter") || lower.contains("kahoot") || lower.contains("quizizz") ||
                 lower.contains("desmos") || lower.contains("geogebra") || lower.contains("calculator") ||
                 lower.contains("docs.editors") || (lower.contains("google") && lower.contains("docs")) ||
                 lower.contains("photomath") || lower.contains("wolfram") || lower.contains("adobe.reader") ||
@@ -969,6 +975,10 @@ public class LockPlugin extends Plugin {
             String lowerLabel = label.toLowerCase();
             if (lowerLabel.contains("classroom") || lowerLabel.contains("canvas") || lowerLabel.contains("blackboard") ||
                 lowerLabel.contains("schoology") || lowerLabel.contains("quizlet") || lowerLabel.contains("anki") ||
+                lowerLabel.contains("gizmo") || lowerLabel.contains("quiz") || lowerLabel.contains("quizzes") ||
+                lowerLabel.contains("flashcard") || lowerLabel.contains("flashcards") || lowerLabel.contains("tutor") ||
+                lowerLabel.contains("brainscape") || lowerLabel.contains("studysmarter") || lowerLabel.contains("kahoot") ||
+                lowerLabel.contains("quizizz") || lowerLabel.contains("exam") || lowerLabel.contains("testprep") ||
                 lowerLabel.contains("desmos") || lowerLabel.contains("geogebra") || lowerLabel.contains("calculator") ||
                 lowerLabel.contains("photomath") || lowerLabel.contains("docs") || lowerLabel.contains("sheets") ||
                 lowerLabel.contains("slides") || lowerLabel.contains("drive") || lowerLabel.contains("student") ||

@@ -52,7 +52,10 @@ object KnownSafeWeb {
 
         // Online Learning Platforms, Study Guides & Open Courseware
         "coursera.org", "edx.org", "udemy.com", "futurelearn.com", "openlearning.com",
-        "quizlet.com", "brainly.com", "chegg.com", "coursehero.com", "studocu.com", "scribd.com",
+        "quizlet.com", "gizmo.ai", "cram.com", "brainscape.com",
+        "studysmarter.de", "studysmarter.co.uk", "studysmarter.com", "vaia.com",
+        "kahoot.it", "kahoot.com", "quizizz.com",
+        "brainly.com", "chegg.com", "coursehero.com", "studocu.com", "scribd.com",
         "academia.edu", "gutenberg.org", "archive.org", "openlibrary.org",
         "sparknotes.com", "cliffsnotes.com", "litcharts.com",
 
@@ -91,7 +94,7 @@ object KnownSafeWeb {
         "desmos", "geogebra", "wolfram", "symbolab", "mathway", "physicsclassroom",
         "arxiv", "biorxiv", "medrxiv", "jstor", "researchgate", "nature.com", "sciencedirect",
         "pubmed", "scholar.google", "semanticscholar", "nasa.gov", "cern.ch",
-        "coursera", "edx", "udemy", "quizlet", "brainly", "chegg", "coursehero",
+        "coursera", "edx", "udemy", "quizlet", "gizmo.ai", "ankiweb", "kahoot", "quizizz", "studysmarter", "brainly", "chegg", "coursehero",
         "duolingo", "babbel", "memrise", "deepl", "translate.google",
         "developer.mozilla", "w3schools", "geeksforgeeks", "stackoverflow", "stackexchange",
         "github", "gitlab", "leetcode", "hackerrank", "freecodecamp",

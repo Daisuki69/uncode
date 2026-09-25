@@ -200,7 +200,15 @@ object KnownDistracting {
         "com.x8zs.sandbox",                          // X8 Sandbox
         "com.chelpus.lackypatch",                    // Lucky Patcher
         "catch_.me_.if_.you_.can_",                  // GameGuardian
-        "com.topjohnwu.magisk"
+        "com.topjohnwu.magisk",
+
+        // ── Proxy Browsers, Cloud Renderers & Onion Bypasses ──
+        "org.torproject.torbrowser",
+        "org.torproject.torbrowser_alpha",
+        "com.cloudmosa.puffinfree",
+        "com.cloudmosa.puffin",
+        "com.ucmobile.intl",
+        "com.uc.browser.en"
     )
 
     /**

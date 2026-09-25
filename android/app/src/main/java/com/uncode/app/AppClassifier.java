@@ -380,8 +380,10 @@ public final class AppClassifier {
         "reader", "pdf", "epub", "ebook", "dictionary", "thesaurus", "vocab",
         "vocabulary", "grammar", "translate", "translator", "formula", "calculator",
         "desmos", "geometry", "algebra", "physics", "chemistry", "biology", "science",
-        "history", "anatomy", "flashcard", "flashcards", "quizlet", "homework",
-        "learning", "coding", "compiler", "terminal", "pydroid", "ide"
+        "history", "anatomy", "flashcard", "flashcards", "quizlet", "quiz", "quizzes",
+        "gizmo", "saveall", "tutor", "tutoring", "exam", "exams", "testprep", "revision",
+        "spaced repetition", "studysmarter", "kahoot", "quizizz", "brainscape",
+        "homework", "learning", "coding", "compiler", "terminal", "pydroid", "ide"
     };
 
     private AppClassifier() {}

@@ -28,9 +28,19 @@ object KnownSafe {
         "com.google.android.keep",
         "com.google.android.apps.translate",
 
-        // Flashcards & Spaced Repetition
+        // Flashcards, Quizzes & Spaced Repetition
         "com.ichi2.anki",
         "com.quizlet.quizletandroid",
+        "ai.saveall.app",                  // Gizmo: AI Flashcards and Tutor
+        "com.gizmo.ai.flashcards",          // Gizmo alternate ID
+        "com.cram.cramandroid",             // Cram.com Flashcards
+        "com.brainscape.mobile.portal",     // Brainscape
+        "com.studysmarter",                 // StudySmarter / Vaia
+        "de.studysmarter",                  // StudySmarter variant
+        "com.kahoot.android",               // Kahoot!
+        "com.quizizz.android",              // Quizizz
+        "com.magoosh.flashcards.gre",       // Magoosh Flashcards
+        "com.magoosh.vocab.gre",            // Magoosh Vocabulary
 
         // Language Learning
         "com.duolingo",

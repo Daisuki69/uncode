@@ -52,6 +52,9 @@ public class LocalDnsVpnService extends VpnService {
     private static final int NOTIF_ID = 8801;
     private static final String PREFS_NAME = "uncode_lock";
 
+    public static final String ACTION_STOP = "com.uncode.app.ACTION_STOP_VPN";
+    private static volatile LocalDnsVpnService sInstance = null;
+
     private static final String VPN_INTERFACE_IP = "10.111.222.1";
     private static final String VPN_DNS_SERVER_IP = "10.111.222.2";
     private static final String VPN_INTERFACE_IPV6 = "fd00:111:222::1";
@@ -66,6 +69,12 @@ public class LocalDnsVpnService extends VpnService {
 
     // Web distraction and gaming databases are now centralized in WebBlocklistConstants.java
 
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        sInstance = this;
+    }
 
     public static void startVpn(Context context) {
         if (isRunning) return;
@@ -82,17 +91,40 @@ public class LocalDnsVpnService extends VpnService {
     }
 
     public static void stopVpn(Context context) {
-        try {
-            Intent intent = new Intent(context, LocalDnsVpnService.class);
-            context.stopService(intent);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to stop LocalDnsVpnService: " + e.getMessage());
+        isRunning = false;
+
+        // 1. Direct synchronous teardown of active TUN interface & worker threads
+        if (sInstance != null) {
+            try {
+                sInstance.stopDnsSinkhole();
+                sInstance.stopSelf();
+            } catch (Exception e) {
+                Log.w(TAG, "Direct instance teardown warning: " + e.getMessage());
+            }
+        }
+
+        // 2. Standard Android service teardown via stopService (NEVER startForegroundService to stop)
+        if (context != null) {
+            try {
+                Intent stopIntent = new Intent(context, LocalDnsVpnService.class);
+                context.stopService(stopIntent);
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to call context.stopService: " + e.getMessage());
+            }
         }
     }
 
     public static void updateNotification(Context context) {
         if (!isRunning || context == null) return;
         try {
+            if (sInstance != null) {
+                Notification notif = sInstance.buildNotification();
+                NotificationManager nm = (NotificationManager) sInstance.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    nm.notify(NOTIF_ID, notif);
+                }
+                return;
+            }
             Intent intent = new Intent(context, LocalDnsVpnService.class);
             intent.setAction("ACTION_UPDATE_NOTIF");
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -105,13 +137,30 @@ public class LocalDnsVpnService extends VpnService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            Log.i(TAG, "Received ACTION_STOP: cleanly closing tun0 and stopping service");
+            stopDnsSinkhole();
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         createNotificationChannel();
         Notification notif = buildNotification();
 
         if (intent != null && "ACTION_UPDATE_NOTIF".equals(intent.getAction())) {
-            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (nm != null) {
-                nm.notify(NOTIF_ID, notif);
+            try {
+                if (Build.VERSION.SDK_INT >= 34) {
+                    startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
+                } else {
+                    startForeground(NOTIF_ID, notif);
+                }
+            } catch (Exception e) {
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    nm.notify(NOTIF_ID, notif);
+                }
             }
             return START_STICKY;
         }
@@ -148,6 +197,9 @@ public class LocalDnsVpnService extends VpnService {
             }
         } catch (Exception e) {
             Log.w(TAG, "stopForeground error: " + e.getMessage());
+        }
+        if (sInstance == this) {
+            sInstance = null;
         }
         super.onDestroy();
     }
@@ -355,6 +407,28 @@ public class LocalDnsVpnService extends VpnService {
         String queryDomain = parseDnsQuestionDomain(packet, dnsOffset, packet.length);
         if (queryDomain == null) queryDomain = "";
         String lowerDomain = queryDomain.toLowerCase(Locale.US);
+
+        boolean isLockdown = prefs.getBoolean("lockdown_active", false);
+        boolean isConsequence = prefs.getBoolean("consequence_active", false);
+        boolean isEnforcing = isLockdown || isConsequence;
+
+        // Defense-in-depth: if system is in idle free time (no active session),
+        // bypass WebClassifier filtering completely and forward directly to upstream DNS
+        if (!isEnforcing) {
+            byte[] dnsPayload = Arrays.copyOfRange(packet, dnsOffset, dnsOffset + dnsLength);
+            byte[] upstreamResponse = forwardToUpstreamDns(dnsPayload, prefs);
+            if (upstreamResponse != null) {
+                byte[] responseIpPacket = isIpv6
+                    ? buildUdpIp6Packet(packet, dstPort, srcPort, upstreamResponse)
+                    : buildUdpIpPacket(packet, ipHeaderLength, dstPort, srcPort, upstreamResponse);
+                synchronized (out) {
+                    try {
+                        out.write(responseIpPacket);
+                    } catch (Exception ignore) {}
+                }
+            }
+            return;
+        }
 
         boolean allowYoutube = prefs.getBoolean("allow_youtube", false);
         Set<String> activeServiceIds = prefs.getStringSet("active_unified_services", null);
