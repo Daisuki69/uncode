@@ -1,24 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Lock, Upload, Camera, FileWarning, CheckCircle, Sparkles, X, Loader2, RefreshCcw, Calculator, FileText, Music, Globe, MessageSquare, MonitorPlay, BookOpen, LayoutGrid, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Lock, Upload, Camera, FileWarning, CheckCircle, Sparkles, X, Loader2, RefreshCcw, Calculator, FileText, Music, Globe, MessageSquare, MonitorPlay, BookOpen, LayoutGrid, AlertTriangle, ShieldCheck, Home } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ScheduleData, AppSettings, SavedResource, AllowedApp } from '../types';
 import { parseResource } from '../api/parseResource';
 import { generateAnswer } from '../api/generateAnswer';
 import { endLockdown } from '../systemBridge';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
-import { 
-  DEFAULT_HARDCODED_APPS, 
-  isHardcodedApp, 
-  isHiddenSystemExemptApp,
-  isBrowserPackage,
-  isMusicPackage,
-  isCameraPackage,
-  isAuthenticatorPackage,
-  isAiPackage,
-  isNotesPackage,
-  isStudentPackage,
-  isMessagingPackage
-} from '../constants/allowedApps';
 
 interface LockScreenProps {
   schedule: ScheduleData;
@@ -529,13 +516,13 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
           </h4>
 
           {(() => {
-            const detectedHardcoded = (installedApps || []).filter(app => !isAppBlacklisted(app.id) && isHardcodedApp(app) && !isHiddenSystemExemptApp(app.id, app.name));
-            const hardcodedApps: AllowedApp[] = detectedHardcoded.length > 0 ? detectedHardcoded : DEFAULT_HARDCODED_APPS;
+            const hardcodedApps: AllowedApp[] = (installedApps || []).filter(app => 
+              !isAppBlacklisted(app.id) && (app.isHardcoded || app.isLauncher)
+            );
 
             const customApps = (settings.allowedApps || []).filter(app => 
               !isAppBlacklisted(app.id) && 
-              !isHardcodedApp(app) &&
-              !isHiddenSystemExemptApp(app.id, app.name) &&
+              !(app.isHardcoded || app.isLauncher) &&
               !hardcodedApps.some(h => h.id === app.id)
             );
 
@@ -559,14 +546,7 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
 
             const renderLockAppItem = (app: AllowedApp, isHardcoded: boolean) => {
               let FallbackIcon = iconMap[app.iconName] || LayoutGrid;
-              if (isBrowserPackage(app.id)) FallbackIcon = Globe;
-              else if (isMusicPackage(app.id, app.name)) FallbackIcon = Music;
-              else if (isCameraPackage(app.id, app.name)) FallbackIcon = Camera;
-              else if (isAuthenticatorPackage(app.id, app.name)) FallbackIcon = ShieldCheck;
-              else if (isAiPackage(app.id, app.name)) FallbackIcon = Sparkles;
-              else if (isNotesPackage(app.id, app.name)) FallbackIcon = FileText;
-              else if (isStudentPackage(app.id, app.name)) FallbackIcon = BookOpen;
-              else if (isMessagingPackage(app.id)) FallbackIcon = MessageSquare;
+              if (app.isLauncher) FallbackIcon = Home;
 
               return (
                 <div 

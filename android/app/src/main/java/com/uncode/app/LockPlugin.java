@@ -832,15 +832,23 @@ public class LockPlugin extends Plugin {
                         if (!isLauncher && AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) {
                             continue;
                         }
+
+                        boolean isHardcoded = KnownSafe.isHardcodedApp(getActivity(), appInfo, pkg, appLabel);
+
+                        // Strict Whitelist Invariant: User can ONLY whitelist apps that are in KnownSafe
+                        // or detected as safe by the Secondary App Classifier.
+                        if (!isHardcoded && !KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg) && AppClassifier.isPackageBlocked(getActivity(), pkg, null)) {
+                            continue; // Omit unverified or distracting third-party apps
+                        }
+
                         boolean isBrowser = browserPackages.contains(pkg) || isBrowserAppKeywords(pkg);
                         boolean isMusic = musicPackages.contains(pkg) || isMusicAppKeywords(pkg);
                         boolean isCamera = cameraPackages.contains(pkg) || isCameraAppKeywords(pkg);
                         boolean isAuthenticator = isAuthenticatorAppKeywords(pkg, appLabel);
                         boolean isNotes = isNotesAppKeywords(pkg, appLabel);
-                        boolean isStudentApp = isStudentAppKeywords(pkg, appLabel);
+                        boolean isStudentApp = KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg) || isStudentAppKeywords(pkg, appLabel);
                         boolean isAi = isAiAppKeywords(pkg, appLabel);
                         boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
-                        boolean isHardcoded = isLauncher || isBrowser || isMusic || isCamera || isAuthenticator || isNotes || isStudentApp;
 
                         addedPackages.add(pkg);
 
@@ -1467,75 +1475,107 @@ public class LockPlugin extends Plugin {
 
     @PluginMethod
     public void sanitizeImportApps(PluginCall call) {
-        JSArray candidateArray = call.getArray("candidatePackageIds");
-        JSArray activeServicesArray = call.getArray("activeServices");
+        try {
+            JSArray candidateArray = call.getArray("candidatePackageIds");
+            JSArray activeServicesArray = call.getArray("activeServices");
 
-        Set<String> activeServiceIds = new HashSet<>();
-        if (activeServicesArray != null) {
-            for (int i = 0; i < activeServicesArray.length(); i++) {
-                try {
-                    String s = activeServicesArray.getString(i);
-                    if (s != null && !s.trim().isEmpty()) {
-                        activeServiceIds.add(s.trim().toLowerCase(Locale.US));
+            Set<String> activeServiceIds = new HashSet<>();
+            if (activeServicesArray != null) {
+                for (int i = 0; i < activeServicesArray.length(); i++) {
+                    try {
+                        String s = activeServicesArray.getString(i);
+                        if (s != null && !s.trim().isEmpty()) {
+                            activeServiceIds.add(s.trim().toLowerCase(Locale.US));
+                        }
+                    } catch (Exception ignore) {}
+                }
+            }
+
+            JSArray cleanPackageIds = new JSArray();
+            JSArray purgedPackageIds = new JSArray();
+            Set<String> processed = new HashSet<>();
+
+            if (candidateArray != null) {
+                PackageManager pm = getContext() != null ? getContext().getPackageManager() : null;
+                for (int i = 0; i < candidateArray.length(); i++) {
+                    String pkg;
+                    try {
+                        pkg = candidateArray.getString(i);
+                    } catch (Exception e) {
+                        continue;
                     }
-                } catch (Exception ignore) {}
+                    if (pkg == null) continue;
+                    pkg = pkg.trim();
+                    if (pkg.isEmpty() || processed.contains(pkg)) continue;
+                    processed.add(pkg);
+
+                    ApplicationInfo appInfo = null;
+                    String appLabel = "";
+                    if (pm != null) {
+                        try {
+                            appInfo = pm.getApplicationInfo(pkg, 0);
+                            CharSequence lbl = pm.getApplicationLabel(appInfo);
+                            if (lbl != null) appLabel = lbl.toString();
+                        } catch (Exception ignore) {}
+                    }
+
+                    // Stage 1: Master Veto Gate (Settings, Device Admins, Bloatware)
+                    if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || AppClassifier.isStage1Bloat(pkg, appLabel)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check if package belongs to any Unified Policy Service (e.g. YouTube, AI) or is Google App
+                    if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || 
+                        pkg.equals("com.google.android.googlequicksearchbox") || 
+                        isAiAppKeywords(pkg, appLabel)) {
+                        // Unified service packages are governed exclusively by UnifiedPolicyRegistry
+                        // and must not inhabit the custom allowed apps whitelist.
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check KnownDistracting & ForbiddenDistraction (Games, TikTok, Social, Screen shares, Coxeta)
+                    if (KnownDistracting.isKnownDistracting(pkg, appLabel) ||
+                        AppClassifier.isForbiddenDistraction(getContext(), pkg)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check Hidden Infrastructure (camera lens proxy, internal installers)
+                    if (isHiddenInfrastructureApp(pkg, appLabel)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check Home Launchers (launchers belong in Always Allowed by System, not custom allowedApps)
+                    if (LockAccessibilityService.isLauncherApp(getContext(), pkg)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Stage 3 Universal System Gateway (SYSALLOW) Non-Rendering Principle:
+                    // Pre-installed OEM system utilities (Phone dialer, Clock, Calendar, Contacts, Email, STK)
+                    // are dynamically permitted by the OS during lockdown and must NOT render in custom allowedApps.
+                    if (appInfo != null && AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // S3: Safe / Permitted Study App
+                    cleanPackageIds.put(pkg);
+                }
             }
+
+            JSObject ret = new JSObject();
+            ret.put("cleanPackageIds", cleanPackageIds);
+            ret.put("purgedPackageIds", purgedPackageIds);
+            ret.put("purgedCount", purgedPackageIds.length());
+            call.resolve(ret);
+        } catch (Throwable t) {
+            Log.e(TAG, "sanitizeImportApps failed: " + t.getMessage(), t);
+            call.reject("Security sanitization error: " + t.getMessage());
         }
-
-        JSArray cleanPackageIds = new JSArray();
-        JSArray purgedPackageIds = new JSArray();
-        Set<String> processed = new HashSet<>();
-
-        if (candidateArray != null) {
-            for (int i = 0; i < candidateArray.length(); i++) {
-                String pkg;
-                try {
-                    pkg = candidateArray.getString(i);
-                } catch (Exception e) {
-                    continue;
-                }
-                if (pkg == null) continue;
-                pkg = pkg.trim();
-                if (pkg.isEmpty() || processed.contains(pkg)) continue;
-                processed.add(pkg);
-
-                // Stage 1: Master Veto Gate (Settings, Device Admins, Bloatware)
-                if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || AppClassifier.isStage1Bloat(pkg, null)) {
-                    purgedPackageIds.put(pkg);
-                    continue;
-                }
-
-                // Check if package belongs to any Unified Policy Service (e.g. YouTube, AI) or is Google App
-                if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || pkg.equals("com.google.android.googlequicksearchbox")) {
-                    // Unified service packages are governed exclusively by UnifiedPolicyRegistry
-                    // and must not inhabit the custom allowed apps whitelist.
-                    purgedPackageIds.put(pkg);
-                    continue;
-                }
-
-                // Check KnownDistracting & ForbiddenDistraction (Games, TikTok, Social, Screen shares)
-                if (KnownDistracting.KNOWN_DISTRACTING_PACKAGES.contains(pkg) ||
-                    AppClassifier.isForbiddenDistraction(getContext(), pkg)) {
-                    purgedPackageIds.put(pkg);
-                    continue;
-                }
-
-                // Check Hidden Infrastructure (camera lens proxy, internal installers)
-                if (isHiddenInfrastructureApp(pkg, null)) {
-                    purgedPackageIds.put(pkg);
-                    continue;
-                }
-
-                // S3: Safe / Permitted Study App
-                cleanPackageIds.put(pkg);
-            }
-        }
-
-        JSObject ret = new JSObject();
-        ret.put("cleanPackageIds", cleanPackageIds);
-        ret.put("purgedPackageIds", purgedPackageIds);
-        ret.put("purgedCount", purgedPackageIds.length());
-        call.resolve(ret);
     }
 
     @PluginMethod
