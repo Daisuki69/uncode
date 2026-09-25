@@ -1052,7 +1052,8 @@ public class LockAccessibilityService extends AccessibilityService {
         "com.opera.mini.native",
         "com.duckduckgo.mobile.android",
         "com.vivaldi.browser",
-        "mark.via.gp"
+        "mark.via.gp",
+        "idm.internet.download.manager"
     ));
 
     // Web distraction, gaming domains, and academic safe-lists are centralized in WebBlocklistConstants.java
@@ -1651,7 +1652,7 @@ public class LockAccessibilityService extends AccessibilityService {
                         CharSequence desc = node.getContentDescription();
                         String val = text != null && text.length() > 0 ? text.toString().trim() :
                                     (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                        if (val != null && val.length() > 0) return val;
+                        if (isValidUrlCandidate(val)) return val;
                     }
                 }
             }
@@ -1675,7 +1676,7 @@ public class LockAccessibilityService extends AccessibilityService {
                         CharSequence desc = node.getContentDescription();
                         String val = text != null && text.length() > 0 ? text.toString().trim() :
                                     (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                        if (val != null && val.length() > 0) return val;
+                        if (isValidUrlCandidate(val)) return val;
                     }
                 }
             }
@@ -1697,7 +1698,7 @@ public class LockAccessibilityService extends AccessibilityService {
                         }
                         CharSequence text = node.getText();
                         String val = text != null && text.length() > 0 ? text.toString().trim() : null;
-                        if (val != null && val.length() > 0) return val;
+                        if (isValidUrlCandidate(val)) return val;
                     }
                 }
             }
@@ -1715,7 +1716,7 @@ public class LockAccessibilityService extends AccessibilityService {
                     CharSequence desc = node.getContentDescription();
                     String val = text != null && text.length() > 0 ? text.toString().trim() :
                                 (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                    if (val != null && val.length() > 0) return val;
+                    if (isValidUrlCandidate(val)) return val;
                 }
             }
         }
@@ -1732,13 +1733,58 @@ public class LockAccessibilityService extends AccessibilityService {
                     CharSequence desc = node.getContentDescription();
                     String val = text != null && text.length() > 0 ? text.toString().trim() :
                                 (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                    if (val != null && val.length() > 0) return val;
+                    if (isValidUrlCandidate(val)) return val;
                 }
             }
         }
 
-        // 6. Generic Heuristic Fallback through hierarchy (Targeting address bar & input nodes only)
+        // 6. 1DM Browser (idm.internet.download.manager)
+        String[] idmViewIds = {
+            "idm.internet.download.manager:id/search",
+            "idm.internet.download.manager:id/search_container"
+        };
+        for (String id : idmViewIds) {
+            nodes = root.findAccessibilityNodeInfosByViewId(id);
+            if (nodes != null && !nodes.isEmpty()) {
+                for (AccessibilityNodeInfo node : nodes) {
+                    if (node != null) {
+                        if (node.isFocused()) {
+                            continue; // Active typing or autocomplete in progress
+                        }
+                        CharSequence text = node.getText();
+                        CharSequence desc = node.getContentDescription();
+                        String val = text != null && text.length() > 0 ? text.toString().trim() :
+                                    (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
+                        if (isValidUrlCandidate(val)) return val;
+                    }
+                }
+            }
+        }
+
+        // 7. Generic Heuristic Fallback through hierarchy (Targeting address bar & input nodes only)
         return findUrlInHierarchy(root, 0);
+    }
+
+    /**
+     * Validates whether an extracted string from a browser address bar node qualifies as a plausible
+     * web URL or domain navigation target.
+     * Prevents empty tab hint placeholders (e.g. "Search or type web address", "Search", "about:blank")
+     * from being passed into WebClassifier as unclassified destination domains.
+     */
+    public static boolean isValidUrlCandidate(String val) {
+        if (val == null) return false;
+        String clean = val.trim();
+        if (clean.isEmpty()) return false;
+        // Fast reject: Unencoded spaces indicate placeholder hint text or typed search queries
+        if (clean.contains(" ")) return false;
+        // Fast reject: Common browser empty tab placeholder words without spaces
+        String lower = clean.toLowerCase(Locale.US);
+        if (lower.equals("search") || lower.equals("search...") ||
+            lower.equals("about:blank") || lower.startsWith("chrome://newtab")) {
+            return false;
+        }
+        // Must look like a real host or URL: contains dot, or protocol, or path slash
+        return clean.contains(".") || lower.startsWith("http://") || lower.startsWith("https://") || clean.contains("/");
     }
 
     private String findUrlInHierarchy(AccessibilityNodeInfo node, int depth) {
@@ -1751,7 +1797,7 @@ public class LockAccessibilityService extends AccessibilityService {
             if (lowerResId.contains("url_bar") || lowerResId.contains("location_bar") || 
                 lowerResId.contains("address_bar") || lowerResId.contains("omnibar") ||
                 lowerResId.contains("url_field") || lowerResId.contains("title_url") ||
-                lowerResId.contains("custom_tab_toolbar")) {
+                lowerResId.contains("custom_tab_toolbar") || lowerResId.endsWith(":id/search")) {
                 isAddressOrInput = true;
             }
         }
@@ -1767,7 +1813,7 @@ public class LockAccessibilityService extends AccessibilityService {
             if (node.isFocused()) {
                 return null; // Active typing or autocomplete in progress
             }
-            if (val != null && (val.contains(".") || val.startsWith("http://") || val.startsWith("https://") || val.contains("/"))) {
+            if (isValidUrlCandidate(val)) {
                 return val;
             }
         }
@@ -2048,25 +2094,26 @@ public class LockAccessibilityService extends AccessibilityService {
             } finally {
                 activeRoot.recycle();
             }
-        }
+        } else {
+            // Fallback: When getRootInActiveWindow() is null (e.g. system transitions / secure surfaces)
+            if (!isEnforcing) {
+                return; // Standby: normal apps allowed
+            }
 
-        if (!isEnforcing) {
-            return; // Standby: normal apps allowed
-        }
-
-        String currentForegroundPkg = detectCurrentForegroundPackage();
-        if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
-            if (isBrowserPackage(currentForegroundPkg)) {
-                AccessibilityNodeInfo browserRoot = getRootInActiveWindow();
-                if (browserRoot != null) {
-                    try {
-                        inspectBrowserWindow(browserRoot, currentForegroundPkg, true);
-                    } finally {
-                        browserRoot.recycle();
+            String currentForegroundPkg = detectCurrentForegroundPackage();
+            if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
+                if (isBrowserPackage(currentForegroundPkg)) {
+                    AccessibilityNodeInfo browserRoot = getRootInActiveWindow();
+                    if (browserRoot != null) {
+                        try {
+                            inspectBrowserWindow(browserRoot, currentForegroundPkg, true);
+                        } finally {
+                            browserRoot.recycle();
+                        }
                     }
+                } else if (isPackageBlocked(currentForegroundPkg)) {
+                    enforceBlock(currentForegroundPkg);
                 }
-            } else if (isPackageBlocked(currentForegroundPkg)) {
-                enforceBlock(currentForegroundPkg);
             }
         }
     }
