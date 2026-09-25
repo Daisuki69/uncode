@@ -2351,6 +2351,18 @@ flowchart TD
         2. `!isDistracting && isSafe` $\rightarrow$ `ALLOW` (e.g. Classroom, Anki, Gboard, verified safe user app).
         3. `isDistracting && !isSafe` $\rightarrow$ `BLOCK` (e.g. TikTok, Steam, Coxeta, or disabled policy service).
         4. `!isDistracting && !isSafe` $\rightarrow$ Proceed to Secondary App Classifier heuristics.
+28. **Startup Whitelist Sanitization, Mobile Touch-Friendly Removal & Messaging Classification Fix**:
+    - **Why this was changed (Root Cause Analysis & Forensic Breakdown)**:
+      - *Legacy `studom_settings` Persistence*: Previously, `settings.allowedApps` loaded directly from device `localStorage` without native verification, causing old test sessions with Coxeta (`com.teamrhythmicals.costheta`), Grok (`ai.x.grok`), Stock Gallery, Maps, and Stock Messaging to remain rendered in the UI. While native `KnownSafe.kt` invariant successfully blocked Coxeta during live lockdown and routed the user to QIEZKA, the stale entry still appeared in the frontend list.
+      - *The Re-Adding Loop*: In `App.tsx`, an `autoAllowedCustom` block ran outside `!prev.allowedAppsInitialized` on every background scan, detecting deleted messaging apps as missing from `existingIds` and automatically re-adding them to `settings.allowedApps`.
+      - *Invisible Mobile Remove Button*: In `Dashboard.tsx`, the remove "X" button had `opacity-0 group-hover:opacity-100`. On touchscreens without a mouse cursor, hover never fired, rendering the remove button invisible and untouchable.
+      - *`CATEGORY_SOCIAL` Secondary Classifier Flaw*: In `AppClassifier.java`, `CATEGORY_SOCIAL` in `evaluatePackage` lacked the `isMessagingApp` exemption, causing WhatsApp, Telegram, Signal, and Messenger to be blocked by secondary heuristics and omitted from `availableApps` in the App Selector modal.
+    - **Concrete Architectural Fixes Implemented**:
+      - **Startup Sanitization (`src/App.tsx`)**: In `loadAll()`, candidate package IDs in `loadedSettings.allowedApps` are automatically run through `sanitizeImportApps`. Discovered distractions (Coxeta), policy apps (Grok), and Stage 3 system partition apps (Gallery, Maps, Stock Messaging) are immediately purged on boot and saved to `localStorage`.
+      - **Re-Adding Loop Eradication (`src/App.tsx`)**: Removed the rogue `autoAllowedCustom` loop. Initial messaging apps are populated strictly once during initial onboarding (`!prev.allowedAppsInitialized`). Once initialized, user deletions are permanent and respected.
+      - **Touch-Friendly Mobile Removal (`src/components/Dashboard.tsx`)**: Made the remove "X" button visible by default on custom apps (`opacity-90 hover:opacity-100 active:scale-90`) with `e.stopPropagation()`. Mobile users can clearly see and tap "X" to delete any custom app.
+      - **Messaging Exemption in `CATEGORY_SOCIAL` (`AppClassifier.java`)**: Added `if (isMessagingApp(pkg, appLabel)) return false;` under `case CATEGORY_SOCIAL:`. Authentic messaging apps (WhatsApp, Telegram, Signal, Messenger) pass secondary evaluation and are returned in `availableApps`.
+      - **Complete Grok Keyword Coverage (`LockPlugin.java`)**: Added `"grok"` to `isAiAppKeywords` for both package and label matching.
 
 
 ### Patch: Pure-List KnownDistracting, KnownSafe & Stage 3 System Delegation (Flow Update V3)

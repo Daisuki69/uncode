@@ -987,7 +987,7 @@ public class LockPlugin extends Plugin {
             String lower = packageName.toLowerCase();
             if (lower.contains("chatgpt") || lower.contains("bard") || lower.contains("gemini") ||
                 lower.contains("claude") || lower.contains("copilot") || lower.contains("perplexity") ||
-                lower.contains("deepseek") || lower.contains(".poe")) {
+                lower.contains("deepseek") || lower.contains(".poe") || lower.contains("grok")) {
                 return true;
             }
         }
@@ -995,7 +995,7 @@ public class LockPlugin extends Plugin {
             String lowerLabel = label.toLowerCase();
             if (lowerLabel.contains("chatgpt") || lowerLabel.contains("gemini") || lowerLabel.contains("claude") ||
                 lowerLabel.contains("copilot") || lowerLabel.contains("perplexity") || lowerLabel.contains("deepseek") ||
-                lowerLabel.contains("ai assistant") || lowerLabel.contains("poe")) {
+                lowerLabel.contains("ai assistant") || lowerLabel.contains("poe") || lowerLabel.contains("grok")) {
                 return true;
             }
         }

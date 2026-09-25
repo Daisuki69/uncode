@@ -6,7 +6,7 @@ import { EvaluationResult } from './components/EvaluationResult';
 import { Onboarding } from './components/Onboarding';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch, setServicePolicy, getRegisteredServices } from './systemBridge';
+import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch, setServicePolicy, getRegisteredServices, sanitizeImportApps } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
 
@@ -277,12 +277,21 @@ export default function App() {
         loadedSettings.schedules = [];
       }
 
-      if (loadedSettings.allowedApps) {
-        loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => 
-          !isAppBlacklisted(a.id) && 
-          !a.isLauncher &&
-          !a.isHardcoded
-        );
+      if (loadedSettings.allowedApps && loadedSettings.allowedApps.length > 0) {
+        try {
+          const candidateIds = loadedSettings.allowedApps.map(a => a.id).filter(Boolean);
+          const activeServices = loadedSettings.activeServices || (loadedSettings.allowYoutube ? ['youtube'] : []);
+          const sanitizeRes = await sanitizeImportApps(candidateIds, activeServices);
+          const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
+          loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => 
+            cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !a.isLauncher && !a.isHardcoded
+          );
+        } catch (e) {
+          console.warn("Startup allowedApps sanitization failed", e);
+          loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => 
+            !isAppBlacklisted(a.id) && !a.isLauncher && !a.isHardcoded
+          );
+        }
       }
 
       // Check cached installed apps for initial messaging app auto-population if needed
@@ -370,15 +379,6 @@ export default function App() {
           try { localStorage.setItem('studom_installed_apps', JSON.stringify(installed)); } catch {}
 
           setSettings(prev => {
-            const existingIds = new Set((prev.allowedApps || []).map(a => a.id));
-            const autoAllowedCustom = installed.filter(a => 
-              (a.isAutoAllowed || a.isMessaging) && 
-              !a.isHardcoded && 
-              !a.isLauncher &&
-              !isAppBlacklisted(a.id) && 
-              !existingIds.has(a.id)
-            );
-
             if (!prev.allowedAppsInitialized) {
               const initialCustom = installed.filter(a => 
                 (a.isAutoAllowed || a.isMessaging) && 
@@ -394,13 +394,6 @@ export default function App() {
                 ...prev,
                 allowedApps: combined,
                 allowedAppsInitialized: true
-              };
-            }
-
-            if (autoAllowedCustom.length > 0) {
-              return {
-                ...prev,
-                allowedApps: [...(prev.allowedApps || []), ...autoAllowedCustom]
               };
             }
             return prev;
