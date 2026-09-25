@@ -59,6 +59,16 @@ interface LockPluginInterface {
   }>;
   exitToHome(): Promise<void>;
   showToast(options: { message: string }): Promise<void>;
+  getInstalledLaunchers(): Promise<{ launchers: LauncherInfo[] }>;
+}
+
+export interface LauncherInfo {
+  packageName: string;
+  activityName: string;
+  name: string;
+  icon?: string;
+  isSystem: boolean;
+  isCurrentDefault: boolean;
 }
 
 // Register the native plugin - falls back gracefully in browser/dev mode
@@ -115,6 +125,17 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
     },
     getActiveServices: async () => ({ activeServices: [] }),
     getRegisteredServices: async () => ({ services: UNIFIED_SERVICES }),
+    getInstalledLaunchers: async () => ({
+      launchers: [
+        {
+          packageName: 'com.sec.android.app.launcher',
+          activityName: 'com.sec.android.app.launcher.activities.LauncherActivity',
+          name: 'One UI Home',
+          isSystem: true,
+          isCurrentDefault: true
+        }
+      ]
+    }),
     requestVpnPermission: async () => {
       console.log('[Dev] Simulating requestVpnPermission: granted');
       return { granted: true };
@@ -514,5 +535,15 @@ export const getRegisteredServices = async (): Promise<UnifiedServiceDefinition[
     console.warn('getRegisteredServices failed, using fallback', e);
   }
   return [];
+};
+
+export const getInstalledLaunchers = async (): Promise<LauncherInfo[]> => {
+  try {
+    const res = await LockPlugin.getInstalledLaunchers();
+    return res.launchers || [];
+  } catch (e) {
+    console.warn('getInstalledLaunchers failed', e);
+    return [];
+  }
 };
 

@@ -38,4 +38,23 @@ class HomeHandlerTest {
         assertEquals("selected_launcher_pkg", QiezkaHomeHandlerActivity.KEY_SELECTED_LAUNCHER_PKG)
         assertEquals("selected_launcher_cls", QiezkaHomeHandlerActivity.KEY_SELECTED_LAUNCHER_CLS)
     }
+
+    @Test
+    fun testLauncherInfoDataModel() {
+        val launcher = InstalledLauncherDetector.LauncherInfo(
+            "com.sec.android.app.launcher",
+            "com.sec.android.app.launcher.activities.LauncherActivity",
+            "One UI Home",
+            "data:image/png;base64,fakeIconData",
+            true,
+            true
+        )
+
+        assertEquals("com.sec.android.app.launcher", launcher.packageName)
+        assertEquals("com.sec.android.app.launcher.activities.LauncherActivity", launcher.activityName)
+        assertEquals("One UI Home", launcher.name)
+        assertEquals("data:image/png;base64,fakeIconData", launcher.icon)
+        assertTrue(launcher.isSystem)
+        assertTrue(launcher.isCurrentDefault)
+    }
 }

@@ -2484,6 +2484,15 @@ flowchart TD
       - **Atomic Process Lifecycle Tracking (`MainActivity.java`)**: Added thread-safe `sIsRunning` and `isRunning()` tracking across `onCreate()`, `onResume()`, and `onDestroy()`.
       - **Self-Exclusion Bugfix in `LockAccessibilityService.java`**: Ensured `isLauncherApp()` and `resolveDynamicExemptions()` explicitly exclude `com.uncode.app`, preventing QIEZKA from accidentally exempting itself as a third-party launcher.
       - **Native Unit Test Suite (`HomeHandlerTest.kt`)**: Added unit tests validating default lifecycle state, launcher candidate package exclusion, and SharedPreferences key constants.
+    - **Installed Home Launcher Discovery Engine & Settings Inventory Display**:
+      - **Why this was changed**:
+        - *Zero-Selection Transparency*: To implement the transparent Home Shell delegation model safely, the system must accurately discover all installed Home launchers (both OEM pre-installed system launchers like Samsung One UI, Pixel Launcher, MIUI Home, and third-party launchers like Nova or Lawnchair) along with their official high-resolution application icons and default status.
+        - *Diagnostic Visibility in MainActivity*: Users need to see exactly which launchers are detected on their device so they have complete confidence in what QIEZKA Home will delegate to, without prematurely presenting complex interactive selection controls before the proxy delegation engine is fully wired.
+      - **Concrete Architectural Fixes Implemented**:
+        - **Dedicated `InstalledLauncherDetector.java` Resolver**: Created an isolated native helper class that queries Android's `PackageManager` for all activities matching `CATEGORY_HOME` (strictly excluding `com.uncode.app`), extracts application labels, detects system vs. third-party partition flags, resolves the active OS default launcher, and encodes application icons into Base64 PNG data URLs.
+        - **Capacitor Bridge Method (`LockPlugin.java` & `src/systemBridge.ts`)**: Exposed `getInstalledLaunchers()` on `LockPlugin` returning structured `LauncherInfo` arrays to the web layer.
+        - **MainActivity Settings Inventory Display (`SettingsOverlay.tsx`)**: Added a dedicated "Detected Home Launchers" card section in Settings displaying launcher icons, labels, package identifiers, and system/default status badges in a read-only, non-interactive format.
+        - **Unit Test Coverage (`HomeHandlerTest.kt`)**: Added `testLauncherInfoDataModel()` validating the `LauncherInfo` model and properties.
 
 
 
