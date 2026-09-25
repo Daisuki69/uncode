@@ -967,7 +967,7 @@ export function Dashboard({
                           });
                         }
                       }}
-                      className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full p-1 opacity-90 hover:opacity-100 active:scale-90 transition-all z-10 hover:bg-red-500 cursor-pointer shadow-xs"
+                      className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-red-500 cursor-pointer shadow-xs"
                       title="Remove App"
                     >
                       <X className="w-3 h-3" />

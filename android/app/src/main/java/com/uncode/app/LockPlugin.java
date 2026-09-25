@@ -377,6 +377,7 @@ public class LockPlugin extends Plugin {
             String mode = call.getString("mode", "safemode");
             prefs.edit().putString("operating_mode", mode).apply();
             Log.i(TAG, "Operating mode set to: " + mode);
+
             JSObject ret = new JSObject();
             ret.put("success", true);
             call.resolve(ret);

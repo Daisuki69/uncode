@@ -1231,17 +1231,52 @@ public class LockAccessibilityService extends AccessibilityService {
                host.equals("startpage.com") || host.equals("www.startpage.com");
     }
 
+    public static boolean isAddressBarNode(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        String resId = node.getViewIdResourceName();
+        if (resId != null) {
+            String lower = resId.toLowerCase(Locale.US);
+            return lower.contains("url") || lower.contains("location") ||
+                   lower.contains("search") || lower.contains("toolbar") ||
+                   lower.contains("address") || lower.contains("omnibox") ||
+                   lower.contains("line_1");
+        }
+        return false;
+    }
+
     private boolean isBrowserSearch(String url, AccessibilityNodeInfo root) {
+        // 1. Flowchart: Active search input box / Query typing in progress -> ALLOW_SEARCH (100% immune)
+        if (root != null) {
+            try {
+                AccessibilityNodeInfo focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (focused != null) {
+                    try {
+                        if (focused.isEditable() || focused.isFocused()) {
+                            // If the focused input is the native browser address bar / search box, typing is 100% immune
+                            if (isAddressBarNode(focused)) {
+                                return true; // Active Omnibox / address bar typing or autocomplete in progress
+                            }
+                            // If on a search engine host, an in-page search input (e.g. Google/Bing search box) is also immune
+                            if (url != null && !url.trim().isEmpty()) {
+                                String host = WebBlocklistConstants.extractHost(url.trim().toLowerCase(Locale.US));
+                                if (isSearchEngineHost(host)) {
+                                    return true;
+                                }
+                            } else {
+                                // URL is null (e.g. Chrome New Tab Page search input)
+                                return true;
+                            }
+                        }
+                    } finally {
+                        focused.recycle();
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+
+        // 2. Search Engine Results Page (SERP) or Search Engine URLs
         if (url != null && !url.trim().isEmpty()) {
             String lowerUrl = url.trim().toLowerCase(Locale.US);
-
-            // If it is a destination URL that is NOT a search engine host, it is NEVER a search results page!
-            if (WebClassifier.isDestinationUrl(url)) {
-                String host = WebBlocklistConstants.extractHost(lowerUrl);
-                if (!isSearchEngineHost(host)) {
-                    return false; // Destination page! E.g. gemini.google.com, chatgpt.com, y8.com, etc.
-                }
-            }
 
             // Google redirect URLs (google.com/url?q=...) are transitions to destination pages, not search results
             if (lowerUrl.contains("google.") && lowerUrl.contains("/url?")) {
@@ -1259,22 +1294,13 @@ public class LockAccessibilityService extends AccessibilityService {
                 lowerUrl.contains("yandex.com/search") || lowerUrl.contains("startpage.com")) {
                 return true;
             }
-        }
 
-        // Active typing or search input focus
-        if (root != null) {
-            try {
-                AccessibilityNodeInfo focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
-                if (focused != null) {
-                    try {
-                        if (focused.isEditable() || focused.isFocused()) {
-                            return true;
-                        }
-                    } finally {
-                        focused.recycle();
-                    }
+            // If it is a destination URL that is NOT a search engine host, it is NEVER a search results page!
+            if (WebClassifier.isDestinationUrl(url)) {
+                if (!isSearchEngineHost(host)) {
+                    return false; // Destination page! E.g. gemini.google.com, chatgpt.com, y8.com, etc.
                 }
-            } catch (Exception ignore) {}
+            }
         }
 
         return false;
@@ -1588,26 +1614,13 @@ public class LockAccessibilityService extends AccessibilityService {
         if (root == null) return null;
 
         // Layer 1: Input Focus Guard. If the address bar or search input is actively focused by the user,
-        // and does NOT contain a completed destination URL, typing or autocomplete is in progress.
+        // typing or autocomplete is in progress. Flowchart: ALLOW_SEARCH (100% immune, uninterrupted).
         AccessibilityNodeInfo focusNode = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
         if (focusNode != null) {
             try {
                 if (focusNode.isFocused() || focusNode.isEditable()) {
-                    String focusId = focusNode.getViewIdResourceName();
-                    if (focusId != null) {
-                        String lowerFocusId = focusId.toLowerCase(Locale.US);
-                        if (lowerFocusId.contains("url") || lowerFocusId.contains("location") ||
-                            lowerFocusId.contains("search") || lowerFocusId.contains("toolbar") ||
-                            lowerFocusId.contains("address") || lowerFocusId.contains("omnibox") ||
-                            lowerFocusId.contains("line_1")) {
-                            CharSequence focusText = focusNode.getText();
-                            String textStr = focusText != null ? focusText.toString().trim() : "";
-                            // If the text in the address bar is already a complete, valid destination URL without spaces,
-                            // it has been submitted/loaded. Only suppress extraction if user is actively typing unsubmitted text.
-                            if (textStr.isEmpty() || textStr.contains(" ") || !WebClassifier.isDestinationUrl(textStr)) {
-                                return null; // User is actively typing in the address bar
-                            }
-                        }
+                    if (isAddressBarNode(focusNode)) {
+                        return null; // User is actively searching or typing in the browser's address bar
                     }
                 }
             } finally {
@@ -1631,15 +1644,13 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
+                        if (node.isFocused()) {
+                            continue; // Active typing or autocomplete in progress
+                        }
                         CharSequence text = node.getText();
                         CharSequence desc = node.getContentDescription();
                         String val = text != null && text.length() > 0 ? text.toString().trim() :
                                     (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                        if (node.isFocused()) {
-                            if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
-                                continue; // Active typing or autocomplete in progress
-                            }
-                        }
                         if (val != null && val.length() > 0) return val;
                     }
                 }
@@ -1657,15 +1668,13 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
+                        if (node.isFocused()) {
+                            continue; // Active typing or autocomplete in progress
+                        }
                         CharSequence text = node.getText();
                         CharSequence desc = node.getContentDescription();
                         String val = text != null && text.length() > 0 ? text.toString().trim() :
                                     (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                        if (node.isFocused()) {
-                            if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
-                                continue; // Active typing or autocomplete in progress
-                            }
-                        }
                         if (val != null && val.length() > 0) return val;
                     }
                 }
@@ -1683,13 +1692,11 @@ public class LockAccessibilityService extends AccessibilityService {
             if (nodes != null && !nodes.isEmpty()) {
                 for (AccessibilityNodeInfo node : nodes) {
                     if (node != null) {
+                        if (node.isFocused()) {
+                            continue; // Active typing or autocomplete in progress
+                        }
                         CharSequence text = node.getText();
                         String val = text != null && text.length() > 0 ? text.toString().trim() : null;
-                        if (node.isFocused()) {
-                            if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
-                                continue;
-                            }
-                        }
                         if (val != null && val.length() > 0) return val;
                     }
                 }
@@ -1701,15 +1708,13 @@ public class LockAccessibilityService extends AccessibilityService {
         if (nodes != null && !nodes.isEmpty()) {
             for (AccessibilityNodeInfo node : nodes) {
                 if (node != null) {
+                    if (node.isFocused()) {
+                        continue; // Active typing or autocomplete in progress
+                    }
                     CharSequence text = node.getText();
                     CharSequence desc = node.getContentDescription();
                     String val = text != null && text.length() > 0 ? text.toString().trim() :
                                 (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                    if (node.isFocused()) {
-                        if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
-                            continue;
-                        }
-                    }
                     if (val != null && val.length() > 0) return val;
                 }
             }
@@ -1720,15 +1725,13 @@ public class LockAccessibilityService extends AccessibilityService {
         if (nodes != null && !nodes.isEmpty()) {
             for (AccessibilityNodeInfo node : nodes) {
                 if (node != null) {
+                    if (node.isFocused()) {
+                        continue; // Active typing or autocomplete in progress
+                    }
                     CharSequence text = node.getText();
                     CharSequence desc = node.getContentDescription();
                     String val = text != null && text.length() > 0 ? text.toString().trim() :
                                 (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
-                    if (node.isFocused()) {
-                        if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
-                            continue;
-                        }
-                    }
                     if (val != null && val.length() > 0) return val;
                 }
             }
@@ -1762,9 +1765,7 @@ public class LockAccessibilityService extends AccessibilityService {
             String val = text != null && text.length() > 0 ? text.toString().trim() :
                         (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
             if (node.isFocused()) {
-                if (val == null || val.contains(" ") || !WebClassifier.isDestinationUrl(val)) {
-                    return null; // Active typing in progress
-                }
+                return null; // Active typing or autocomplete in progress
             }
             if (val != null && (val.contains(".") || val.startsWith("http://") || val.startsWith("https://") || val.contains("/"))) {
                 return val;
@@ -1840,6 +1841,7 @@ public class LockAccessibilityService extends AccessibilityService {
         boolean isLockdownActive = prefs.getBoolean("lockdown_active", false);
         boolean isConsequenceActive = prefs.getBoolean("consequence_active", false);
         long lockEndTime = prefs.getLong("lock_end_time", 0L);
+        boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
 
         // 1. Check if lockdown timer has expired
         if (isLockdownActive && !isConsequenceActive && lockEndTime > 0 && effectiveNow >= lockEndTime) {
@@ -1850,7 +1852,6 @@ public class LockAccessibilityService extends AccessibilityService {
                     .apply();
             AlarmReceiver.cancelLockEndAlarm(this);
             AlarmReceiver.createNotificationChannels(this);
-            boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
             String notifTitle = isHardcore
                     ? "⚠️ Homework Expired — Consequence Active (Hardcore)"
                     : "⚠️ Homework Expired — Consequence Active";
@@ -1877,15 +1878,22 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
-        // 1c. Synchronize LocalDnsVpnService with active lockdown and consequence penalty
-        String webMode = prefs.getString("web_protection_mode", "accessibility");
-        boolean shouldVpnRun = (isLockdownActive || isConsequenceActive)
-                && ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode));
+        // 1c. Synchronize LocalDnsVpnService strictly with active session enforcement (Option B: Session-Only Web Guard)
+        boolean isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours);
+        boolean isEnforcing = isLockdownActive || isConsequenceEnforcing;
 
-        if (shouldVpnRun && !LocalDnsVpnService.isRunning) {
-            LocalDnsVpnService.startVpn(this);
-        } else if (!shouldVpnRun && LocalDnsVpnService.isRunning) {
-            LocalDnsVpnService.stopVpn(this);
+        String webMode = prefs.getString("web_protection_mode", "accessibility");
+        boolean isVpnMode = "dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode);
+        boolean shouldVpnRun = isVpnMode && isEnforcing;
+
+        if (shouldVpnRun) {
+            if (!LocalDnsVpnService.isRunning) {
+                LocalDnsVpnService.startVpn(this);
+            }
+        } else {
+            if (LocalDnsVpnService.isRunning) {
+                LocalDnsVpnService.stopVpn(this);
+            }
         }
 
         // 2. Check schedules from schedules_json
@@ -1976,9 +1984,9 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         // 3. State Evaluation Gate
-        boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
-        boolean isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours);
-        boolean isEnforcing = isLockdownActive || isConsequenceEnforcing;
+        isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+        isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours);
+        isEnforcing = isLockdownActive || isConsequenceEnforcing;
         boolean hasSchedules = hasActiveSchedules();
 
         if (isConsequenceActive && !isHardcore && !inOperatingHours) {
