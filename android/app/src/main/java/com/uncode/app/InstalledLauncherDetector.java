@@ -62,6 +62,44 @@ public class InstalledLauncherDetector {
         }
     }
 
+    /**
+     * Determines whether a ResolveInfo responds as a legitimate user-facing Home Launcher,
+     * filtering out internal fallback activities (such as FallbackHome), direct boot placeholders,
+     * and apps vetoed by QIEZKA's Stage 1 Master Veto Gate (Settings, Device Managers, Bloatware, Distractions).
+     */
+    public static boolean isRealLauncher(ResolveInfo info, String myPkg) {
+        if (info == null || info.activityInfo == null || info.activityInfo.packageName == null) {
+            return false;
+        }
+
+        String pkg = info.activityInfo.packageName.trim();
+
+        // 1. Exclude self
+        if (myPkg != null && pkg.equalsIgnoreCase(myPkg.trim())) {
+            return false;
+        }
+
+        // 2. Android Manifest priority invariant: Negative priority indicates fallback / emergency placeholder
+        // e.g., com.android.settings.FallbackHome has android:priority="-1000"
+        if (info.priority < 0) {
+            return false;
+        }
+
+        // 3. Activity name checks: FallbackHome placeholder
+        String activityName = info.activityInfo.name != null ? info.activityInfo.name : "";
+        if (activityName.toLowerCase(java.util.Locale.ROOT).contains("fallbackhome")) {
+            return false;
+        }
+
+        // 4. QIEZKA 3-Stage Model: Stage 1 Master Veto Gate
+        // Strictly rejects Android Settings, Device Care, Phone Managers, Setup Wizards, Bloatware, and Distractions
+        if (AppClassifier.isStage1Vetoed(pkg, null)) {
+            return false;
+        }
+
+        return true;
+    }
+
     public static List<LauncherInfo> getInstalledLaunchers(Context context) {
         if (context == null) return Collections.emptyList();
         List<LauncherInfo> result = new ArrayList<>();
@@ -76,9 +114,10 @@ public class InstalledLauncherDetector {
             Intent homeIntent = new Intent(Intent.ACTION_MAIN);
             homeIntent.addCategory(Intent.CATEGORY_HOME);
             ResolveInfo defaultResolve = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY);
-            String defaultPkg = (defaultResolve != null && defaultResolve.activityInfo != null)
-                    ? defaultResolve.activityInfo.packageName
-                    : null;
+            String defaultPkg = null;
+            if (defaultResolve != null && isRealLauncher(defaultResolve, myPkg)) {
+                defaultPkg = defaultResolve.activityInfo.packageName;
+            }
 
             // 2. Query all installed activities responding to CATEGORY_HOME
             List<ResolveInfo> candidates = pm.queryIntentActivities(homeIntent, 0);
@@ -87,11 +126,11 @@ public class InstalledLauncherDetector {
             Set<String> seenPackages = new HashSet<>();
 
             for (ResolveInfo info : candidates) {
-                if (info.activityInfo == null || info.activityInfo.packageName == null) continue;
+                if (!isRealLauncher(info, myPkg)) {
+                    continue;
+                }
                 String pkg = info.activityInfo.packageName;
-
-                // Exclude QIEZKA itself
-                if (pkg.equals(myPkg) || seenPackages.contains(pkg)) {
+                if (seenPackages.contains(pkg)) {
                     continue;
                 }
                 seenPackages.add(pkg);

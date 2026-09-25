@@ -158,6 +158,16 @@ public class QiezkaHomeHandlerActivity extends Activity {
         String savedPkg = prefs.getString(KEY_SELECTED_LAUNCHER_PKG, null);
         String savedCls = prefs.getString(KEY_SELECTED_LAUNCHER_CLS, null);
 
+        // Sanitize existing preferences: If it was saved as com.android.settings or vetoed by Stage 1, purge it!
+        if (savedPkg != null && AppClassifier.isStage1Vetoed(savedPkg, null)) {
+            prefs.edit()
+                .remove(KEY_SELECTED_LAUNCHER_PKG)
+                .remove(KEY_SELECTED_LAUNCHER_CLS)
+                .apply();
+            savedPkg = null;
+            savedCls = null;
+        }
+
         PackageManager pm = context.getPackageManager();
         if (savedPkg != null && savedCls != null) {
             try {
@@ -166,20 +176,18 @@ public class QiezkaHomeHandlerActivity extends Activity {
             } catch (Exception ignore) {}
         }
 
-        // Auto-discover installed real launchers (excluding QIEZKA itself)
+        // Auto-discover installed real launchers (excluding QIEZKA itself and fallback/settings activities)
         Intent queryIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
         List<ResolveInfo> candidates = pm.queryIntentActivities(queryIntent, PackageManager.MATCH_DEFAULT_ONLY);
 
         for (ResolveInfo info : candidates) {
-            if (info.activityInfo != null && info.activityInfo.packageName != null) {
+            if (InstalledLauncherDetector.isRealLauncher(info, context.getPackageName())) {
                 String pkg = info.activityInfo.packageName;
-                if (!pkg.equals(context.getPackageName())) {
-                    prefs.edit()
-                        .putString(KEY_SELECTED_LAUNCHER_PKG, pkg)
-                        .putString(KEY_SELECTED_LAUNCHER_CLS, info.activityInfo.name)
-                        .apply();
-                    return new ComponentName(pkg, info.activityInfo.name);
-                }
+                prefs.edit()
+                    .putString(KEY_SELECTED_LAUNCHER_PKG, pkg)
+                    .putString(KEY_SELECTED_LAUNCHER_CLS, info.activityInfo.name)
+                    .apply();
+                return new ComponentName(pkg, info.activityInfo.name);
             }
         }
         return null;
