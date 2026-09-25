@@ -20,6 +20,7 @@ import java.io.FileOutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -35,12 +36,12 @@ import java.util.concurrent.Executors;
  * LocalDnsVpnService:
  * Ultra-lightweight loopback Android VpnService that operates entirely on-device.
  *
- * It only routes traffic for its virtual DNS IP (10.111.222.1/32).
+ * It only routes traffic for its virtual DNS IP (10.111.222.1/32 and fd00:111:222::1/128).
  * All standard TCP/HTTPS connections (Chrome, apps, streaming) flow directly
  * over Wi-Fi / Cellular with ZERO latency overhead and 100% BYOK privacy.
  *
  * For DNS queries:
- * - Distracting/blacklisted domains (TikTok, Instagram, Reddit, etc.) are sinkholed to 0.0.0.0.
+ * - Distracting/blacklisted domains (TikTok, Instagram, Reddit, etc.) are sinkholed to NXDOMAIN.
  * - Allowed study/research domains are forwarded to upstream DNS (1.1.1.1 / 8.8.8.8) via protected sockets.
  */
 public class LocalDnsVpnService extends VpnService {
@@ -52,7 +53,8 @@ public class LocalDnsVpnService extends VpnService {
 
     private static final String VPN_INTERFACE_IP = "10.111.222.1";
     private static final String VPN_DNS_SERVER_IP = "10.111.222.2";
-
+    private static final String VPN_INTERFACE_IPV6 = "fd00:111:222::1";
+    private static final String VPN_DNS_SERVER_IPV6 = "fd00:111:222::2";
 
     public static volatile boolean isRunning = false;
 
@@ -160,6 +162,16 @@ public class LocalDnsVpnService extends VpnService {
             builder.addAddress(VPN_INTERFACE_IP, 24);
             builder.addDnsServer(VPN_DNS_SERVER_IP);
             builder.addRoute(VPN_DNS_SERVER_IP, 32); // Virtual DNS IP
+
+            // IPv6 Virtual Interface & DNS: Essential to prevent dual-stack IPv6 DNS leaks
+            try {
+                builder.addAddress(VPN_INTERFACE_IPV6, 128);
+                builder.addDnsServer(VPN_DNS_SERVER_IPV6);
+                builder.addRoute(VPN_DNS_SERVER_IPV6, 128);
+            } catch (Exception e) {
+                Log.w(TAG, "IPv6 address/DNS configuration warning: " + e.getMessage());
+            }
+
             // Route common public DNS servers so apps cannot bypass local DNS by querying public resolvers directly
             try {
                 builder.addRoute("8.8.8.8", 32);
@@ -168,6 +180,36 @@ public class LocalDnsVpnService extends VpnService {
                 builder.addRoute("1.0.0.1", 32);
                 builder.addRoute("9.9.9.9", 32);
                 builder.addRoute("208.67.222.222", 32);
+                builder.addRoute("208.67.220.220", 32);
+                builder.addRoute("94.140.14.14", 32);
+                builder.addRoute("94.140.15.15", 32);
+                // Common public IPv6 DNS
+                builder.addRoute("2001:4860:4860::8888", 128);
+                builder.addRoute("2001:4860:4860::8844", 128);
+                builder.addRoute("2606:4700:4700::1111", 128);
+                builder.addRoute("2606:4700:4700::1001", 128);
+                builder.addRoute("2620:fe::fe", 128);
+                builder.addRoute("2620:fe::9", 128);
+            } catch (Exception ignore) {}
+
+            // Intercept active network's underlying DNS servers (Wi-Fi router DNS e.g. 192.168.1.1 or carrier IPv6)
+            try {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    Network activeNet = cm.getActiveNetwork();
+                    if (activeNet != null) {
+                        LinkProperties lp = cm.getLinkProperties(activeNet);
+                        if (lp != null) {
+                            for (InetAddress dns : lp.getDnsServers()) {
+                                if (dns instanceof Inet4Address) {
+                                    builder.addRoute(dns.getHostAddress(), 32);
+                                } else if (dns instanceof Inet6Address) {
+                                    builder.addRoute(dns.getHostAddress(), 128);
+                                }
+                            }
+                        }
+                    }
+                }
             } catch (Exception ignore) {}
 
             try {
@@ -216,6 +258,15 @@ public class LocalDnsVpnService extends VpnService {
             } catch (Exception ignore) {}
             vpnInterface = null;
         }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE);
+            } else {
+                stopForeground(true);
+            }
+        } catch (Exception ignore) {}
+
         Log.i(TAG, "LocalDnsVpnService stopped");
     }
 
@@ -235,27 +286,42 @@ public class LocalDnsVpnService extends VpnService {
                     int length = in.read(buffer);
                     if (length <= 0) continue;
 
-                    // IPv4 Header verification
-                    if (length < 28) continue;
                     int version = (buffer[0] >> 4) & 0x0F;
-                    if (version != 4) continue; // IPv4 only
+                    boolean isIpv6 = (version == 6);
+                    int ipHeaderLength;
+                    int srcPort;
+                    int dstPort;
+                    int dnsOffset;
+                    int dnsLength;
 
-                    int protocol = buffer[9] & 0xFF;
-                    if (protocol != 17) continue; // UDP only (17)
-
-                    int ipHeaderLength = (buffer[0] & 0x0F) * 4;
-                    if (length < ipHeaderLength + 8) continue;
-
-                    int srcPort = ((buffer[ipHeaderLength] & 0xFF) << 8) | (buffer[ipHeaderLength + 1] & 0xFF);
-                    int dstPort = ((buffer[ipHeaderLength + 2] & 0xFF) << 8) | (buffer[ipHeaderLength + 3] & 0xFF);
+                    if (version == 4) {
+                        if (length < 28) continue;
+                        int protocol = buffer[9] & 0xFF;
+                        if (protocol != 17) continue; // UDP only (17)
+                        ipHeaderLength = (buffer[0] & 0x0F) * 4;
+                        if (length < ipHeaderLength + 8) continue;
+                        srcPort = ((buffer[ipHeaderLength] & 0xFF) << 8) | (buffer[ipHeaderLength + 1] & 0xFF);
+                        dstPort = ((buffer[ipHeaderLength + 2] & 0xFF) << 8) | (buffer[ipHeaderLength + 3] & 0xFF);
+                        dnsOffset = ipHeaderLength + 8;
+                        dnsLength = length - dnsOffset;
+                    } else if (version == 6) {
+                        if (length < 48) continue; // 40-byte IPv6 header + 8-byte UDP header
+                        int nextHeader = buffer[6] & 0xFF;
+                        if (nextHeader != 17) continue; // UDP only
+                        ipHeaderLength = 40;
+                        srcPort = ((buffer[40] & 0xFF) << 8) | (buffer[41] & 0xFF);
+                        dstPort = ((buffer[42] & 0xFF) << 8) | (buffer[43] & 0xFF);
+                        dnsOffset = 48;
+                        dnsLength = length - dnsOffset;
+                    } else {
+                        continue;
+                    }
 
                     if (dstPort != 53) continue; // Only handle DNS queries
-
-                    int dnsOffset = ipHeaderLength + 8;
-                    int dnsLength = length - dnsOffset;
                     if (dnsLength < 12) continue; // Minimum DNS header size
 
                     final byte[] packetData = Arrays.copyOf(buffer, length);
+                    final boolean finalIsIpv6 = isIpv6;
                     final int finalIpHeaderLen = ipHeaderLength;
                     final int finalSrcPort = srcPort;
                     final int finalDstPort = dstPort;
@@ -265,7 +331,7 @@ public class LocalDnsVpnService extends VpnService {
                     if (dnsExecutor != null && !dnsExecutor.isShutdown()) {
                         dnsExecutor.execute(() -> {
                             try {
-                                handleDnsPacket(packetData, finalIpHeaderLen, finalSrcPort, finalDstPort, finalDnsOffset, finalDnsLength, prefs, out);
+                                handleDnsPacket(packetData, finalIsIpv6, finalIpHeaderLen, finalSrcPort, finalDstPort, finalDnsOffset, finalDnsLength, prefs, out);
                             } catch (Exception e) {
                                 Log.d(TAG, "handleDnsPacket error: " + e.getMessage());
                             }
@@ -278,7 +344,7 @@ public class LocalDnsVpnService extends VpnService {
         }
     }
 
-    private void handleDnsPacket(byte[] packet, int ipHeaderLength, int srcPort, int dstPort, int dnsOffset, int dnsLength, SharedPreferences prefs, FileOutputStream out) {
+    private void handleDnsPacket(byte[] packet, boolean isIpv6, int ipHeaderLength, int srcPort, int dstPort, int dnsOffset, int dnsLength, SharedPreferences prefs, FileOutputStream out) {
         String queryDomain = parseDnsQuestionDomain(packet, dnsOffset, packet.length);
         if (queryDomain == null) queryDomain = "";
         String lowerDomain = queryDomain.toLowerCase(Locale.US);
@@ -299,9 +365,9 @@ public class LocalDnsVpnService extends VpnService {
             // Synthesize local sinkhole NXDOMAIN response
             byte[] responseDns = buildSinkholeResponse(packet, dnsOffset, dnsLength);
             if (responseDns != null) {
-                byte[] responseIpPacket = buildUdpIpPacket(
-                    packet, ipHeaderLength, dstPort, srcPort, responseDns
-                );
+                byte[] responseIpPacket = isIpv6
+                    ? buildUdpIp6Packet(packet, dstPort, srcPort, responseDns)
+                    : buildUdpIpPacket(packet, ipHeaderLength, dstPort, srcPort, responseDns);
                 synchronized (out) {
                     try {
                         out.write(responseIpPacket);
@@ -316,9 +382,9 @@ public class LocalDnsVpnService extends VpnService {
         byte[] dnsPayload = Arrays.copyOfRange(packet, dnsOffset, dnsOffset + dnsLength);
         byte[] upstreamResponse = forwardToUpstreamDns(dnsPayload, prefs);
         if (upstreamResponse != null) {
-            byte[] responseIpPacket = buildUdpIpPacket(
-                packet, ipHeaderLength, dstPort, srcPort, upstreamResponse
-            );
+            byte[] responseIpPacket = isIpv6
+                ? buildUdpIp6Packet(packet, dstPort, srcPort, upstreamResponse)
+                : buildUdpIpPacket(packet, ipHeaderLength, dstPort, srcPort, upstreamResponse);
             synchronized (out) {
                 try {
                     out.write(responseIpPacket);
@@ -485,11 +551,32 @@ public class LocalDnsVpnService extends VpnService {
 
     private List<InetAddress> getUpstreamDnsServers(SharedPreferences prefs) {
         List<InetAddress> servers = new ArrayList<>();
-        // High-performance upstream resolvers for non-distraction research
+        // High-performance upstream resolvers for non-distraction research (IPv4 & IPv6)
         addDnsServer(servers, "1.1.1.1");
         addDnsServer(servers, "1.0.0.1");
         addDnsServer(servers, "8.8.8.8");
         addDnsServer(servers, "8.8.4.4");
+        addDnsServer(servers, "2606:4700:4700::1111");
+        addDnsServer(servers, "2001:4860:4860::8888");
+
+        // Include underlying network DNS servers if available
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                Network activeNet = cm.getActiveNetwork();
+                if (activeNet != null) {
+                    LinkProperties lp = cm.getLinkProperties(activeNet);
+                    if (lp != null) {
+                        for (InetAddress dns : lp.getDnsServers()) {
+                            if (dns != null && !servers.contains(dns)) {
+                                servers.add(dns);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+
         return servers;
     }
 
@@ -583,6 +670,93 @@ public class LocalDnsVpnService extends VpnService {
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
         return (~sum) & 0xFFFF;
+    }
+
+    private byte[] buildUdpIp6Packet(byte[] origPacket, int newSrcPort, int newDstPort, byte[] udpPayload) {
+        int udpLen = 8 + udpPayload.length;
+        int totalLen = 40 + udpLen;
+        byte[] ipPacket = new byte[totalLen];
+
+        // IPv6 Header (40 bytes)
+        ipPacket[0] = 0x60; // Version 6, Traffic Class high = 0
+        ipPacket[1] = 0x00; // Traffic Class low = 0, Flow Label high = 0
+        ipPacket[2] = 0x00; // Flow label mid
+        ipPacket[3] = 0x00; // Flow label low
+        ipPacket[4] = (byte) ((udpLen >> 8) & 0xFF); // Payload length
+        ipPacket[5] = (byte) (udpLen & 0xFF);
+        ipPacket[6] = 17;   // Next Header: UDP (17)
+        ipPacket[7] = 64;   // Hop Limit
+
+        // Swap Source and Destination IPv6 addresses
+        // Original src IP was at bytes 8-23, dst IP was at bytes 24-39
+        byte[] newSrcIp = new byte[16];
+        byte[] newDstIp = new byte[16];
+        System.arraycopy(origPacket, 24, newSrcIp, 0, 16); // new src = orig dst
+        System.arraycopy(origPacket, 8, newDstIp, 0, 16);  // new dst = orig src
+
+        System.arraycopy(newSrcIp, 0, ipPacket, 8, 16);
+        System.arraycopy(newDstIp, 0, ipPacket, 24, 16);
+
+        // UDP Header
+        ipPacket[40] = (byte) ((newSrcPort >> 8) & 0xFF);
+        ipPacket[41] = (byte) (newSrcPort & 0xFF);
+        ipPacket[42] = (byte) ((newDstPort >> 8) & 0xFF);
+        ipPacket[43] = (byte) (newDstPort & 0xFF);
+        ipPacket[44] = (byte) ((udpLen >> 8) & 0xFF);
+        ipPacket[45] = (byte) (udpLen & 0xFF);
+
+        // Checksum (RFC 2460 / RFC 8200 mandatory for IPv6 UDP)
+        int checksum = computeUdpIpv6Checksum(newSrcIp, newDstIp, udpPayload, newSrcPort, newDstPort);
+        ipPacket[46] = (byte) ((checksum >> 8) & 0xFF);
+        ipPacket[47] = (byte) (checksum & 0xFF);
+
+        // Payload
+        System.arraycopy(udpPayload, 0, ipPacket, 48, udpPayload.length);
+        return ipPacket;
+    }
+
+    private int computeUdpIpv6Checksum(byte[] srcIp, byte[] dstIp, byte[] udpPayload, int srcPort, int dstPort) {
+        int udpLen = 8 + udpPayload.length;
+        long sum = 0;
+
+        // 1. Source IPv6 Address (16 bytes = 8 16-bit words)
+        for (int i = 0; i < 16; i += 2) {
+            sum += ((srcIp[i] & 0xFF) << 8) | (srcIp[i + 1] & 0xFF);
+        }
+
+        // 2. Destination IPv6 Address (16 bytes = 8 16-bit words)
+        for (int i = 0; i < 16; i += 2) {
+            sum += ((dstIp[i] & 0xFF) << 8) | (dstIp[i + 1] & 0xFF);
+        }
+
+        // 3. UDP Length (32 bits in IPv6 pseudo header)
+        sum += (udpLen >> 16) & 0xFFFF;
+        sum += udpLen & 0xFFFF;
+
+        // 4. Next Header (Upper layer protocol = 17)
+        sum += 17;
+
+        // 5. UDP Source & Destination Ports
+        sum += srcPort;
+        sum += dstPort;
+
+        // 6. UDP Length
+        sum += udpLen;
+
+        // 7. Payload
+        for (int i = 0; i < udpPayload.length; i += 2) {
+            int high = (udpPayload[i] & 0xFF) << 8;
+            int low = (i + 1 < udpPayload.length) ? (udpPayload[i + 1] & 0xFF) : 0;
+            sum += (high | low);
+        }
+
+        // Fold 32-bit sum to 16 bits
+        while ((sum >> 16) > 0) {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+
+        int checksum = (~((int) sum)) & 0xFFFF;
+        return (checksum == 0) ? 0xFFFF : checksum;
     }
 
     private void createNotificationChannel() {
