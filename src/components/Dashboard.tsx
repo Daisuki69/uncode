@@ -4,20 +4,6 @@ import { Clock, BookOpen, Trash2, Plus, Sparkles, Pencil, Upload, Loader2, Setti
 import { AppSettings, SavedResource, ScheduleData, AllowedApp } from '../types';
 import { getInstalledApps } from '../systemBridge';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
-import { 
-  DEFAULT_HARDCODED_APPS, 
-  isHardcodedApp, 
-  isHiddenSystemExemptApp,
-  isLauncherPackage,
-  isBrowserPackage,
-  isMusicPackage,
-  isCameraPackage,
-  isAuthenticatorPackage,
-  isAiPackage,
-  isNotesPackage,
-  isStudentPackage,
-  isMessagingPackage
-} from '../constants/allowedApps';
 
 interface DashboardProps {
   settings: AppSettings;
@@ -928,13 +914,13 @@ export function Dashboard({
 
         {(() => {
           const pool = (installedApps && installedApps.length > 0) ? installedApps : availableApps;
-          const detectedHardcoded = (pool || []).filter(app => !isAppBlacklisted(app.id) && isHardcodedApp(app) && !isHiddenSystemExemptApp(app.id, app.name));
-          const hardcodedApps: AllowedApp[] = detectedHardcoded.length > 0 ? detectedHardcoded : DEFAULT_HARDCODED_APPS;
+          const hardcodedApps: AllowedApp[] = (pool || []).filter(app => 
+            !isAppBlacklisted(app.id) && (app.isHardcoded || app.isLauncher)
+          );
 
           const customApps = (settings.allowedApps || []).filter(app => 
             !isAppBlacklisted(app.id) && 
-            !isHardcodedApp(app) &&
-            !isHiddenSystemExemptApp(app.id, app.name) &&
+            !(app.isHardcoded || app.isLauncher) &&
             !hardcodedApps.some(h => h.id === app.id)
           );
 
@@ -958,15 +944,7 @@ export function Dashboard({
 
           const renderAppItem = (app: AllowedApp, isHardcoded: boolean) => {
             let FallbackIcon = iconMap[app.iconName] || LayoutGrid;
-            if (isLauncherPackage(app.id, app.name) || app.isLauncher) FallbackIcon = Home;
-            else if (isBrowserPackage(app.id)) FallbackIcon = Globe;
-            else if (isMusicPackage(app.id, app.name)) FallbackIcon = Music;
-            else if (isCameraPackage(app.id, app.name)) FallbackIcon = Camera;
-            else if (isAuthenticatorPackage(app.id, app.name)) FallbackIcon = ShieldCheck;
-            else if (isAiPackage(app.id, app.name)) FallbackIcon = Sparkles;
-            else if (isNotesPackage(app.id, app.name)) FallbackIcon = FileText;
-            else if (isStudentPackage(app.id, app.name)) FallbackIcon = BookOpen;
-            else if (isMessagingPackage(app.id)) FallbackIcon = MessageSquare;
+            if (app.isLauncher) FallbackIcon = Home;
 
             return (
               <div 
@@ -1061,10 +1039,7 @@ export function Dashboard({
                   {availableApps
                     .filter((simApp) => 
                       !isAppBlacklisted(simApp.id) && 
-                      !isHardcodedApp(simApp) && 
-                      !simApp.isLauncher &&
-                      !isLauncherPackage(simApp.id, simApp.name) &&
-                      !isHiddenSystemExemptApp(simApp.id, simApp.name)
+                      !(simApp.isHardcoded || simApp.isLauncher)
                     )
                     .map((simApp) => {
                     const iconMap: Record<string, React.ElementType> = {
@@ -1080,14 +1055,7 @@ export function Dashboard({
                       'Sparkles': Sparkles
                     };
                     let FallbackIcon = iconMap[simApp.iconName] || LayoutGrid;
-                    if (isBrowserPackage(simApp.id)) FallbackIcon = Globe;
-                    else if (isMusicPackage(simApp.id, simApp.name)) FallbackIcon = Music;
-                    else if (isCameraPackage(simApp.id, simApp.name)) FallbackIcon = Camera;
-                    else if (isAuthenticatorPackage(simApp.id, simApp.name)) FallbackIcon = ShieldCheck;
-                    else if (isAiPackage(simApp.id, simApp.name)) FallbackIcon = Sparkles;
-                    else if (isNotesPackage(simApp.id, simApp.name)) FallbackIcon = FileText;
-                    else if (isStudentPackage(simApp.id, simApp.name)) FallbackIcon = BookOpen;
-                    else if (isMessagingPackage(simApp.id)) FallbackIcon = MessageSquare;
+                    if (simApp.isLauncher) FallbackIcon = Home;
 
                     const isSelected = (settings.allowedApps || []).some(a => a.id === simApp.id);
                     

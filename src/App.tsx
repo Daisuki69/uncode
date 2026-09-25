@@ -9,7 +9,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { startLockdown, endLockdown, getInstalledApps, checkPermissions, syncSchedules, getLockStatus, syncTimeOffset, requestNotificationPermission, exitToHome, showToast, addBackListener, setConsequenceActive, setOperatingMode, setWebProtectionMode, setAllowYoutube, setBlockWebGames, setDnsFilterProfile, setEnforceSafeSearch, setServicePolicy, getRegisteredServices } from './systemBridge';
 import { loadData, saveData } from './storage';
 import { isAppBlacklisted } from './constants/blacklistedApps';
-import { isMessagingPackage, isHiddenSystemExemptApp, isLauncherPackage } from './constants/allowedApps';
 
 // Code-split secondary views to keep initial bundle ultra-lightweight and fast to load
 const CreateSchedule = React.lazy(() => import('./components/CreateSchedule').then(m => ({ default: m.CreateSchedule })));
@@ -281,23 +280,21 @@ export default function App() {
       if (loadedSettings.allowedApps) {
         loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => 
           !isAppBlacklisted(a.id) && 
-          !isHiddenSystemExemptApp(a.id, a.name) &&
-          !isLauncherPackage(a.id, a.name) &&
-          !a.isLauncher
+          !a.isLauncher &&
+          !a.isHardcoded
         );
       }
 
       // Check cached installed apps for initial messaging app auto-population if needed
       if (!loadedSettings.allowedAppsInitialized && installedApps.length > 0) {
-        const messagingApps = installedApps.filter(a => 
-          isMessagingPackage(a.id, a.name) && 
+        const autoApps = installedApps.filter(a => 
+          (a.isAutoAllowed || a.isMessaging) && 
           !isAppBlacklisted(a.id) && 
-          !isHiddenSystemExemptApp(a.id, a.name) &&
-          !isLauncherPackage(a.id, a.name) &&
-          !a.isLauncher
+          !a.isLauncher &&
+          !a.isHardcoded
         );
-        if (messagingApps.length > 0) {
-          loadedSettings.allowedApps = messagingApps;
+        if (autoApps.length > 0) {
+          loadedSettings.allowedApps = autoApps;
         }
         loadedSettings.allowedAppsInitialized = true;
       }
@@ -375,25 +372,22 @@ export default function App() {
           setSettings(prev => {
             const existingIds = new Set((prev.allowedApps || []).map(a => a.id));
             const autoAllowedCustom = installed.filter(a => 
-              a.isAutoAllowed && 
+              (a.isAutoAllowed || a.isMessaging) && 
               !a.isHardcoded && 
               !a.isLauncher &&
-              !isLauncherPackage(a.id, a.name) &&
               !isAppBlacklisted(a.id) && 
-              !isHiddenSystemExemptApp(a.id, a.name) && 
               !existingIds.has(a.id)
             );
 
             if (!prev.allowedAppsInitialized) {
-              const messagingApps = installed.filter(a => 
-                isMessagingPackage(a.id, a.name) && 
-                !isAppBlacklisted(a.id) && 
-                !isHiddenSystemExemptApp(a.id, a.name) &&
-                !isLauncherPackage(a.id, a.name) &&
-                !a.isLauncher
+              const initialCustom = installed.filter(a => 
+                (a.isAutoAllowed || a.isMessaging) && 
+                !a.isHardcoded && 
+                !a.isLauncher &&
+                !isAppBlacklisted(a.id)
               );
               const combined = [...(prev.allowedApps || [])];
-              for (const a of [...messagingApps, ...autoAllowedCustom]) {
+              for (const a of initialCustom) {
                 if (!combined.some(c => c.id === a.id)) combined.push(a);
               }
               return {
@@ -473,7 +467,7 @@ export default function App() {
   // Synchronize schedules & allowed apps with native AlarmManager and SharedPreferences
   useEffect(() => {
     if (!isLoaded) return;
-    const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+    const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
     syncSchedules(settings.schedules || [], safeAllowedApps.map(a => a.id));
   }, [settings.schedules, settings.allowedApps, isLoaded]);
 
@@ -540,12 +534,12 @@ export default function App() {
           setActiveScheduleId(schedule.id);
           if (appState !== 'locked' && appState !== 'evaluating' && appState !== 'result') {
             setLockEndTime(lockEnd);
-            const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+            const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
             startLockdown(safeAllowedApps.map(a => a.id), schedule.durationMinutes, lockEnd, schedule.id);
             navigate('locked');
           } else if (appState === 'locked' && lockEndTime !== lockEnd) {
             setLockEndTime(lockEnd);
-            const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+            const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
             startLockdown(safeAllowedApps.map(a => a.id), schedule.durationMinutes, lockEnd, schedule.id);
           }
           foundActive = true;
@@ -713,7 +707,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
         schedules: updatedSchedules
       }));
 
-      const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+      const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
       syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
       setConsequenceActive(true, targetScheduleId || undefined, safeAllowedApps.map(a => a.id));
 
@@ -735,14 +729,13 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
   }, [activeScheduleId, settings.schedules, settings.allowedApps, settings.operatingMode, navigate]);
 
   const handleCompleteOnboarding = async (config?: Partial<AppSettings>) => {
-    let initialAllowed = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+    let initialAllowed = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
     if (!settings.allowedAppsInitialized) {
       try {
         const installed = installedApps.length > 0 ? installedApps : await getInstalledApps();
-        const messagingApps = (installed || []).filter(a => isMessagingPackage(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
-        const autoAllowedApps = (installed || []).filter(a => a.isAutoAllowed && !a.isHardcoded && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        const autoAllowedApps = (installed || []).filter(a => (a.isAutoAllowed || a.isMessaging) && !a.isHardcoded && !a.isLauncher && !isAppBlacklisted(a.id));
         const combined = [...initialAllowed];
-        for (const a of [...messagingApps, ...autoAllowedApps]) {
+        for (const a of autoAllowedApps) {
           if (!combined.some(c => c.id === a.id)) combined.push(a);
         }
         if (combined.length > 0) {
@@ -917,7 +910,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
           consequenceScheduleId: undefined,
         }));
 
-        const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
         syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
 
         // Clear consequence in native
@@ -934,7 +927,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
         navigate('result');
       } else {
         // Failed evaluation: Maintain consequence mode!
-        const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+        const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
         setSettings(prev => ({
           ...prev,
           consequenceActive: true,
@@ -1164,7 +1157,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
                     setSettings(prev => {
                       const inactive = (prev.schedules || []).filter(s => !s.isActive);
                       const all = [...updatedSchedules, ...inactive];
-                      const safeAllowedApps = (prev.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name));
+                      const safeAllowedApps = (prev.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
                       syncSchedules(all, safeAllowedApps.map(a => a.id));
                       return {
                         ...prev,

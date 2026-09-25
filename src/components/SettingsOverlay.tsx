@@ -7,7 +7,6 @@ import { loadData, saveData } from '../storage';
 import { exportBackup, importBackup, sanitizeImportApps, setServicePolicy, getActiveServices, getRegisteredServices } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
-import { isHardcodedApp, isHiddenSystemExemptApp, isLauncherPackage } from '../constants/allowedApps';
 
 interface SettingsOverlayProps {
   settings: AppSettings;
@@ -206,7 +205,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
       const currentSettings = await loadData<AppSettings>('studom_settings', settings);
       const allAllowed = currentSettings.allowedApps || settings.allowedApps || [];
       const customApps = allAllowed.filter(
-        (app: AllowedApp) => !isHardcodedApp(app) && !isAppBlacklisted(app.id) && !isHiddenSystemExemptApp(app.id, app.name)
+        (app: AllowedApp) => !app.isHardcoded && !app.isLauncher && !isAppBlacklisted(app.id)
       );
 
       const allData = {
@@ -271,10 +270,13 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
 
           // Run candidate apps through native classifier (S1 -> S2 -> S3)
           const sanitizeRes = await sanitizeImportApps(candidatePackageIds, activeServices);
+          if (sanitizeRes.error) {
+            throw new Error(`Security verification failed: Native classifier is unavailable or encountered an error (${sanitizeRes.error}). Import aborted to prevent security bypass.`);
+          }
           const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
 
           data.settings.allowedApps = rawAllowed.filter(
-            (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name) && !isLauncherPackage(a.id, a.name) && !a.isLauncher
+            (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !a.isLauncher && !a.isHardcoded
           );
           data.settings.allowedAppsInitialized = true;
 
@@ -343,10 +345,13 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
 
         const activeServices: string[] = currentSettings.activeServices || (currentSettings.allowYoutube ? ['youtube'] : []);
         const sanitizeRes = await sanitizeImportApps(candidatePackageIds, activeServices);
+        if (sanitizeRes.error) {
+          throw new Error(`Security verification failed: Native classifier is unavailable or encountered an error (${sanitizeRes.error}). Import aborted to prevent security bypass.`);
+        }
         const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
 
         currentSettings.allowedApps = rawAllowed.filter(
-          (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !isHiddenSystemExemptApp(a.id, a.name) && !isLauncherPackage(a.id, a.name) && !a.isLauncher
+          (a: AllowedApp) => a && a.id && cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !a.isLauncher && !a.isHardcoded
         );
         currentSettings.allowedAppsInitialized = true;
 

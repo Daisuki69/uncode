@@ -35,6 +35,7 @@ interface LockPluginInterface {
     cleanPackageIds: string[];
     purgedPackageIds: string[];
     purgedCount: number;
+    error?: string;
   }>;
   addListener(eventName: string, listenerFunc: Function): Promise<any>;
   syncSchedules(options: { schedules: any[]; allowedAppIds: string[] }): Promise<void>;
@@ -130,8 +131,8 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
         { id: 'com.spotify.music', name: 'Spotify', iconName: 'Music', isHardcoded: true, isMusic: true },
         { id: 'com.google.android.apps.youtube.music', name: 'YT Music', iconName: 'Music', isHardcoded: true, isMusic: true },
         { id: 'com.sec.android.app.camera', name: 'Camera', iconName: 'Camera', isHardcoded: true, isCamera: true },
-        { id: 'com.whatsapp', name: 'WhatsApp', iconName: 'MessageSquare' },
-        { id: 'org.telegram.messenger', name: 'Telegram', iconName: 'MessageSquare' },
+        { id: 'com.whatsapp', name: 'WhatsApp', iconName: 'MessageSquare', isAutoAllowed: true, isMessaging: true },
+        { id: 'org.telegram.messenger', name: 'Telegram', iconName: 'MessageSquare', isAutoAllowed: true, isMessaging: true },
         { id: 'com.apple.calculator', name: 'Calculator', iconName: 'Calculator' },
         { id: 'com.microsoft.word', name: 'Word', iconName: 'FileText' },
         { id: 'notion.id', name: 'Notion', iconName: 'BookOpen' },
@@ -168,12 +169,32 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
       const purgedPackageIds: string[] = [];
       for (const pkg of candidatePackageIds) {
         const lower = pkg.toLowerCase();
-        if (lower.includes('setting') || lower.includes('security') || lower.includes('joyose') || lower.includes('cloner')) {
+        if (
+          lower.includes('setting') || 
+          lower.includes('security') || 
+          lower.includes('joyose') || 
+          lower.includes('cloner') ||
+          lower.includes('launcher') ||
+          lower.includes('dialer') ||
+          lower.includes('deskclock') ||
+          lower.includes('contacts') ||
+          lower.includes('calendar')
+        ) {
           purgedPackageIds.push(pkg);
-        } else if (lower.includes('youtube')) {
-          if (activeSet.has('youtube')) cleanPackageIds.push(pkg);
+        } else if (lower.includes('youtube') || lower.includes('gemini') || lower.includes('chatgpt') || lower.includes('claude')) {
+          if (activeSet.has('youtube') && lower.includes('youtube')) cleanPackageIds.push(pkg);
           else purgedPackageIds.push(pkg);
-        } else if (lower.includes('tiktok') || lower.includes('genshin') || lower.includes('game') || lower.includes('instagram')) {
+        } else if (
+          lower.includes('tiktok') || 
+          lower.includes('genshin') || 
+          lower.includes('game') || 
+          lower.includes('instagram') ||
+          lower.includes('costheta') ||
+          lower.includes('coxeta') ||
+          lower.includes('phigros') ||
+          lower.includes('steam') ||
+          lower.includes('roblox')
+        ) {
           purgedPackageIds.push(pkg);
         } else {
           cleanPackageIds.push(pkg);
@@ -349,12 +370,18 @@ export const importBackup = async (): Promise<{
 export const sanitizeImportApps = async (
   candidatePackageIds: string[],
   activeServices?: string[]
-): Promise<{ cleanPackageIds: string[]; purgedPackageIds: string[]; purgedCount: number }> => {
+): Promise<{ cleanPackageIds: string[]; purgedPackageIds: string[]; purgedCount: number; error?: string }> => {
   try {
     return await LockPlugin.sanitizeImportApps({ candidatePackageIds, activeServices });
-  } catch (e) {
-    console.error('sanitizeImportApps failed', e);
-    return { cleanPackageIds: candidatePackageIds, purgedPackageIds: [], purgedCount: 0 };
+  } catch (e: any) {
+    console.error('[Security] sanitizeImportApps failed or native classifier unavailable; failing closed', e);
+    // FAIL-CLOSED: Under zero circumstances should unverified candidate packages be treated as clean.
+    return {
+      cleanPackageIds: [],
+      purgedPackageIds: candidatePackageIds,
+      purgedCount: candidatePackageIds.length,
+      error: e?.message || String(e),
+    };
   }
 };
 
