@@ -360,6 +360,7 @@ public class LockAccessibilityService extends AccessibilityService {
     public static boolean isLauncherApp(Context context, String pkg) {
         if (pkg == null) return false;
         if (context != null && pkg.equals(context.getPackageName())) return false;
+        if (AppClassifier.isStage1Vetoed(pkg, null)) return false;
         if (KNOWN_LAUNCHERS.contains(pkg) || dynamicLauncherPackages.contains(pkg)) return true;
         if (context != null) {
             try {
@@ -370,8 +371,12 @@ public class LockAccessibilityService extends AccessibilityService {
                     homeIntent.setPackage(pkg);
                     List<ResolveInfo> list = pm.queryIntentActivities(homeIntent, 0);
                     if (list != null && !list.isEmpty()) {
-                        dynamicLauncherPackages.add(pkg);
-                        return true;
+                        for (ResolveInfo info : list) {
+                            if (InstalledLauncherDetector.isRealLauncher(info, context.getPackageName())) {
+                                dynamicLauncherPackages.add(pkg);
+                                return true;
+                            }
+                        }
                     }
                 }
             } catch (Exception ignore) {}
@@ -583,11 +588,8 @@ public class LockAccessibilityService extends AccessibilityService {
                 List<ResolveInfo> homeApps = pm.queryIntentActivities(homeIntent, 0);
                 if (homeApps != null) {
                     for (ResolveInfo info : homeApps) {
-                        if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                            String pkg = info.activityInfo.packageName;
-                            if (!pkg.equals(getPackageName())) {
-                                dynamicLauncherPackages.add(pkg);
-                            }
+                        if (InstalledLauncherDetector.isRealLauncher(info, getPackageName())) {
+                            dynamicLauncherPackages.add(info.activityInfo.packageName);
                         }
                     }
                 }

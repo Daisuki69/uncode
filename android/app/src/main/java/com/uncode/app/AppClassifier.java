@@ -745,7 +745,14 @@ public final class AppClassifier {
             lowerPkg.equals("com.huawei.systemmanager") ||
             lowerPkg.equals("com.google.android.apps.wellbeing") ||
             lowerPkg.contains(".settings") || lowerPkg.contains("securitycore") ||
-            lowerPkg.contains("permissioncontroller")) {
+            lowerPkg.contains("permissioncontroller") ||
+            lowerPkg.contains("setupwizard") ||
+            lowerPkg.equals("com.android.provision") ||
+            lowerPkg.equals("android") ||
+            lowerPkg.equals("com.android.systemui") ||
+            lowerPkg.contains("smartswitch") ||
+            lowerPkg.contains("easymover") ||
+            lowerPkg.contains("switchphone")) {
             return true;
         }
         if (appLabel != null && !appLabel.trim().isEmpty()) {
@@ -753,7 +760,8 @@ public final class AppClassifier {
             if (lowerLabel.equals("settings") || lowerLabel.contains("phone manager") ||
                 lowerLabel.contains("device care") || lowerLabel.contains("security center") ||
                 lowerLabel.contains("app manager") || lowerLabel.contains("cleaner") ||
-                lowerLabel.contains("battery saver") || lowerLabel.contains("system manager")) {
+                lowerLabel.contains("battery saver") || lowerLabel.contains("system manager") ||
+                lowerLabel.contains("setup wizard")) {
                 return true;
             }
         }
@@ -782,6 +790,20 @@ public final class AppClassifier {
             }
         }
         return false;
+    }
+
+    /**
+     * Unified Stage 1 Master Veto Gate.
+     * Evaluates anti-tamper protections (Settings, Device Managers, Setup Wizards),
+     * OEM bloatware / game boosters, and Known Distracting apps.
+     * Any package returning true here is strictly vetoed across the entire OS (cannot run,
+     * cannot be exempted, and cannot be a Home launcher).
+     */
+    public static boolean isStage1Vetoed(String pkg, String appLabel) {
+        if (pkg == null || pkg.trim().isEmpty()) return true;
+        return isSettingsOrDeviceManager(pkg, appLabel) ||
+               isStage1Bloat(pkg, appLabel) ||
+               KnownDistracting.isKnownDistracting(pkg, appLabel);
     }
 
     /**
