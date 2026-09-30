@@ -27,6 +27,11 @@ object KnownSafe {
         "com.google.android.apps.docs.editors.slides",
         "com.google.android.keep",
         "com.google.android.apps.translate",
+        "com.google.android.apps.tachyon",          // Google Meet
+        "com.google.android.apps.meetings",         // Google Meet (legacy)
+        "us.zoom.videomeetings",                    // Zoom Workplace
+        "com.microsoft.teams",                      // Microsoft Teams
+        "com.cisco.webex.meetings",                 // Cisco Webex Meetings
 
         // Flashcards, Quizzes & Spaced Repetition
         "com.ichi2.anki",
@@ -79,6 +84,134 @@ object KnownSafe {
     )
 
     /**
+     * Comprehensive catalog of camera applications, including verified Google Camera (GCam)
+     * ports and auxiliary lens sensor packages from celsoazevedo.com and common OEM cameras.
+     * Note: com.ss.android.ugc.aweme is strictly excluded as it represents TikTok/Douyin.
+     */
+    @JvmField
+    val KNOWN_CAMERA_PACKAGES: Set<String> = hashSetOf(
+        // Google Camera (Pixel) & Official Builds
+        "com.google.android.GoogleCamera",
+        "com.google.android.GoogleCameraEng",
+
+        // Hasli LMC GCam Ports & Variants
+        "com.google.android.GoogleCamera.LMC",
+        "com.google.android.GoogleCamera.LMC84",
+        "com.google.android.GoogleCamera.LMC8",
+        "com.google.android.GoogleCameraLMCR17",
+        "com.google.android.GoogleCameraLMCR18",
+
+        // BigKaka AGC GCam Ports & Variants
+        "com.agc.cam",
+        "com.agc.gcam84",
+        "com.agc.gcam88",
+        "com.agc.gcam92",
+        "com.samsung.agc.gcam84",
+
+        // Shamim SGCam Ports
+        "com.shamim.cam",
+
+        // BSG MGC Ports
+        "com.android.mgc",
+
+        // Arnova8G2 Ports
+        "arn.android.gcam",
+        "arn.android.gcam.beta",
+
+        // Greatness, Wichaya, Nikita, Urnyx, Potse, MWP, San1ty
+        "com.google.android.GoogleCamera.Cameight",
+        "com.GoogleCamera.Wichaya",
+        "com.google.android.GoogleCamera.Nikita",
+        "com.google.android.GoogleCamera.Urnyx",
+        "com.google.android.GoogleCamera.potse",
+        "com.google.android.GoogleCamera.mwp82",
+        "com.google.android.GoogleCameraGood",
+        "com.google.android.GoogleCamera.san1ty",
+
+        // Snapdragon / Qualcomm Camera Pipelines & Aux Sensor Packages
+        "org.codeaurora.snapcam",
+        "org.codeaurora.qcamera3",
+        "com.qualcomm.saltproject2",
+        "com.asus.snapcam",
+
+        // Samsung Aux Sensor Whitelisted Packages
+        "com.samsung.android.ruler",
+        "com.samsung.android.scan3d",
+        "com.samsung.android.biometrics.service",
+
+        // Open Source Camera
+        "net.sourceforge.opencamera",
+
+        // OEM Stock & Common Camera Packages
+        "com.sec.android.app.camera",
+        "com.android.camera",
+        "com.android.camera2",
+        "com.miui.camera",
+        "com.huawei.camera",
+        "com.oppo.camera",
+        "com.coloros.camera",
+        "com.oplus.camera",
+        "com.oneplus.camera",
+        "com.vivo.camera",
+        "com.motorola.camera",
+        "com.motorola.camera2",
+        "com.motorola.camera3",
+        "com.sonyericsson.android.camera",
+        "com.sonymobile.camera",
+        "com.transsion.camera",
+        "com.meitu.meiyancamera"
+    )
+
+    /**
+     * Evaluates whether a package or app label represents a genuine camera application.
+     * Enforces anti-bypass: known distracting packages (such as TikTok / com.ss.android.ugc.aweme)
+     * can NEVER claim camera status.
+     */
+    @JvmStatic
+    @Suppress("UNUSED_PARAMETER")
+    fun isCameraApp(context: Context?, pkg: String?, appLabel: String?): Boolean {
+        if (pkg.isNullOrBlank()) return false
+        val lowerPkg = pkg.lowercase(Locale.ROOT).trim()
+
+        // Strict Anti-Bypass Guard: Never allow known distracting apps or TikTok
+        if (KnownDistracting.isKnownDistracting(lowerPkg, appLabel) ||
+            BlacklistConstants.isBlacklisted(lowerPkg, appLabel)) {
+            return false
+        }
+
+        // 1. Exact catalog match
+        if (KNOWN_CAMERA_PACKAGES.contains(lowerPkg) || KNOWN_CAMERA_PACKAGES.contains(pkg)) {
+            return true
+        }
+
+        // 2. Modded Google Camera prefix matching
+        if (lowerPkg.startsWith("com.google.android.googlecamera") ||
+            lowerPkg.startsWith("com.agc.") ||
+            lowerPkg.startsWith("arn.android.gcam") ||
+            lowerPkg.startsWith("com.shamim.")) {
+            return true
+        }
+
+        // 3. Package substring heuristics
+        if (lowerPkg.contains("camera") || lowerPkg.contains("snapcam") || lowerPkg.contains(".gcam")) {
+            return true
+        }
+
+        // 4. App Label heuristics
+        if (!appLabel.isNullOrBlank()) {
+            val lowerLabel = appLabel.lowercase(Locale.ROOT).trim()
+            if (lowerLabel == "camera" || lowerLabel == "kamera" ||
+                lowerLabel.contains("gcam") || lowerLabel.contains("lmc") ||
+                lowerLabel.contains("sgcam") || lowerLabel.contains("agc") ||
+                lowerLabel.contains("snapcam") || lowerLabel.contains("opencamera")) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
      * Identifies displayable hardcoded tools (Launchers, Web Browsers, Safe Music, Camera, Authenticators, Notes, Classroom).
      * These apps render under "Always Allowed by System" on the Dashboard with no "X" delete button.
      */
@@ -89,17 +222,14 @@ object KnownSafe {
         val lowerPkg = pkg.lowercase(Locale.ROOT)
         val lowerLabel = appLabel?.lowercase(Locale.ROOT) ?: ""
 
-        // 1. Home Launchers
-        if (context != null && LockAccessibilityService.isLauncherApp(context, pkg)) return true
-
-        // 2. Web Browsers (governed by WebClassifier, exempt from package eviction)
+        // 1. Web Browsers (governed by WebClassifier, exempt from package eviction)
         if (lowerPkg.contains("browser") || lowerPkg.contains("chrome") || lowerPkg.contains("firefox") || lowerPkg.contains("opera") || lowerPkg.contains("brave")) return true
 
         // 3. Safe Music & Audio Players
         if (lowerPkg.contains("spotify") || lowerPkg.contains("tidal") || lowerPkg.contains("deezer") || lowerPkg.contains("soundcloud") || lowerPkg.contains("music")) return true
 
         // 4. Camera Apps
-        if (lowerPkg.contains("camera") || lowerLabel == "camera" || lowerLabel == "kamera") return true
+        if (isCameraApp(context, pkg, appLabel)) return true
 
         // 5. 2FA Authenticators
         if (lowerPkg.contains("authenticator") || lowerPkg.contains("twofas") || lowerPkg.contains("duomobile") || lowerPkg.contains("yubioath") || lowerPkg.contains("authy")) return true
@@ -133,21 +263,25 @@ object KnownSafe {
         // 1. QIEZKA itself is always KnownSafe
         if (context != null && pkg == context.packageName) return true
 
+        // 1b. SIREN HomeProxy companion is always KnownSafe (0ms Home delegation proxy)
+        if (pkg == "com.siren.homeproxy") return true
+
+        // 1c. Home Launchers (system default and genuine third-party launchers) are always KnownSafe
+        if (context != null && LockAccessibilityService.isLauncherApp(context, pkg)) return true
+
         // 2. Active Input Method Editors (Keyboards: Gboard, SwiftKey)
         if (context != null && LockAccessibilityService.isKeyboardPackage(context, pkg)) return true
 
-        // 3. Home Launchers & SIREN Home Proxy (all launchers allowed except what Master Veto restricts)
-        if (pkg == "com.siren.homeproxy") return true
-        if (LockAccessibilityService.isLauncherApp(context, pkg)) return true
-        if (LockAccessibilityService.isLauncherApp(null, pkg)) return true
+        // 2b. Verified Camera Tools & GCam Ports (Essential for Homework Photography)
+        if (isCameraApp(context, pkg, null)) return true
 
-        // 4. Baseline Verified Study Packages
+        // 3. Baseline Verified Study Packages
         if (BASELINE_SAFE_PACKAGES.contains(pkg)) return true
 
-        // 5. Active Unified Services (YouTube / AI toggled on by user)
+        // 4. Active Unified Services (YouTube / AI toggled on by user)
         if (UnifiedPolicyRegistry.isPackageAllowedByService(pkg, activeServices)) return true
 
-        // 6. User-Configured Allowed Apps Whitelist
+        // 5. User-Configured Allowed Apps Whitelist
         // Strict Invariant: If in userWhitelist, it MUST NOT be a known distraction (unless authorized by Unified Policy above)
         if (userWhitelist != null && userWhitelist.contains(pkg)) {
             if (!KnownDistracting.isKnownDistracting(pkg)) {

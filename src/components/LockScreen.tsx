@@ -173,7 +173,10 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
     }
 
     let timer: any = null;
-    const update = () => {
+    let isCancelled = false;
+
+    const tick = () => {
+      if (isCancelled) return;
       const now = getCurrentTime();
       const rawRemaining = Math.max(0, Math.floor((effectiveEndTime - now) / 1000));
       const remaining = Math.min(maxAllowedSec, rawRemaining);
@@ -182,15 +185,24 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
       if (remaining === 0) {
         if (hasTimedOutRef.current) return;
         hasTimedOutRef.current = true;
-        if (timer) clearInterval(timer);
         // Delegate to onTimeout to log failed homework and transition to Consequence Mode
         onTimeout();
+        return;
       }
+
+      // Synchronize directly with the system whole-second rollover to match FloatingOverlayService
+      let delay = 1000 - (now % 1000);
+      if (delay < 50) {
+        delay += 1000;
+      }
+      timer = setTimeout(tick, delay);
     };
-    update();
-    timer = setInterval(update, 1000);
+
+    tick();
+
     return () => {
-      if (timer) clearInterval(timer);
+      isCancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [lockEndTime, onTimeout, getCurrentTime, schedule.id, schedule.durationMinutes]);
 
@@ -517,12 +529,12 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
 
           {(() => {
             const hardcodedApps: AllowedApp[] = (installedApps || []).filter(app => 
-              !isAppBlacklisted(app.id) && (app.isHardcoded || app.isLauncher)
+              !isAppBlacklisted(app.id) && app.isHardcoded && !app.isLauncher
             );
 
             const customApps = (settings.allowedApps || []).filter(app => 
               !isAppBlacklisted(app.id) && 
-              !(app.isHardcoded || app.isLauncher) &&
+              !app.isHardcoded && !app.isLauncher &&
               !hardcodedApps.some(h => h.id === app.id)
             );
 

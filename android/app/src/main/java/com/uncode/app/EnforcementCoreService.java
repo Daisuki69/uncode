@@ -38,6 +38,21 @@ public class EnforcementCoreService extends Service {
             Log.w(TAG, "LockAccessibilityService is not connected. Awaiting user/system bind.");
         }
 
+        // Verify FloatingOverlayService state if lockdown is active
+        try {
+            android.content.SharedPreferences prefs = getSharedPreferences("uncode_lock", Context.MODE_PRIVATE);
+            boolean isLockdown = prefs != null && prefs.getBoolean("lockdown_active", false);
+            long lockEndTime = prefs != null ? prefs.getLong("lock_end_time", 0L) : 0L;
+            long timeOffset = prefs != null ? prefs.getLong("time_offset", 0L) : 0L;
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+
+            if (isLockdown && lockEndTime > effectiveNow) {
+                FloatingOverlayService.startService(this, lockEndTime, "Study Session");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking overlay service status: " + e.getMessage());
+        }
+
         return START_STICKY;
     }
 

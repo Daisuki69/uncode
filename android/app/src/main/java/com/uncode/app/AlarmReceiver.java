@@ -117,18 +117,9 @@ public class AlarmReceiver extends BroadcastReceiver {
 
         // Bring up MainActivity if overlay permission is permitted
         try {
-            if (Settings.canDrawOverlays(context)) {
-                Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-                if (launch == null) {
-                    launch = new Intent().setClassName(context.getPackageName(), "com.uncode.app.MainActivity");
-                }
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                launch.putExtra("route", "locked");
-                launch.putExtra("schedule_id", scheduleId);
-                context.startActivity(launch);
-            }
+            EnforcementCoreService.ensureRunning(context);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to launch MainActivity on schedule start: " + e.getMessage());
+            Log.e(TAG, "Failed to ensure EnforcementCoreService on schedule start: " + e.getMessage());
         }
 
         // Start Floating Assistive Timer Ball Overlay
@@ -175,11 +166,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                         true
                 );
 
-                Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-                if (launch != null) {
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                    context.startActivity(launch);
-                }
+                EnforcementCoreService.ensureRunning(context);
             }
 
             // Start Floating Assistive Timer Ball Overlay

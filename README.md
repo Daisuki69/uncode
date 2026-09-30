@@ -2717,6 +2717,245 @@ for a genuine distracting app successfully disguises, will be tested and hardene
     - Web distribution assets copied to `android/app/src/main/assets/public`.
     - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
 
+#### Patch 26.2: SIREN Active Push Architecture & Sub-Second Wall-Clock Timer Synchronization
+- **Why It Was Mandated**:
+  - **Eliminating 1-Press Delegation Lag**: In the passive polling model, when a user selected a different launcher in QIEZKA settings, SIREN's in-memory cache (`sCachedLauncher`) was not immediately updated until the user clicked Home and an asynchronous background query to `SirenContentProvider` finished. This caused an undesirable 1-press delay where the first Home press still delegated to the old launcher.
+  - **Timer Phase Drift**: The floating timer overlay (`FloatingOverlayService.java`) and the in-app lock screen countdown (`LockScreen.tsx`) were ticking on unaligned 1000ms periodic intervals. Depending on when the session started or when the screen was brought to foreground, the two timers could be offset by up to 800ms, causing visual discordance.
+  - **Option B Architecture Preservation**: Maintained a unified single-activity architecture (`MainActivity`), avoiding duplicate UI screens or maintenance overhead while running enforcement engines headlessly (`EnforcementCoreService`, `FloatingOverlayService`, `BootReceiver`, `AlarmReceiver`).
+- **Key Enhancements Implemented**:
+  - **Active Push Broadcast (`ACTION_UPDATE_LAUNCHER`)**:
+    - Defined `ACTION_UPDATE_LAUNCHER = "com.siren.homeproxy.ACTION_UPDATE_LAUNCHER"` and `SIREN_PACKAGE = "com.siren.homeproxy"` in `LauncherStateManager.java`.
+    - Implemented `LauncherStateManager.notifySirenLauncherChanged()`: Whenever a launcher is saved or cleared in QIEZKA settings (or during auto-discovery), QIEZKA dispatches an explicit broadcast targeting `com.siren.homeproxy` carrying the target package and class name.
+    - Added `clearSelectedLauncher(PluginCall)` to `LockPlugin.java` to allow resetting launcher overrides back to system auto-discovery.
+    - Safeguarded against self-delegation loops: `LauncherStateManager.saveSelectedLauncher()` explicitly rejects saving `com.siren.homeproxy` as its own target launcher.
+  - **Companion Receiver in SIREN HomeProxy**:
+    - Verified `SirenLauncherUpdateReceiver` in `com.siren.homeproxy`: Catches `ACTION_UPDATE_LAUNCHER`, resolves the ComponentName, updates in-memory `sCachedLauncher`, and persists to `siren_home_proxy` SharedPreferences immediately. Next Home click delegates instantly (0ms latency, zero 1-press delay).
+  - **Sub-Second Wall-Clock Timer Alignment**:
+    - In `FloatingOverlayService.java`, the timer ticker calculates delay aligned to whole second boundaries: `long delay = 1000L - (now % 1000L); handler.postDelayed(this, delay);`.
+    - In `LockScreen.tsx`, the countdown loop similarly aligns its tick timeout: `const delay = 1000 - (now % 1000); setTimeout(update, delay);`.
+    - Both timers now change digits simultaneously at the exact millisecond boundary with 0ms visual drift.
+- **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+  - *Affected Files*:
+    - [`LauncherStateManager.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LauncherStateManager.java)
+    - [`LockPlugin.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java)
+    - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - [`FloatingOverlayService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.java)
+    - [`LockScreen.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/LockScreen.tsx)
+    - [`SirenLauncherUpdateReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenLauncherUpdateReceiver.kt) *(SIREN companion)*
+    - [`SirenConfig.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenConfig.kt) *(SIREN companion)*
+  - *Known Dependents & Callers*:
+    - `SettingsOverlay.tsx`: Interactive launcher selector in Settings triggers `setSelectedLauncher`, immediately pushing broadcast to SIREN.
+    - `SirenHomeActivity`: Reads `sCachedLauncher` directly in memory on every Home intent.
+    - `FloatingOverlayService` & `LockScreen`: Render remaining countdown synchronously on display.
+  - *Verification Flows*:
+    1. **Active Push Broadcast Verification**: Change launcher in Settings -> `LauncherStateManager` dispatches `ACTION_UPDATE_LAUNCHER` -> SIREN `SirenLauncherUpdateReceiver` catches and logs updated ComponentName -> Next Home tap immediately delegates to new launcher with 0-press lag.
+    2. **Loopback & Stage 1 Veto Rejection**: Attempt to save `com.siren.homeproxy` or `com.android.settings` as launcher -> `saveSelectedLauncher` returns false and rejects write.
+    3. **Sub-Second Synchronization**: Compare floating ball countdown with in-app lock screen timer -> digits decrement in unison at the exact same millisecond.
+  - *Build & Test Verification*:
+    - `.\gradlew.bat testDebugUnitTest`: Tested all unit tests in test suite.
+    - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+
+#### Patch 26.3: SIREN Companion Immunity, Home Loop Prevention & Launcher Auto-Discovery Fix
+- **Why It Was Mandated**:
+  - **Unintended MainActivity Launch on Home Press**: On physical devices, when pressing Home while QIEZKA was running, QIEZKA's `MainActivity` UI was unexpectedly summoned to the front instead of smoothly delegating to the home launcher.
+  - **Root Cause 1 (Accessibility Interception)**: `LockAccessibilityService` detected the foreground window transition to `com.siren.homeproxy`. Because SIREN was not included in `KNOWN_LAUNCHERS` or `KnownSafe.kt`, `isPackageBlocked("com.siren.homeproxy")` returned `true`, causing `enforceBlock("com.siren.homeproxy")` to immediately call `launchLockOverlay()` and forcefully summon `MainActivity`.
+  - **Root Cause 2 (Auto-Discovery Self-Delegation Loop)**: In `InstalledLauncherDetector.isRealLauncher()`, `com.siren.homeproxy` was not excluded. Consequently, auto-discovery in `LauncherStateManager.getSelectedLauncher()` selected `com.siren.homeproxy` as its own target launcher, causing SIREN to delegate to itself. Furthermore, `LauncherStateManager` queried with `PackageManager.MATCH_DEFAULT_ONLY`, which returned only SIREN once SIREN held the default role, completely concealing genuine installed launchers (One UI, Nova, Lawnchair).
+  - **Root Cause 3 (False-Positive Launcher Eviction)**: In `LockAccessibilityService.interceptHomeLauncherChangeAttempt()`, third-party launchers displaying UI elements containing "Default" and "Launcher" risked false-positive eviction.
+- **Key Enhancements Implemented**:
+  - **Comprehensive SIREN & Launcher Immunity**:
+    - Embedded `com.siren.homeproxy` and validated `isLauncherApp()` into `KnownSafe.isKnownSafe()`, ensuring that SIREN and all legitimate home launchers evaluate as `KnownSafe` and are never classified as distractions.
+    - Added `"com.siren.homeproxy"` and popular third-party launchers (`Lawnchair`, `Nova`, `Niagara`, `Microsoft Launcher`, `Smart Launcher`, `POCO`, `Olauncher`, `KISS`) to `KNOWN_LAUNCHERS`.
+    - Immunized `isSystemOrLauncher(pkg)` for `"com.siren.homeproxy"`.
+    - Updated `isLauncherApp()` to immediately recognize `"com.siren.homeproxy"` and dynamically bind to the user's selected launcher from `LauncherStateManager`.
+    - Added direct bypass in `AppClassifier.isPackageBlocked()` for `"com.siren.homeproxy"` and any validated `isLauncherApp()`.
+  - **Launcher Auto-Discovery & Loopback Prevention**:
+    - In `InstalledLauncherDetector.isRealLauncher()`, explicitly excluded `SIREN_PACKAGE` (`"com.siren.homeproxy"`).
+    - In `LauncherStateManager.getSelectedLauncher()`, changed the discovery query to flag `0` (all installed `CATEGORY_HOME` activities) and ensured `saveSelectedLauncher` returns true before returning the component.
+    - Guarded `interceptHomeLauncherChangeAttempt()` with `!isLauncherApp(this, effectivePkg)` to prevent evicting legitimate launchers.
+- **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+  - *Affected Files*:
+    - [`KnownSafe.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafe.kt)
+    - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+    - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+    - [`InstalledLauncherDetector.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.java)
+    - [`LauncherStateManager.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LauncherStateManager.java)
+    - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+  - *Known Dependents & Callers*:
+    - `LockAccessibilityService` on `onAccessibilityEvent` & `onTickerTick`: Verifies home transitions without summoning `MainActivity`.
+    - `LauncherStateManager.getSelectedLauncher()`: Reliably auto-discovers genuine launchers and serves them to `SirenContentProvider` without loopback.
+  - *Verification Flows*:
+    1. **Home Press Non-Intrusion**: Press Home while QIEZKA is running -> SIREN delegates to real launcher in 0ms -> `LockAccessibilityService` allows `com.siren.homeproxy` -> `MainActivity` does NOT pop up.
+    2. **Auto-Discovery Verification**: When no launcher is selected in settings, auto-discovery discovers genuine installed launcher and never returns `com.siren.homeproxy`.
+    3. **SIREN Companion Rejection**: `InstalledLauncherDetector.isRealLauncher` returns false for `com.siren.homeproxy`.
+  - *Build & Test Verification*:
+    - `.\gradlew.bat testDebugUnitTest`: Tested all unit tests in test suite.
+    - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+
+- **ADB KernelSU Forensic Investigation & SystemUI Root Cause Resolution (Patch 26.3 Follow-Up)**:
+  - **Why It Was Mandated**:
+    - Despite SIREN delegating successfully to the user's home launcher (Nexus Launcher) in 43ms, QIEZKA's `MainActivity` was still forcefully popping to the front upon pressing HOME or touching the navigation bar.
+    - *Forensic Discovery via ADB Logcat*:
+      Inspection of device logcat revealed:
+      `W LockAccessService: Stage 1 Master Veto Gate matched: com.android.systemui (System UI)`
+      `W LockAccessService: enforceBlock on distracting app: com.android.systemui — directly bringing QIEZKA lock to front (no home redirection)`
+    - *Root Cause Analysis*:
+      1. In `AppClassifier.java`, `isSettingsOrDeviceManager()` erroneously included `lowerPkg.equals("android")` and `lowerPkg.equals("com.android.systemui")`. Neither component is a settings app or device manager (they are core OS and navigation bar / System UI).
+      2. In `LockAccessibilityService.java`, line 887 evaluated `if (!pkgStr.equals(getPackageName()))` without checking `!isSystemOrLauncher(pkgStr)`. When the user touched the navigation bar or pressed HOME, `com.android.systemui` dispatched an accessibility event, causing `AppClassifier.isSettingsOrDeviceManager()` to return `true`, treating SystemUI as a distraction app and triggering `enforceBlock("com.android.systemui")` $\rightarrow$ `launchLockOverlay()`.
+      3. In `LockAccessibilityService.java`, `enforceBlock(String pkg)` lacked a guard for `isSystemOrLauncher(pkg)`.
+      4. In `LockAccessibilityService.java`, `LocalDnsVpnService.startVpn(this)` was being invoked in a tight 300ms crash loop because `VpnService.prepare(this)` was required but not yet granted by the user.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Removed `android` and `com.android.systemui` from `isSettingsOrDeviceManager` (`AppClassifier.java`)**: System UI and core Android framework are never classified as settings or device managers. Added them explicitly to `isStage1Vetoed()` to preserve rejection during launcher discovery without polluting distraction filters.
+    - **System & Launcher Guard in `onAccessibilityEvent` (`LockAccessibilityService.java`)**: Preempted Stage 1 Master Veto with `if (!pkgStr.equals(getPackageName()) && !isSystemOrLauncher(pkgStr))`. System UI events now smoothly pass through to `handleSystemUiEvent(event)` without triggering app blocks.
+    - **Defense-in-Depth Guard in `enforceBlock` (`LockAccessibilityService.java`)**: Added `if (pkg == null || pkg.equals(getPackageName()) || isSystemOrLauncher(pkg)) return;` at the entry point of `enforceBlock()`, permanently preventing `MainActivity` overlays from being summoned for launchers or System UI.
+    - **Core Framework Immunity in `KnownSafe.kt`**: Declared `pkg == "android" || pkg == "com.android.systemui"` as known safe.
+    - **VpnService Preparation Gate (`LockAccessibilityService.java`)**: Guarded `LocalDnsVpnService.startVpn()` with `android.net.VpnService.prepare(this) == null`, eliminating the 300ms background crash loop when VPN permissions are ungranted.
+
+- **Architectural Clarification & Universal 3-Stage Model Restoration (Pure Stage 1 Master Veto & Zero-Hardcoded System Gateway)**:
+  - **Why It Was Mandated**:
+    - An architectural clarification established that hardcoded system packages (`TELEPHONY_PACKAGES`, `KNOWN_LAUNCHERS`, and `android`/`com.android.systemui` hardcoding in `KnownSafe`, `AppClassifier`, and `LockAccessibilityService`) violated the intended clean 3-Stage Model.
+    - *Stage 1 (Master Veto Gate)* must ONLY contain packages actively hostile against QIEZKA (Settings, Security Center, Device Care, Phone Managers, Process Cleaners, Setup Wizards, and Game Boosters). It must never contain core OS framework (`android`) or System UI (`com.android.systemui`).
+    - *Stage 2 (App Classifier & Policy Gate)* evaluates `KnownSafe` (academic packages, study tools, active IMEs/keyboards, SIREN companion, AND dynamically detected Home Launchers via `LockAccessibilityService.isLauncherApp`), `KnownDistracting`, and `AppClassifier` (on-device 5-layer heuristic engine and `WebClassifier`). Home launchers must be evaluated in Stage 2 because genuine 3rd-party launchers (Nova, Lawnchair, Niagara) and SIREN reside in `/data/app` without `FLAG_SYSTEM` and would otherwise get trapped by Layer 5 Conservative Fallback.
+    - *Stage 3 (Universal System Gateway / SYSALLOW)* is the final dynamic system partition gateway: any system app (`(appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0`) that is neither hostile in Stage 1 nor distracting in Stage 2 is automatically permitted. Hardcoding dialers, telephony packages, cameras, or system utilities is completely purged.
+  - **Key Enhancements Implemented**:
+    - **Total Purge of Hardcoded Telephony & System Lists (`AppClassifier.java`)**:
+      - Purged static `TELEPHONY_PACKAGES` array (90+ lines). Telephony and dialer packages are now handled universally by Stage 3 (`FLAG_SYSTEM`).
+      - Purged dead helper method `isSystemUtility()`.
+      - Purged hardcoded checks for `android` and `com.android.systemui` from `isPackageBlocked()` and `isStage1Vetoed()`.
+    - **Total Purge of Hardcoded Launchers (`LockAccessibilityService.java`)**:
+      - Purged static `KNOWN_LAUNCHERS` list (25+ entries).
+      - Replaced `isLauncherApp()` with a pure dynamic lookup backed by `dynamicLauncherPackages` cache and `pm.queryIntentActivities(Intent(ACTION_MAIN).addCategory(CATEGORY_HOME))`.
+      - Streamlined `isSystemOrLauncher()` to verify `isLauncherApp()` (Stage 2) and delegate system apps directly to `(ai.flags & FLAG_SYSTEM) != 0` (Stage 3 SYSALLOW).
+      - Purged `KNOWN_LAUNCHERS` check from `interceptHomeLauncherChangeAttempt()`.
+    - **Pure KnownSafe Alignment (`KnownSafe.kt`)**:
+      - Purged hardcoded `pkg == "android" || pkg == "com.android.systemui"`.
+      - Retained pure dynamic launcher resolution (`LockAccessibilityService.isLauncherApp(context, pkg)`) and SIREN companion (`com.siren.homeproxy`).
+    - **Unit Test Suite Modernization (`HomeHandlerTest.kt`)**:
+      - Updated `testStage1MasterVetoForLaunchers` to assert `assertFalse(AppClassifier.isStage1Vetoed("android", null))` and `assertFalse(AppClassifier.isStage1Vetoed("com.android.systemui", null))`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`KnownSafe.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafe.kt)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.onAccessibilityEvent`: Verifies home launcher navigation and system UI interaction without unintended blocks or loopbacks.
+      - `InstalledLauncherDetector.isRealLauncher()` & `LauncherStateManager.getSelectedLauncher()`: Dynamic launcher queries operate cleanly without hardcoded lists.
+      - `AppClassifier.isPackageBlocked()`: Evaluates packages across pure Stage 1 -> Stage 2 -> Stage 3 hierarchy.
+    - *Verification Flows*:
+      1. **Stage 1 Hostile Isolation**: Verify `com.android.settings`, `securitycenter`, and `joyose` are strictly blocked, while `android` and `com.android.systemui` pass Stage 1.
+      2. **Stage 2 Dynamic Launcher Resolution**: OEM launchers (`com.sec.android.app.launcher`, `nexuslauncher`), 3rd-party `/data/app` launchers (`Lawnchair`, `Nova`), and `com.siren.homeproxy` pass Stage 2 via `isLauncherApp()` / `KnownSafe`.
+      3. **Stage 3 Universal System Gateway**: Any remaining `FLAG_SYSTEM` packages (dialers, telephony, stock cameras, STK) pass Stage 3 with zero hardcoded package lists.
+    - *Build & Test Verification*:
+      - `.\gradlew.bat testDebugUnitTest`: All 3 test suites (`HomeHandlerTest`, `UnifiedPolicyTest`, `WebTruthTableTest`) executed and passed cleanly (`BUILD SUCCESSFUL`).
+      - Web asset build: `npm run build` followed by `npx cap sync android`.
+      - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+      - User Rule 5 Compliance: SIREN HomeProxy untouched.
+
+- **Commercial Bypass VPN Ban & Streamlined Web Protection Architecture (Patch 26.3 Follow-Up)**:
+  - **Why It Was Mandated**:
+    - *Anti-Bypass Hardening*: Free proxy and commercial VPN applications (Turbo VPN, Psiphon, SuperVPN, Thunder VPN, Hola, Windscribe, Proton, Nord, Express, Surfshark, CyberGhost, v2rayNG, Clash, etc.) are frequently installed to evade domain and web filters by encrypting DNS queries (DoH/DoT) through private tunnels. Placing them in `KnownDistracting` ensures they are strictly blocked during lockdown.
+    - *Academic & Research VPN Preservation*: Legitimate enterprise and academic tools (Cisco AnyConnect, GlobalProtect, FortiClient, WireGuard, Tailscale, OpenVPN, ZeroTier) remain clean and unflagged so university intranet and library database research remain accessible.
+    - *Streamlined Web Protection Modes*: Standalone `dns_vpn` was redundant because users wanting packet-level protection require `dual_hybrid` (Accessibility Guard + DNS Sinkhole). Eliminating standalone `dns_vpn` simplified Web Protection into two distinct, high-clarity options:
+      1. **Accessibility Guard** (Default): Lightweight, zero VPN slots used, completely preserves the single Android VPN slot for university/research VPNs.
+      2. **Dual-Layer Hybrid**: Maximum armor combining real-time DOM/URL address bar inspection with on-device socket-level loopback DNS sinkholing.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Stage 2 Commercial VPN Ban (`KnownDistracting.kt`)**: Added 25+ commercial and bypass VPN packages to `KNOWN_DISTRACTING_PACKAGES`.
+    - **Web Protection Simplification (`SettingsOverlay.tsx`, `types.ts`, `systemBridge.ts`, `App.tsx`, `LockPlugin.java`)**: Removed standalone `dns_vpn`, transitioned the settings UI to a clean 2-column grid, and added automated migration of legacy `'dns_vpn'` preferences to `'dual_hybrid'`.
+    - **Unit Test Coverage (`HomeHandlerTest.kt`)**: Added `testCommercialVpnDistractionClassification()` verifying that commercial VPNs are classified as distractions while WireGuard, Tailscale, Cisco, and OpenVPN remain unflagged.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`KnownDistracting.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistracting.kt)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`src/types.ts`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/types.ts)
+      - [`src/systemBridge.ts`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/systemBridge.ts)
+      - [`src/components/SettingsOverlay.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx)
+      - [`src/App.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx)
+      - [`LockPlugin.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java)
+    - *Verification Flows*:
+      1. **Commercial VPN Block Verification**: Check TurboVPN, Psiphon, SuperVPN, NordVPN $\rightarrow$ `KnownDistracting.isKnownDistracting()` returns `true`.
+      2. **Academic VPN Immunity Verification**: Check WireGuard, Tailscale, Cisco AnyConnect, GlobalProtect $\rightarrow$ `KnownDistracting.isKnownDistracting()` returns `false`.
+      3. **UI 2-Column Grid Verification**: Settings Overlay renders only 2 cards: Accessibility Guard and Dual-Layer Hybrid.
+    - *Build & Test Verification*:
+      - `.\gradlew.bat testDebugUnitTest`: Tested all unit tests in test suite (`BUILD SUCCESSFUL in 1m 20s`).
+      - Web asset build: `npm run build` followed by `npx cap sync android`.
+      - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+      - User Rule 5 Compliance: SIREN HomeProxy untouched.
+
+- **Online Lecture Video Conferencing Heuristics & Launcher UI Decoupling (Patch 26.3 Follow-Up)**:
+  - **Why It Was Mandated**:
+    - *Google Meet False-Positive Eviction*: Google Meet (`com.google.android.apps.tachyon` / `com.google.android.apps.meetings`) and similar online class conferencing tools (Zoom, Microsoft Teams, Cisco Webex) were blocked during focus sessions. In `AppClassifier.java`, `switch (category)` contained `case CATEGORY_VIDEO: return true;` which unconditionally blocked all video apps, failing to distinguish between passive entertainment video (YouTube, Netflix, Twitch) and active academic video conferencing. Additionally, Meet was missing from `BASELINE_SAFE_PACKAGES` in `KnownSafe.kt`, causing user-installed instances in `/data/app` to fall through to Layer 5 Conservative Fallback.
+    - *Launcher Redundancy in Allowed Apps UI*: Home Launchers were previously flagged as displayable hardcoded applications in `KnownSafe.isHardcodedApp()` and `LockPlugin.java`, rendering them under "Always Allowed by System" on the Dashboard and LockScreen. Because launchers already have their own dedicated configuration section in **Settings > General > Detected Home Launchers** and operate as the core system navigation hub, displaying them in the study tools drawer created visual clutter and confusion.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Baseline Academic Safety for Conferencing Tools (`KnownSafe.kt`)**: Added Google Meet (`com.google.android.apps.tachyon`, `com.google.android.apps.meetings`), Zoom (`us.zoom.videomeetings`), Microsoft Teams (`com.microsoft.teams`), and Cisco Webex (`com.cisco.webex.meetings`) to `BASELINE_SAFE_PACKAGES`.
+    - **Category Heuristics Alignment (`AppClassifier.java`)**:
+      - Added `KNOWN_CONFERENCE_PACKAGES` and helper method `isMeetingOrVideoConferenceApp(pkg, appLabel)`.
+      - Updated `case CATEGORY_VIDEO` to allow meeting/conferencing apps while continuing to strictly block entertainment video streaming.
+      - Updated `case CATEGORY_SOCIAL` to allow conferencing apps alongside direct messaging tools.
+      - Enriched `POSITIVE_ACADEMIC_KEYWORDS` with `"meeting"`, `"conference"`, `"webinar"`, `"teams"`, `"zoom"`.
+    - **Launcher UI Decoupling (`KnownSafe.kt`, `LockPlugin.java`, `Dashboard.tsx`, `LockScreen.tsx`)**:
+      - Removed Home Launchers from `KnownSafe.isHardcodedApp()`. Launchers remain 100% permitted at the OS enforcement level via `isKnownSafe()` and `LockAccessibilityService.isLauncherApp()`, but no longer qualify as displayable hardcoded items in the Allowed Apps drawer.
+      - Updated `LockPlugin.getInstalledApps()` to skip `isLauncherApp()` packages with `continue;`.
+      - Updated `Dashboard.tsx` and `LockScreen.tsx` to strictly filter out `app.isLauncher` from the Allowed Applications list.
+    - **Unit Test Coverage (`HomeHandlerTest.kt`)**: Added `testGoogleMeetAndLectureConferencingAllowed()` and `testLauncherExcludedFromHardcodedAppUI()` validating that Google Meet, Zoom, Teams, and Webex are recognized as allowed while launchers are excluded from the hardcoded UI display list.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`KnownSafe.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafe.kt)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockPlugin.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java)
+      - [`src/components/Dashboard.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/Dashboard.tsx)
+      - [`src/components/LockScreen.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/LockScreen.tsx)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Verification Flows*:
+      1. **Google Meet Validation**: Verify `com.google.android.apps.tachyon` passes `KnownSafe.isKnownSafe()` and `AppClassifier.isMeetingOrVideoConferenceApp()`, remaining fully accessible during lockdown.
+      2. **Zoom & Teams Validation**: Verify `us.zoom.videomeetings` and `com.microsoft.teams` are allowed.
+      3. **Entertainment Video Blocking**: Verify YouTube (`com.google.android.youtube`) and Netflix continue to be strictly blocked by `CATEGORY_VIDEO` and `KnownDistracting`.
+      4. **Launcher UI Clutter Elimination**: Verify Dashboard and LockScreen "Always Allowed by System" do not display any home launchers.
+      5. **Home Delegation Integrity**: Verify pressing Home delegates immediately to the user's selected launcher via SIREN without obstruction.
+    - *Build & Test Verification*:
+      - `.\gradlew.bat testDebugUnitTest`: Tested all unit tests in test suite (`BUILD SUCCESSFUL in 2m 1s`).
+      - Web asset build: `npm run build` followed by `npx cap sync android`.
+      - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+      - User Rule 5 Compliance: SIREN HomeProxy untouched.
+
+- **Celso Azevedo GCam Mod Catalog & Universal Camera Heuristic Gate (Patch 26.3 Follow-Up)**:
+  - **Why It Was Mandated**:
+    - *LMC 8.4 GCam False-Positive Interception*: The user was unable to access their third-party camera app (**LMC 8.4 Google Camera mod by Hasli**), as QIEZKA intercepted and blocked it upon launch.
+    - *Sideloaded GCam Manifest Gaps*: Sideloaded camera mods (LMC, SGCam, AGC, MGC, Arnova, Greatness, Wichaya, Nikita, SnapCam) typically do not declare `android:appCategory="image"` in their `AndroidManifest.xml`, leaving `appInfo.category = CATEGORY_UNDEFINED` (`-1`) which skipped Android OS category exemptions.
+    - *Non-System Partition Status*: Being sideloaded into `/data/app/`, GCam mods did not qualify for the Stage 3 Universal System Gateway (`FLAG_SYSTEM`).
+    - *Auxiliary Package Identification*: Modders spoof secondary OEM package names (`org.codeaurora.snapcam`, `com.samsung.android.scan3d`, `com.samsung.android.ruler`, `com.shamim.cam`, `com.agc.cam`, `com.google.android.GoogleCamera.LMC84`) to bypass vendor restrictions on telephoto/ultrawide lenses. These were absent from static baseline lists.
+    - *Unwired Dynamic Exemption*: In `LockAccessibilityService.java`, `dynamicExemptPackages` was populated by intent queries but was never queried inside `isPackageBlocked()`.
+    - Consequently, LMC GCam dropped into Layer 5 Conservative Fallback ("Blocked unknown user app").
+  - **Concrete Architectural Fixes Implemented**:
+    - **Celso Azevedo Verified Package Catalog (`KnownSafe.kt`)**: Added `KNOWN_CAMERA_PACKAGES` containing 40+ verified package names covering all major GCam developers (Hasli LMC, BigKaka AGC, Shamim SGCam, BSG MGC, Arnova8G2, Greatness, Wichaya, Nikita, Urnyx, Potse, MWP, San1ty, Qualcomm SnapCam, Samsung aux spoofs, and OEM stock cameras).
+    - **Anti-Bypass Security Guard (`KnownSafe.kt`)**: Explicitly excluded `com.ss.android.ugc.aweme` (used by modders to exploit BBK camera HAL whitelists, but representing Douyin/TikTok) so that TikTok can never claim camera status or bypass lockdown.
+    - **Camera Heuristic & Prefix Recognition (`KnownSafe.kt`, `AppClassifier.java`)**:
+      - Implemented `KnownSafe.isCameraApp(context, pkg, appLabel)` with GCam prefix matching (`com.google.android.GoogleCamera*`, `com.agc.*`, `arn.android.gcam*`, `com.shamim.*`), package substrings (`camera`, `snapcam`, `.gcam`), and label heuristics (`"camera"`, `"kamera"`, `"gcam"`, `"lmc"`, `"sgcam"`, `"agc"`, `"snapcam"`, `"opencamera"`).
+      - Integrated `isCameraApp` directly into Stage 2 `KnownSafe.isKnownSafe()`, ensuring all verified camera tools are recognized as safe upfront.
+      - Integrated `isCameraApp` into `KnownSafe.isHardcodedApp()` to ensure seamless UI display.
+    - **Dynamic Hardware Intent Resolution (`AppClassifier.java`, `LockAccessibilityService.java`)**:
+      - Added `isCameraIntentHandler(pm, pkg)` querying `MediaStore.ACTION_IMAGE_CAPTURE`, `INTENT_ACTION_STILL_IMAGE_CAMERA`, and `INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE`.
+      - Updated `refreshDynamicExemptPackages()` in `LockAccessibilityService.java` to dynamically query still camera intents.
+      - Added instant fast-path pass-through at the top of `LockAccessibilityService.isPackageBlocked()`: `if (KnownSafe.isCameraApp(this, pkg, appLabel) || dynamicExemptPackages.contains(pkg)) return false;`.
+    - **Vocabulary Enrichment (`AppClassifier.java`)**: Added `"camera"`, `"kamera"`, `"gcam"`, `"lmc"`, `"sgcam"`, `"agc"`, `"snapcam"`, `"photograph"`, `"lens"` to `POSITIVE_ACADEMIC_KEYWORDS`.
+    - **Unit Test Suite (`CameraClassificationTest.kt`)**: Added comprehensive automated tests verifying Hasli LMC GCam, BigKaka AGC, Shamim, BSG, Snapdragon SnapCam, Samsung aux spoofs, label heuristics, and strictly validating that `com.ss.android.ugc.aweme` and distracting apps remain blocked.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`KnownSafe.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafe.kt)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`CameraClassificationTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/CameraClassificationTest.kt)
+    - *Verification Flows*:
+      1. **Hasli LMC GCam Validation**: Verify `com.google.android.GoogleCamera.LMC`, `com.google.android.GoogleCamera.LMC84`, and R17/R18 builds evaluate to `isCameraApp() == true` and `isKnownSafe() == true`, remaining completely accessible during focus sessions.
+      2. **Major GCam Ports Validation**: Verify Shamim (`com.shamim.cam`), BigKaka (`com.agc.cam`, `com.agc.gcam88`), BSG (`com.android.mgc`), Greatness (`Cameight`), Arnova (`arn.android.gcam`), and OpenCamera are allowed.
+      3. **Auxiliary Lenses & Spoofs**: Verify `org.codeaurora.snapcam`, `com.samsung.android.ruler`, and `com.samsung.android.scan3d` are recognized.
+      4. **Anti-Bypass Guard Integrity**: Verify `com.ss.android.ugc.aweme` (TikTok) and games claiming camera labels are strictly rejected.
+      5. **Homework Submission Photography**: Verify camera opening for homework submission operates without accessibility eviction or UI collision.
+    - *Build & Test Verification*:
+      - `.\gradlew.bat testDebugUnitTest`: Tested all unit tests in test suite (`BUILD SUCCESSFUL in 1m 23s`).
+      - Web asset build: `npm run build` followed by `npx cap sync android`.
+      - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+      - User Rule 5 Compliance: SIREN HomeProxy untouched.
+
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks

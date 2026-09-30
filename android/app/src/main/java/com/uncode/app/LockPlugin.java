@@ -1,1728 +1,1746 @@
-package com.uncode.app;
-
-import android.app.admin.DevicePolicyManager;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.drawable.Drawable;
-import android.util.Base64;
-import android.util.Log;
-import java.io.ByteArrayOutputStream;
-
-import com.getcapacitor.JSArray;
-import com.getcapacitor.JSObject;
-import com.getcapacitor.Plugin;
-import com.getcapacitor.PluginCall;
-import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.CapacitorPlugin;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-
-import org.json.JSONException;
-
-import android.content.Intent;
-import android.net.Uri;
-import android.net.VpnService;
-import android.app.Activity;
-import android.app.Notification;
-import android.os.Handler;
-import android.os.Looper;
-import androidx.activity.result.ActivityResult;
-import com.getcapacitor.annotation.ActivityCallback;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.OutputStream;
-import java.io.InputStream;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import android.view.accessibility.AccessibilityManager;
-import android.accessibilityservice.AccessibilityServiceInfo;
-import android.content.pm.ResolveInfo;
-import android.provider.MediaStore;
-import android.provider.Settings;
-import android.view.inputmethod.InputMethodManager;
-import android.view.inputmethod.InputMethodInfo;
-import com.getcapacitor.annotation.Permission;
-import com.getcapacitor.annotation.PermissionCallback;
-import com.getcapacitor.PermissionState;
-
-@CapacitorPlugin(
-    name = "LockPlugin",
-    permissions = {
-        @Permission(
-            alias = "notifications",
-            strings = { android.Manifest.permission.POST_NOTIFICATIONS }
-        )
-    }
-)
-public class LockPlugin extends Plugin {
-
-    private static final String TAG = "LockPlugin";
-    private static final String PREFS_NAME = "uncode_lock";
-    private DevicePolicyManager dpm;
-    private ComponentName adminComponent;
-    private SharedPreferences prefs;
-
-    @Override
-    public void load() {
-        dpm = (DevicePolicyManager) getActivity().getSystemService(Context.DEVICE_POLICY_SERVICE);
-        adminComponent = new ComponentName(getActivity(), AdminReceiver.class);
-        prefs = getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-    }
-
-    private Long getLongFromCall(PluginCall call, String key) {
-        if (call == null || call.getData() == null) return null;
-        Object val = call.getData().opt(key);
-        if (val instanceof Number) {
-            return ((Number) val).longValue();
-        }
-        if (val instanceof String) {
-            try {
-                return Long.parseLong((String) val);
-            } catch (NumberFormatException ignored) {}
-        }
-        return null;
-    }
-
-    @PluginMethod
-    public void startLockdown(PluginCall call) {
-        try {
-            JSArray allowedAppIds = call.getArray("allowedAppIds");
-            long durationMinutes = Math.min(90, Math.max(1, call.getInt("durationMinutes", 25)));
-            Long customEndTime = getLongFromCall(call, "lockEndTime");
-            String scheduleId = call.getString("scheduleId", "");
-
-            long timeOffset = prefs.getLong("time_offset", 0L);
-            long effectiveNow = System.currentTimeMillis() + timeOffset;
-
-            boolean currentlyActive = prefs.getBoolean("lockdown_active", false);
-            long existingEndTime = prefs.getLong("lock_end_time", 0L);
-
-            long lockEndTime;
-            if (customEndTime != null && customEndTime > 0) {
-                lockEndTime = customEndTime;
-            } else if (currentlyActive && existingEndTime > effectiveNow) {
-                // If lockdown is already active and still has time remaining, preserve ongoing timer!
-                lockEndTime = existingEndTime;
-                Log.i(TAG, "startLockdown: Preserving active ongoing lockEndTime=" + lockEndTime);
-            } else {
-                lockEndTime = effectiveNow + (durationMinutes * 60L * 1000L);
-            }
-
-            long maxAllowedEnd = effectiveNow + (durationMinutes * 60L * 1000L);
-            if (lockEndTime > maxAllowedEnd) {
-                Log.w(TAG, "startLockdown: Clamping lockEndTime (" + lockEndTime + ") to maxAllowedEnd (" + maxAllowedEnd + ")");
-                lockEndTime = maxAllowedEnd;
-            }
-
-            Set<String> whitelist = new HashSet<>();
-            whitelist.add(getActivity().getPackageName()); // Always allow QIEZKA itself
-
-            // Always silently whitelist all system and third-party keyboards so typing never bricks lockdown
-            try {
-                String defaultIme = Settings.Secure.getString(getActivity().getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
-                if (defaultIme != null && defaultIme.contains("/")) {
-                    whitelist.add(defaultIme.split("/")[0]);
-                }
-                InputMethodManager imm = (InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
-                if (imm != null) {
-                    List<InputMethodInfo> imis = imm.getInputMethodList();
-                    if (imis != null) {
-                        for (InputMethodInfo imi : imis) {
-                            if (imi != null && imi.getPackageName() != null) {
-                                whitelist.add(imi.getPackageName());
-                            }
-                        }
-                    }
-                    List<InputMethodInfo> enabledImis = imm.getEnabledInputMethodList();
-                    if (enabledImis != null) {
-                        for (InputMethodInfo imi : enabledImis) {
-                            if (imi != null && imi.getPackageName() != null) {
-                                whitelist.add(imi.getPackageName());
-                            }
-                        }
-                    }
-                }
-            } catch (Exception ignore) {}
-
-            if (allowedAppIds != null) {
-                for (int i = 0; i < allowedAppIds.length(); i++) {
-                    String appId = allowedAppIds.getString(i);
-                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null) &&
-                        !UnifiedPolicyRegistry.isPackageRegisteredInAnyService(appId) &&
-                        !appId.equals("com.google.android.googlequicksearchbox")) {
-                        whitelist.add(appId);
-                    }
-                }
-            }
-
-            // Always exempt document pickers and media providers
-            whitelist.addAll(LockAccessibilityService.MEDIA_AND_FILE_EXEMPT);
-
-            // Save whitelist and timestamp for AccessibilityService
-            prefs.edit()
-                    .putStringSet("whitelist", whitelist)
-                    .putBoolean("lockdown_active", true)
-                    .putLong("lock_end_time", lockEndTime)
-                    .putString("active_schedule_id", scheduleId)
-                    .apply();
-
-            AppClassifier.clearCache();
-
-            // Schedule exact lock end auto-release alarm
-            AlarmReceiver.scheduleLockEndAlarm(getActivity(), lockEndTime, scheduleId);
-
-            // Start Floating Assistive Timer Ball Overlay
-            FloatingOverlayService.startService(getActivity(), lockEndTime, scheduleId);
-
-            // Start Local DNS Sinkhole if web protection mode is dns_vpn or dual_hybrid
-            String webMode = prefs.getString("web_protection_mode", "accessibility");
-            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
-                LocalDnsVpnService.startVpn(getActivity());
-            }
-
-
-
-            JSObject ret = new JSObject();
-            ret.put("lockEndTime", lockEndTime);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "startLockdown failed", e);
-            call.reject("startLockdown failed: " + e.getMessage());
-        }
-    }
-
-    public static void clearLockdownState(Context context) {
-        if (context == null) return;
-        try {
-            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            String activeScheduleId = prefs.getString("active_schedule_id", "");
-            long timeOffset = prefs.getLong("time_offset", 0L);
-            long effectiveNow = System.currentTimeMillis() + timeOffset;
-            long currentLockEnd = prefs.getLong("lock_end_time", effectiveNow);
-
-            SharedPreferences.Editor editor = prefs.edit()
-                    .putBoolean("lockdown_active", false)
-                    .putBoolean("consequence_active", false)
-                    .remove("consequence_schedule_id")
-                    .remove("lock_end_time")
-                    .remove("active_schedule_id")
-                    .putStringSet("whitelist", new HashSet<>());
-
-            if (activeScheduleId != null && !activeScheduleId.trim().isEmpty()) {
-                editor.putLong("last_completed_window_end_" + activeScheduleId, currentLockEnd);
-                Log.i(TAG, "clearLockdownState: recorded completed window for " + activeScheduleId + " until " + currentLockEnd);
-            }
-            editor.apply();
-            AppClassifier.clearCache();
-
-            // 1. Cancel Alarms
-            AlarmReceiver.cancelLockEndAlarm(context);
-
-            // 2. Stop Floating Overlay Service
-            FloatingOverlayService.stopService(context);
-
-            // 3. Stop Local DNS Sinkhole VPN
-            LocalDnsVpnService.stopVpn(context);
-
-            // 4. Cancel Notifications
-            android.app.NotificationManager nm = (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-            if (nm != null) {
-                nm.cancel(AlarmReceiver.NOTIF_ID_STATUS);
-                nm.cancel(AlarmReceiver.NOTIF_ID_COMPLETED);
-            }
-
-
-
-            Log.i(TAG, "clearLockdownState: complete and authoritative unlock executed successfully");
-        } catch (Exception e) {
-            Log.e(TAG, "clearLockdownState error", e);
-        }
-    }
-
-    public static void startConsequenceState(Context context, String scheduleId, Set<String> whitelist) {
-        if (context == null) return;
-        try {
-            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            SharedPreferences.Editor editor = prefs.edit()
-                    .putBoolean("consequence_active", true)
-                    .putBoolean("lockdown_active", true)
-                    .remove("lock_end_time");
-
-            if (scheduleId != null && !scheduleId.trim().isEmpty()) {
-                editor.putString("consequence_schedule_id", scheduleId);
-            }
-            if (whitelist != null && !whitelist.isEmpty()) {
-                Set<String> cleanWhitelist = new HashSet<>();
-                for (String p : whitelist) {
-                    if (p != null && !UnifiedPolicyRegistry.isPackageRegisteredInAnyService(p) &&
-                        !p.equals("com.google.android.googlequicksearchbox")) {
-                        cleanWhitelist.add(p);
-                    }
-                }
-                editor.putStringSet("whitelist", cleanWhitelist);
-            }
-            editor.apply();
-
-            // 1. Clear classification cache so whitelist takes immediate effect
-            AppClassifier.clearCache();
-
-
-
-            // 3. Start Local DNS Sinkhole VPN if configured
-            String webMode = prefs.getString("web_protection_mode", "accessibility");
-            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
-                LocalDnsVpnService.startVpn(context);
-            }
-
-            // 4. Start Floating Overlay Service with Consequence Mode indicator
-            FloatingOverlayService.startService(context, 0L, "Consequence Mode");
-
-            // 5. Post Status Notification
-            long timeOffset = prefs.getLong("time_offset", 0L);
-            long effectiveNow = System.currentTimeMillis() + timeOffset;
-            boolean inOperatingHours = LockAccessibilityService.isInOperatingHours(context, effectiveNow);
-            boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
-            String notifMsg;
-            if (isHardcore) {
-                notifMsg = "Distracting apps remain restricted 24/7 (Hardcore Mode) until homework is rescheduled and passed.";
-            } else {
-                notifMsg = inOperatingHours
-                        ? "Distracting apps are restricted until homework is rescheduled and passed."
-                        : "Consequence active: Enforcement paused during daytime (resumes at 7:00 PM).";
-            }
-
-            AlarmReceiver.createNotificationChannels(context);
-            AlarmReceiver.showNotificationStatic(
-                    context,
-                    AlarmReceiver.NOTIF_ID_STATUS,
-                    AlarmReceiver.CHANNEL_ID_STATUS,
-                    "⚠️ QIEZKA Consequence Mode",
-                    notifMsg,
-                    Notification.PRIORITY_HIGH,
-                    true
-            );
-
-            // 6. Immediately kick user out if currently inside a blocked app (if in operating hours)
-            if (inOperatingHours) {
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    try {
-                        if (LockAccessibilityService.getInstance() != null) {
-                            String activePkg = LockAccessibilityService.getInstance().detectCurrentForegroundPackage();
-                            if (activePkg != null && LockAccessibilityService.getInstance().isPackageBlocked(activePkg)) {
-                                LockAccessibilityService.getInstance().enforceBlock(activePkg);
-                            }
-                        }
-                    } catch (Exception ignored) {}
-                }, 300L);
-            }
-
-            Log.i(TAG, "startConsequenceState: complete consequence enforcement engaged (inOperatingHours=" + inOperatingHours + ")");
-        } catch (Exception e) {
-            Log.e(TAG, "startConsequenceState error", e);
-        }
-    }
-
-    @PluginMethod
-    public void endLockdown(PluginCall call) {
-        try {
-            clearLockdownState(getActivity());
-            call.resolve();
-        } catch (Exception e) {
-            Log.e(TAG, "endLockdown failed", e);
-            call.reject("endLockdown failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setConsequenceActive(PluginCall call) {
-        try {
-            boolean active = call.getBoolean("active", false);
-            String scheduleId = call.getString("scheduleId", "");
-
-            if (active) {
-                JSArray rawWhitelist = call.getArray("whitelist");
-                Set<String> whitelist = new HashSet<>();
-                if (rawWhitelist != null) {
-                    for (int i = 0; i < rawWhitelist.length(); i++) {
-                        whitelist.add(rawWhitelist.getString(i));
-                    }
-                }
-                startConsequenceState(getActivity(), scheduleId, whitelist);
-            } else {
-                clearLockdownState(getActivity());
-            }
-
-            call.resolve();
-        } catch (Exception e) {
-            Log.e(TAG, "setConsequenceActive failed", e);
-            call.reject("setConsequenceActive failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setOperatingMode(PluginCall call) {
-        try {
-            String mode = call.getString("mode", "safemode");
-            prefs.edit().putString("operating_mode", mode).apply();
-            Log.i(TAG, "Operating mode set to: " + mode);
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setOperatingMode failed", e);
-            call.reject("setOperatingMode failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setWebProtectionMode(PluginCall call) {
-        try {
-            String mode = call.getString("mode", "accessibility");
-            if ("off".equalsIgnoreCase(mode)) {
-                mode = "accessibility"; // Milestone 18: No unrestricted mode; baseline protection mandatory
-            }
-            prefs.edit().putString("web_protection_mode", mode).apply();
-            Log.i(TAG, "Web protection mode set to: " + mode);
-
-            boolean isLockActive = prefs.getBoolean("lockdown_active", false) || prefs.getBoolean("consequence_active", false);
-            if (isLockActive) {
-                if ("dns_vpn".equalsIgnoreCase(mode) || "dual_hybrid".equalsIgnoreCase(mode)) {
-                    LocalDnsVpnService.startVpn(getActivity());
-                } else {
-                    LocalDnsVpnService.stopVpn(getActivity());
-                }
-            } else {
-                LocalDnsVpnService.stopVpn(getActivity());
-            }
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setWebProtectionMode failed", e);
-            call.reject("setWebProtectionMode failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setAllowYoutube(PluginCall call) {
-        try {
-            boolean allow = Boolean.TRUE.equals(call.getBoolean("allow", false));
-            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
-            if (allow) {
-                activeServices.add("youtube");
-            } else {
-                activeServices.remove("youtube");
-            }
-
-            Set<String> domains = UnifiedPolicyRegistry.getDomainsForServices(activeServices);
-
-            prefs.edit()
-                .putBoolean("allow_youtube", allow)
-                .putStringSet("active_unified_services", activeServices)
-                .putStringSet("allowed_domains", domains)
-                .apply();
-
-            AppClassifier.clearCache();
-            WebClassifier.clearCache();
-            Log.i(TAG, "Allow YouTube set to: " + allow + " (active_unified_services=" + activeServices + ")");
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setAllowYoutube failed", e);
-            call.reject("setAllowYoutube failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setServicePolicy(PluginCall call) {
-        try {
-            String serviceId = call.getString("serviceId", "");
-            if (serviceId == null || serviceId.trim().isEmpty()) {
-                call.reject("serviceId is required");
-                return;
-            }
-            String key = serviceId.toLowerCase(Locale.US).trim();
-            boolean allowed = Boolean.TRUE.equals(call.getBoolean("allowed", false));
-
-            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
-            if (allowed) {
-                activeServices.add(key);
-            } else {
-                activeServices.remove(key);
-            }
-
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putStringSet("active_unified_services", activeServices);
-
-            if ("youtube".equals(key)) {
-                editor.putBoolean("allow_youtube", allowed);
-            }
-
-            // Synchronize active domains
-            Set<String> domains = UnifiedPolicyRegistry.getDomainsForServices(activeServices);
-            editor.putStringSet("allowed_domains", domains);
-            editor.apply();
-
-            AppClassifier.clearCache();
-            WebClassifier.clearCache();
-
-            Log.i(TAG, "Unified service policy updated: " + key + "=" + allowed + " (active=" + activeServices + ")");
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            JSArray activeArr = new JSArray();
-            for (String s : activeServices) {
-                activeArr.put(s);
-            }
-            ret.put("activeServices", activeArr);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setServicePolicy failed", e);
-            call.reject("setServicePolicy failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void getActiveServices(PluginCall call) {
-        try {
-            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
-            if (prefs.getBoolean("allow_youtube", false)) {
-                activeServices.add("youtube");
-            }
-            JSObject ret = new JSObject();
-            JSArray activeArr = new JSArray();
-            for (String s : activeServices) {
-                activeArr.put(s);
-            }
-            ret.put("activeServices", activeArr);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "getActiveServices failed", e);
-            call.reject("getActiveServices failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void getRegisteredServices(PluginCall call) {
-        try {
-            JSArray servicesArr = new JSArray();
-            for (UnifiedService svc : UnifiedPolicyRegistry.SERVICES.values()) {
-                JSObject obj = new JSObject();
-                obj.put("id", svc.getId());
-                obj.put("name", svc.getDisplayName());
-                obj.put("displayName", svc.getDisplayName());
-                obj.put("description", svc.getDescription());
-                obj.put("badge", svc.getBadge());
-                obj.put("iconName", svc.getIconName());
-                obj.put("themeColor", svc.getThemeColor());
-
-                JSArray pkgArr = new JSArray();
-                for (String p : svc.getPackages()) {
-                    pkgArr.put(p);
-                }
-                obj.put("packages", pkgArr);
-
-                JSArray domainArr = new JSArray();
-                for (String d : svc.getDomains()) {
-                    domainArr.put(d);
-                }
-                obj.put("domains", domainArr);
-
-                servicesArr.put(obj);
-            }
-            JSObject ret = new JSObject();
-            ret.put("services", servicesArr);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "getRegisteredServices failed", e);
-            call.reject("getRegisteredServices failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setBlockWebGames(PluginCall call) {
-        try {
-            // Milestone 18: Web games blocking is permanently active and cannot be turned off
-            prefs.edit().putBoolean("block_web_games", true).apply();
-            Log.i(TAG, "Block web games locked to: true");
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setBlockWebGames failed", e);
-            call.reject("setBlockWebGames failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setDnsFilterProfile(PluginCall call) {
-        try {
-            // Upstream DNS is handled on-device with WebClassifier
-            prefs.edit().putString("dns_filter_profile", "webclassifier").apply();
-            Log.i(TAG, "DNS filter profile set to WebClassifier");
-            LocalDnsVpnService.updateNotification(getActivity());
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setDnsFilterProfile failed", e);
-            call.reject("setDnsFilterProfile failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setEnforceSafeSearch(PluginCall call) {
-        try {
-            boolean enforce = Boolean.TRUE.equals(call.getBoolean("enforce", true));
-            prefs.edit().putBoolean("enforce_safesearch", enforce).apply();
-            Log.i(TAG, "Enforce SafeSearch set to: " + enforce);
-            LocalDnsVpnService.updateNotification(getActivity());
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "setEnforceSafeSearch failed", e);
-            call.reject("setEnforceSafeSearch failed: " + e.getMessage());
-        }
-    }
-
-
-    @PluginMethod
-    public void requestVpnPermission(PluginCall call) {
-        try {
-            Intent vpnIntent = VpnService.prepare(getActivity());
-            if (vpnIntent == null) {
-                JSObject ret = new JSObject();
-                ret.put("granted", true);
-                call.resolve(ret);
-            } else {
-                startActivityForResult(call, vpnIntent, "vpnPermissionCallback");
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "requestVpnPermission failed", e);
-            JSObject ret = new JSObject();
-            ret.put("granted", false);
-            call.resolve(ret);
-        }
-    }
-
-    @ActivityCallback
-    private void vpnPermissionCallback(PluginCall call, ActivityResult result) {
-        JSObject ret = new JSObject();
-        boolean granted = (result != null && result.getResultCode() == Activity.RESULT_OK);
-        ret.put("granted", granted);
-        call.resolve(ret);
-    }
-
-    @PluginMethod
-    public void getLockStatus(PluginCall call) {
-        try {
-            boolean isActive = prefs.getBoolean("lockdown_active", false);
-            boolean isConsequence = prefs.getBoolean("consequence_active", false);
-            long lockEndTime = prefs.getLong("lock_end_time", 0L);
-            String scheduleId = prefs.getString("active_schedule_id", "");
-
-            long timeOffset = prefs.getLong("time_offset", 0L);
-            long effectiveNow = System.currentTimeMillis() + timeOffset;
-
-            // Native timestamp auto-expire only when NOT in consequence mode
-            if (isActive && !isConsequence && lockEndTime > 0 && effectiveNow >= lockEndTime) {
-                isActive = false;
-                clearLockdownState(getActivity());
-            }
-
-            JSObject ret = new JSObject();
-            ret.put("isLockActive", isActive);
-            ret.put("isConsequenceActive", isConsequence);
-            ret.put("lockEndTime", lockEndTime);
-            ret.put("activeScheduleId", scheduleId);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "getLockStatus failed", e);
-            call.reject("getLockStatus failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void syncTimeOffset(PluginCall call) {
-        try {
-            Long timeOffset = getLongFromCall(call, "timeOffset");
-            if (timeOffset == null) timeOffset = 0L;
-            prefs.edit().putLong("time_offset", timeOffset).apply();
-            Log.i(TAG, "Synchronized timeOffset to native: " + timeOffset + "ms");
-
-            ScheduleManager.rescheduleAll(getActivity());
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "syncTimeOffset failed", e);
-            call.reject("syncTimeOffset failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void syncSchedules(PluginCall call) {
-        try {
-            JSArray schedulesArr = call.getArray("schedules");
-            JSArray allowedAppIds = call.getArray("allowedAppIds");
-
-            String schedulesJson = schedulesArr != null ? schedulesArr.toString() : "[]";
-
-            Set<String> whitelist = new HashSet<>();
-            whitelist.add(getActivity().getPackageName());
-            if (allowedAppIds != null) {
-                for (int i = 0; i < allowedAppIds.length(); i++) {
-                    String appId = allowedAppIds.getString(i);
-                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null)) {
-                        whitelist.add(appId);
-                    }
-                }
-            }
-
-            ScheduleManager.syncSchedules(getActivity(), schedulesJson, whitelist);
-            AppClassifier.clearCache();
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "syncSchedules failed", e);
-            call.reject("syncSchedules failed: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void getInstalledApps(PluginCall call) {
-        Runnable task = () -> {
-            try {
-                PackageManager pm = getActivity().getPackageManager();
-                String myPkg = getActivity().getPackageName();
-
-                // 1. Single-pass pre-queries (run once, not inside any package loop)
-                Set<String> browserPackages = new HashSet<>();
-                try {
-                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"));
-                    browserIntent.addCategory(Intent.CATEGORY_BROWSABLE);
-                    List<ResolveInfo> bList = pm.queryIntentActivities(browserIntent, 0);
-                    for (ResolveInfo r : bList) {
-                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
-                            browserPackages.add(r.activityInfo.packageName);
-                        }
-                    }
-                } catch (Exception ignore) {}
-
-                Set<String> musicPackages = new HashSet<>();
-                try {
-                    Intent musicIntent = new Intent(Intent.ACTION_MAIN);
-                    musicIntent.addCategory(Intent.CATEGORY_APP_MUSIC);
-                    List<ResolveInfo> mList = pm.queryIntentActivities(musicIntent, 0);
-                    for (ResolveInfo r : mList) {
-                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
-                            musicPackages.add(r.activityInfo.packageName);
-                        }
-                    }
-                    Intent audioIntent = new Intent(Intent.ACTION_VIEW);
-                    audioIntent.setDataAndType(Uri.parse("file://test.mp3"), "audio/*");
-                    List<ResolveInfo> aList = pm.queryIntentActivities(audioIntent, 0);
-                    for (ResolveInfo r : aList) {
-                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
-                            musicPackages.add(r.activityInfo.packageName);
-                        }
-                    }
-                } catch (Exception ignore) {}
-
-                Set<String> cameraPackages = new HashSet<>();
-                try {
-                    Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-                    List<ResolveInfo> cList = pm.queryIntentActivities(cameraIntent, 0);
-                    for (ResolveInfo r : cList) {
-                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
-                            cameraPackages.add(r.activityInfo.packageName);
-                        }
-                    }
-                } catch (Exception ignore) {}
-
-                Set<String> keyboardPackages = new HashSet<>();
-                try {
-                    String defaultIme = Settings.Secure.getString(getActivity().getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
-                    if (defaultIme != null && defaultIme.contains("/")) {
-                        keyboardPackages.add(defaultIme.split("/")[0]);
-                    }
-                    InputMethodManager imm = (InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
-                    if (imm != null) {
-                        List<InputMethodInfo> imis = imm.getInputMethodList();
-                        if (imis != null) {
-                            for (InputMethodInfo imi : imis) {
-                                if (imi != null && imi.getPackageName() != null) {
-                                    keyboardPackages.add(imi.getPackageName());
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception ignore) {}
-
-                // 2. Query user-launchable apps directly to avoid iterating hundreds of hidden system daemons
-                Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
-                launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
-                List<ResolveInfo> launcherList = pm.queryIntentActivities(launcherIntent, 0);
-
-                Set<String> candidatePackages = new LinkedHashSet<>();
-                for (ResolveInfo r : launcherList) {
-                    if (r.activityInfo != null && r.activityInfo.packageName != null) {
-                        candidatePackages.add(r.activityInfo.packageName);
-                    }
-                }
-                candidatePackages.addAll(browserPackages);
-                candidatePackages.addAll(musicPackages);
-                candidatePackages.addAll(cameraPackages);
-
-                JSArray apps = new JSArray();
-                Set<String> addedPackages = new HashSet<>();
-
-                for (String pkg : candidatePackages) {
-                    if (pkg == null || pkg.equals(myPkg) || addedPackages.contains(pkg)) {
-                        continue;
-                    }
-                    if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || 
-                        AppClassifier.isStage1Bloat(pkg, null) || 
-                        AppClassifier.isForbiddenDistraction(getActivity(), pkg) ||
-                        KnownDistracting.isKnownDistracting(pkg)) {
-                        continue; // Strictly omit anti-tamper, bloatware, games, and social media from candidate selection
-                    }
-                    boolean isBaselineSafe = KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg);
-                    if (!isBaselineSafe && (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || isAiAppKeywords(pkg, null))) {
-                        continue; // Governed strictly via Unified Service Policy Engine in Settings
-                    }
-                    if (keyboardPackages.contains(pkg) || isKeyboardAppKeywords(pkg)) {
-                        continue; // Keyboards are silently exempted in lockdown, hidden from whitelist UI
-                    }
-
-                    try {
-                        ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
-                        String appLabel = pm.getApplicationLabel(appInfo).toString();
-
-                        if (isHiddenInfrastructureApp(pkg, appLabel)) {
-                            continue; // Hide camera extension proxies, aperture lens launchers, etc.
-                        }
-                        if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || 
-                            AppClassifier.isStage1Bloat(pkg, appLabel) || 
-                            KnownDistracting.isKnownDistracting(pkg, appLabel) || 
-                            (!isBaselineSafe && isAiAppKeywords(pkg, appLabel))) {
-                            continue;
-                        }
-
-                        boolean isLauncher = LockAccessibilityService.isLauncherApp(getActivity(), pkg);
-
-                        // Stage 3 Universal System Gateway (SYSALLOW) UI Non-Rendering Principle:
-                        // Anything that passed Stage 3 as allow is already allowed dynamically by the OS during lockdown.
-                        // Do NOT render them at the UI! (Launchers are exempted so they render in 'Always Allowed by System')
-                        if (!isLauncher && AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) {
-                            continue;
-                        }
-
-                        boolean isHardcoded = KnownSafe.isHardcodedApp(getActivity(), appInfo, pkg, appLabel);
-
-                        // Strict Whitelist Invariant: User can ONLY whitelist apps that are in KnownSafe
-                        // or detected as safe by the Secondary App Classifier.
-                        if (!isHardcoded && !isBaselineSafe && AppClassifier.isPackageBlocked(getActivity(), pkg, null)) {
-                            continue; // Omit unverified or distracting third-party apps
-                        }
-
-                        boolean isBrowser = browserPackages.contains(pkg) || isBrowserAppKeywords(pkg);
-                        boolean isMusic = musicPackages.contains(pkg) || isMusicAppKeywords(pkg);
-                        boolean isCamera = cameraPackages.contains(pkg) || isCameraAppKeywords(pkg);
-                        boolean isAuthenticator = isAuthenticatorAppKeywords(pkg, appLabel);
-                        boolean isNotes = isNotesAppKeywords(pkg, appLabel);
-                        boolean isStudentApp = isBaselineSafe || isStudentAppKeywords(pkg, appLabel);
-                        boolean isAi = isAiAppKeywords(pkg, appLabel);
-                        boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
-
-                        addedPackages.add(pkg);
-
-                        JSObject app = new JSObject();
-                        app.put("id", pkg);
-                        app.put("name", appLabel);
-
-                        boolean isSimOrCarrier = LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
-
-                        String iconName = "LayoutGrid";
-                        if (isLauncher) iconName = "Home";
-                        else if (isBrowser) iconName = "Globe";
-                        else if (isMusic) iconName = "Music";
-                        else if (isCamera) iconName = "Camera";
-                        else if (isAuthenticator) iconName = "ShieldCheck";
-                        else if (isAi) iconName = "Sparkles";
-                        else if (isNotes) iconName = "FileText";
-                        else if (isStudentApp) iconName = "BookOpen";
-                        else if (isMessaging || isSimOrCarrier) iconName = "MessageSquare";
-
-                        boolean isAutoAllowed = !isHardcoded && !isLauncher && (isMessaging || isStudentApp);
-
-                        app.put("iconName", iconName);
-                        app.put("isHardcoded", isHardcoded);
-                        app.put("isLauncher", isLauncher);
-                        app.put("isAutoAllowed", isAutoAllowed);
-                        app.put("isMessaging", isMessaging);
-                        app.put("isBrowser", isBrowser);
-                        app.put("isMusic", isMusic);
-                        app.put("isCamera", isCamera);
-                        app.put("isAuthenticator", isAuthenticator);
-                        app.put("isNotes", isNotes);
-                        app.put("isStudentApp", isStudentApp);
-                        app.put("isAi", isAi);
-
-                        try {
-                            Drawable icon = pm.getApplicationIcon(appInfo);
-                            String base64Icon = getBase64Icon(icon);
-                            if (base64Icon != null) {
-                                app.put("iconBase64", base64Icon);
-                            }
-                        } catch (Exception ignore) {}
-
-                        apps.put(app);
-                    } catch (PackageManager.NameNotFoundException ignore) {}
-                }
-
-                JSObject result = new JSObject();
-                result.put("apps", apps);
-                call.resolve(result);
-            } catch (Exception e) {
-                Log.e(TAG, "getInstalledApps failed", e);
-                call.reject("getInstalledApps failed: " + e.getMessage());
-            }
-        };
-
-        if (getBridge() != null) {
-            getBridge().execute(task);
-        } else {
-            new Thread(task).start();
-        }
-    }
-
-    private boolean isAuthenticatorAppKeywords(String packageName, String label) {
-        if (packageName != null) {
-            String lower = packageName.toLowerCase();
-            if (lower.contains("authenticator") || lower.contains("twofas") || lower.contains("duomobile") || lower.contains("yubioath")) {
-                return true;
-            }
-        }
-        if (label != null) {
-            String lowerLabel = label.toLowerCase();
-            if (lowerLabel.contains("authenticator") || lowerLabel.contains("2fa") || lowerLabel.contains("otp")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isNotesAppKeywords(String packageName, String label) {
-        if (packageName != null) {
-            String lower = packageName.toLowerCase();
-            if (lower.contains("keep") || lower.contains("onenote") || lower.contains("obsidian") ||
-                lower.contains("notion") || lower.contains("notepad") || lower.contains(".notes") ||
-                lower.contains("memo") || lower.contains("simplenote") || lower.contains("colornote")) {
-                return true;
-            }
-        }
-        if (label != null) {
-            String lowerLabel = label.toLowerCase();
-            if (lowerLabel.contains("notes") || lowerLabel.contains("notepad") || lowerLabel.contains("memo") ||
-                lowerLabel.contains("keep") || lowerLabel.contains("onenote") || lowerLabel.contains("notion") ||
-                lowerLabel.contains("obsidian") || lowerLabel.contains("journal")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isStudentAppKeywords(String packageName, String label) {
-        if (packageName != null) {
-            String lower = packageName.toLowerCase();
-            if (lower.contains("classroom") || lower.contains("canvas") || lower.contains("blackboard") ||
-                lower.contains("schoology") || lower.contains("quizlet") || lower.contains("anki") ||
-                lower.contains("gizmo") || lower.contains("saveall") || lower.contains("quiz") ||
-                lower.contains("flashcard") || lower.contains("cram") || lower.contains("brainscape") ||
-                lower.contains("studysmarter") || lower.contains("kahoot") || lower.contains("quizizz") ||
-                lower.contains("desmos") || lower.contains("geogebra") || lower.contains("calculator") ||
-                lower.contains("docs.editors") || (lower.contains("google") && lower.contains("docs")) ||
-                lower.contains("photomath") || lower.contains("wolfram") || lower.contains("adobe.reader") ||
-                lower.contains("camscanner") || lower.contains("translate") || lower.contains("deepl") ||
-                lower.contains("duolingo") || lower.contains("khanacademy") || lower.contains("symbolab") ||
-                lower.contains("mathway") || lower.contains("chegg") || lower.contains("termux") ||
-                lower.contains("pydroid") || lower.contains("skydrive") || lower.contains("dropbox") ||
-                lower.contains("readera") || lower.contains("wps")) {
-                return true;
-            }
-        }
-        if (label != null) {
-            String lowerLabel = label.toLowerCase();
-            if (lowerLabel.contains("classroom") || lowerLabel.contains("canvas") || lowerLabel.contains("blackboard") ||
-                lowerLabel.contains("schoology") || lowerLabel.contains("quizlet") || lowerLabel.contains("anki") ||
-                lowerLabel.contains("gizmo") || lowerLabel.contains("quiz") || lowerLabel.contains("quizzes") ||
-                lowerLabel.contains("flashcard") || lowerLabel.contains("flashcards") || lowerLabel.contains("tutor") ||
-                lowerLabel.contains("brainscape") || lowerLabel.contains("studysmarter") || lowerLabel.contains("kahoot") ||
-                lowerLabel.contains("quizizz") || lowerLabel.contains("exam") || lowerLabel.contains("testprep") ||
-                lowerLabel.contains("desmos") || lowerLabel.contains("geogebra") || lowerLabel.contains("calculator") ||
-                lowerLabel.contains("photomath") || lowerLabel.contains("docs") || lowerLabel.contains("sheets") ||
-                lowerLabel.contains("slides") || lowerLabel.contains("drive") || lowerLabel.contains("student") ||
-                lowerLabel.contains("acrobat") || lowerLabel.contains("scanner") || lowerLabel.contains("translate") ||
-                lowerLabel.contains("dictionary") || lowerLabel.contains("duolingo") || lowerLabel.contains("khan academy") ||
-                lowerLabel.contains("symbolab") || lowerLabel.contains("mathway") || lowerLabel.contains("chegg") ||
-                lowerLabel.contains("termux") || lowerLabel.contains("onedrive") || lowerLabel.contains("dropbox") ||
-                lowerLabel.contains("readera") || lowerLabel.contains("wps office")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isAiAppKeywords(String packageName, String label) {
-        if (packageName != null) {
-            String lower = packageName.toLowerCase();
-            if (lower.contains("chatgpt") || lower.contains("bard") || lower.contains("gemini") ||
-                lower.contains("claude") || lower.contains("copilot") || lower.contains("perplexity") ||
-                lower.contains("deepseek") || lower.contains(".poe") || lower.contains("grok")) {
-                return true;
-            }
-        }
-        if (label != null) {
-            String lowerLabel = label.toLowerCase();
-            if (lowerLabel.contains("chatgpt") || lowerLabel.contains("gemini") || lowerLabel.contains("claude") ||
-                lowerLabel.contains("copilot") || lowerLabel.contains("perplexity") || lowerLabel.contains("deepseek") ||
-                lowerLabel.contains("ai assistant") || lowerLabel.contains("poe") || lowerLabel.contains("grok")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isBrowserAppKeywords(String packageName) {
-        if (packageName == null) return false;
-        String lower = packageName.toLowerCase();
-        return lower.contains("chrome") || lower.contains("browser") || lower.contains("firefox") || lower.contains("opera") || lower.contains("brave") || lower.contains("duckduckgo");
-    }
-
-    private boolean isMusicAppKeywords(String packageName) {
-        if (packageName == null) return false;
-        String lower = packageName.toLowerCase();
-        return lower.contains("music") || lower.contains("spotify") || lower.contains("tidal") || lower.contains("deezer") || lower.contains("soundcloud") || lower.contains("aspiro");
-    }
-
-    private boolean isCameraAppKeywords(String packageName) {
-        if (packageName == null) return false;
-        String lower = packageName.toLowerCase();
-        return lower.contains("camera");
-    }
-
-    private boolean isKeyboardAppKeywords(String packageName) {
-        if (packageName == null) return false;
-        String lower = packageName.toLowerCase();
-        return lower.contains("inputmethod") || 
-            lower.contains("honeyboard") || 
-            lower.contains("keyboard") || 
-            lower.contains("gboard") || 
-            lower.contains("swiftkey") || 
-            lower.contains(".ime");
-    }
-
-    private boolean isHiddenInfrastructureApp(String packageName, String label) {
-        if (packageName != null) {
-            String lower = packageName.toLowerCase();
-            if (lower.contains("cameraextension") ||
-                lower.contains("extensionproxy") ||
-                lower.contains("lenslauncher") ||
-                lower.contains("aperturelenslauncher") ||
-                lower.contains("opensourcemusicplayer") ||
-                lower.contains("androidopensourcemusicplayer") ||
-                lower.contains("packageinstaller") ||
-                lower.contains(".installer") ||
-                lower.equals("com.android.vending") ||
-                lower.equals("com.google.android.feedback") ||
-                lower.equals("com.google.android.gms")) {
-                return true;
-            }
-        }
-        if (label != null) {
-            String lowerLabel = label.toLowerCase().replace(" ", "");
-            if (lowerLabel.contains("cameraextensionproxy") ||
-                lowerLabel.contains("cameraextension") ||
-                lowerLabel.contains("lenslauncher") ||
-                lowerLabel.contains("aperturelenslauncher") ||
-                lowerLabel.contains("aperaturelenslauncher") ||
-                lowerLabel.contains("androidopensourcemusicplayer") ||
-                lowerLabel.contains("opensourcemusicplayer") ||
-                lowerLabel.contains("packageinstaller") ||
-                lowerLabel.contains("googleplaystore") ||
-                lowerLabel.contains("playstore")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String getBase64Icon(Drawable icon) {
-        if (icon == null) return null;
-        try {
-            int targetDim = 96;
-            Bitmap bitmap = Bitmap.createBitmap(targetDim, targetDim, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
-            icon.setBounds(0, 0, targetDim, targetDim);
-            icon.draw(canvas);
-
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.PNG, 75, outputStream);
-            return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-    @PluginMethod
-    public void checkPermissions(PluginCall call) {
-        JSObject result = new JSObject();
-
-        result.put("isAdminActive", dpm.isAdminActive(adminComponent));
-        
-        boolean accessibilityEnabled = false;
-
-        // 1. Primary Check: Query active AccessibilityManager services
-        try {
-            AccessibilityManager am = (AccessibilityManager) getActivity().getSystemService(Context.ACCESSIBILITY_SERVICE);
-            if (am != null) {
-                List<AccessibilityServiceInfo> runningServices = 
-                    am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
-                if (runningServices != null) {
-                    String pkg = getActivity().getPackageName();
-                    for (AccessibilityServiceInfo s : runningServices) {
-                        if (s.getId() != null && s.getId().contains(pkg)) {
-                            accessibilityEnabled = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "AccessibilityManager query failed", e);
-        }
-
-        // 2. Secondary Check: Fallback to Settings.Secure
-        if (!accessibilityEnabled) {
-            try {
-                int enabled = android.provider.Settings.Secure.getInt(
-                    getActivity().getContentResolver(),
-                    android.provider.Settings.Secure.ACCESSIBILITY_ENABLED, 0);
-                if (enabled == 1) {
-                    String services = android.provider.Settings.Secure.getString(
-                        getActivity().getContentResolver(),
-                        android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-                    if (services != null) {
-                        String pkg = getActivity().getPackageName();
-                        if (services.contains(pkg + "/") || services.contains("LockAccessibilityService")) {
-                            accessibilityEnabled = true;
-                        }
-                    }
-                }
-            } catch (Exception e) {}
-        }
-        
-        result.put("isAccessibilityEnabled", accessibilityEnabled);
-
-        // 3. Detect Installation Source (ADB vs On-Device Package Installer)
-        String installSource = "On-Device Package Installer";
-        boolean isAdbInstall = false;
-        try {
-            PackageManager pm = getActivity().getPackageManager();
-            String installer = null;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                android.content.pm.InstallSourceInfo info = pm.getInstallSourceInfo(getActivity().getPackageName());
-                if (info != null) {
-                    installer = info.getInstallingPackageName();
-                    if (installer == null) {
-                        installer = info.getInitiatingPackageName();
-                    }
-                }
-            } else {
-                installer = pm.getInstallerPackageName(getActivity().getPackageName());
-            }
-
-            // Sideload via ADB has null or "com.android.shell" installer
-            if (installer == null || "com.android.shell".equals(installer)) {
-                isAdbInstall = true;
-                installSource = "ADB (PC Script / USB)";
-            } else if (installer.contains("vending")) {
-                installSource = "Google Play Store";
-            } else if (installer.contains("packageinstaller")) {
-                installSource = "On-Device Package Installer";
-            } else {
-                installSource = "Installer: " + installer;
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to query installer info", e);
-        }
-
-        // Check intent extra or prefs from qiezka.bat
-        try {
-            Intent launchIntent = getActivity().getIntent();
-            if (launchIntent != null && "adb".equals(launchIntent.getStringExtra("setup_source"))) {
-                isAdbInstall = true;
-                installSource = "ADB (PC Script / USB)";
-                prefs.edit().putBoolean("configured_via_adb", true).apply();
-            } else if (prefs.getBoolean("configured_via_adb", false)) {
-                isAdbInstall = true;
-                installSource = "ADB (PC Script / USB)";
-            }
-        } catch (Exception e) {}
-
-        result.put("isAdbInstall", isAdbInstall);
-        result.put("installSource", installSource);
-
-        boolean isBatteryIgnored = false;
-        try {
-            android.os.PowerManager pm = (android.os.PowerManager) getActivity().getSystemService(Context.POWER_SERVICE);
-            if (pm != null) {
-                isBatteryIgnored = pm.isIgnoringBatteryOptimizations(getActivity().getPackageName());
-            }
-        } catch (Exception e) {}
-        result.put("isBatteryOptimizationIgnored", isBatteryIgnored);
-
-        boolean isNotificationGranted = true;
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                isNotificationGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                    getActivity(), android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
-            } else {
-                isNotificationGranted = androidx.core.app.NotificationManagerCompat.from(getActivity()).areNotificationsEnabled();
-            }
-        } catch (Exception e) {}
-        result.put("isNotificationGranted", isNotificationGranted);
-
-        boolean isExactAlarmGranted = true;
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                android.app.AlarmManager am = (android.app.AlarmManager) getActivity().getSystemService(Context.ALARM_SERVICE);
-                if (am != null) {
-                    isExactAlarmGranted = am.canScheduleExactAlarms();
-                }
-            }
-        } catch (Exception e) {}
-        result.put("isExactAlarmGranted", isExactAlarmGranted);
-
-        call.resolve(result);
-    }
-
-    @PluginMethod
-    public void requestBatteryOptimization(PluginCall call) {
-        try {
-            android.os.PowerManager pm = (android.os.PowerManager) getActivity().getSystemService(Context.POWER_SERVICE);
-            if (pm != null && !pm.isIgnoringBatteryOptimizations(getActivity().getPackageName())) {
-                Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                intent.setData(Uri.parse("package:" + getActivity().getPackageName()));
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getActivity().startActivity(intent);
-            }
-            call.resolve();
-        } catch (Exception e) {
-            try {
-                Intent fallback = new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getActivity().startActivity(fallback);
-                call.resolve();
-            } catch (Exception ex) {
-                Log.e(TAG, "Failed to request battery optimization", ex);
-                call.reject("Failed to request battery optimization: " + ex.getMessage());
-            }
-        }
-    }
-
-    @PluginMethod
-    public void requestNotificationPermission(PluginCall call) {
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                if (getPermissionState("notifications") != PermissionState.GRANTED) {
-                    requestPermissionForAlias("notifications", call, "notificationPermCallback");
-                    return;
-                }
-            }
-            JSObject ret = new JSObject();
-            ret.put("granted", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            try {
-                Intent intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-                intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getActivity().getPackageName());
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getActivity().startActivity(intent);
-                call.resolve();
-            } catch (Exception ex) {
-                Log.e(TAG, "Failed to request notification permission", ex);
-                call.reject("Failed to request notification permission: " + ex.getMessage());
-            }
-        }
-    }
-
-    @PermissionCallback
-    private void notificationPermCallback(PluginCall call) {
-        JSObject ret = new JSObject();
-        ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
-        call.resolve(ret);
-    }
-
-    @PluginMethod
-    public void openNotificationSettings(PluginCall call) {
-        try {
-            Intent intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-            intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getActivity().getPackageName());
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getActivity().startActivity(intent);
-            call.resolve();
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to open notification settings", e);
-            call.reject("Failed to open notification settings: " + e.getMessage());
-        }
-    }
-    
-    @PluginMethod
-    public void openAccessibilitySettings(PluginCall call) {
-        android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-        getActivity().startActivity(intent);
-        call.resolve();
-    }
-
-    @PluginMethod
-    public void openAppInfo(PluginCall call) {
-        try {
-            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            intent.setData(android.net.Uri.parse("package:" + getActivity().getPackageName()));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getActivity().startActivity(intent);
-            call.resolve();
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to open app info", e);
-            call.reject("Failed to open app info: " + e.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void openDeviceAdminSettings(PluginCall call) {
-        try {
-            Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
-            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent);
-            intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                "Activate QIEZKA as Device Administrator to prevent uninstallation during lockdown.");
-            startActivityForResult(call, intent, "deviceAdminResult");
-        } catch (Exception e) {
-            Log.e(TAG, "Direct ADD_DEVICE_ADMIN failed, opening settings list", e);
-            openDeviceAdminListFallback(call);
-        }
-    }
-
-    @PluginMethod
-    public void openDeviceAdminList(PluginCall call) {
-        openDeviceAdminListFallback(call);
-    }
-
-    private void openDeviceAdminListFallback(PluginCall call) {
-        try {
-            Intent intent = new Intent("android.settings.DEVICE_ADMIN_SETTINGS");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getActivity().startActivity(intent);
-            call.resolve();
-        } catch (Exception e1) {
-            try {
-                Intent fallback = new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS);
-                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getActivity().startActivity(fallback);
-                call.resolve();
-            } catch (Exception ex) {
-                Log.e(TAG, "Failed to open device admin settings", ex);
-                call.reject("Failed to open device admin settings: " + ex.getMessage());
-            }
-        }
-    }
-
-    @ActivityCallback
-    private void deviceAdminResult(PluginCall call, ActivityResult result) {
-        if (call == null) return;
-        boolean isAdmin = dpm.isAdminActive(adminComponent);
-        JSObject ret = new JSObject();
-        ret.put("isAdminActive", isAdmin);
-        call.resolve(ret);
-    }
-
-    @PluginMethod
-    public void exportBackup(PluginCall call) {
-        String tempFileName = call.getString("tempFileName");
-        String defaultName = call.getString("defaultName", "backup.json");
-
-        if (tempFileName == null) {
-            call.reject("Must provide tempFileName");
-            return;
-        }
-
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("application/json");
-        intent.putExtra(Intent.EXTRA_TITLE, defaultName);
-
-        startActivityForResult(call, intent, "exportBackupResult");
-    }
-
-    @ActivityCallback
-    private void exportBackupResult(PluginCall call, ActivityResult result) {
-        if (result != null && result.getResultCode() == android.app.Activity.RESULT_OK) {
-            Intent data = result.getData();
-            if (data != null && data.getData() != null) {
-                Uri uri = data.getData();
-                String tempFileName = call.getString("tempFileName");
-                
-                try {
-                    File cacheDir = getContext().getCacheDir();
-                    File tempFile = new File(cacheDir, tempFileName);
-                    
-                    if (!tempFile.exists()) {
-                        call.reject("Temp file not found");
-                        return;
-                    }
-                    
-                    InputStream in = new FileInputStream(tempFile);
-                    OutputStream out = getContext().getContentResolver().openOutputStream(uri);
-                    
-                    byte[] buffer = new byte[8192];
-                    int read;
-                    while ((read = in.read(buffer)) != -1) {
-                        out.write(buffer, 0, read);
-                    }
-                    
-                    in.close();
-                    if (out != null) {
-                        out.flush();
-                        out.close();
-                    }
-                    
-                    tempFile.delete();
-                    
-                    JSObject ret = new JSObject();
-                    ret.put("success", true);
-                    call.resolve(ret);
-                } catch (Exception e) {
-                    call.reject("Failed to copy file: " + e.getMessage(), e);
-                }
-            } else {
-                call.reject("No URI returned");
-            }
-        } else {
-            JSObject ret = new JSObject();
-            ret.put("canceled", true);
-            call.resolve(ret);
-        }
-    }
-
-    @PluginMethod
-    public void importBackup(PluginCall call) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        String[] mimeTypes = {"application/json", "text/plain", "application/octet-stream", "*/*"};
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
-
-        startActivityForResult(call, intent, "importBackupResult");
-    }
-
-    @ActivityCallback
-    private void importBackupResult(PluginCall call, ActivityResult result) {
-        if (result != null && result.getResultCode() == android.app.Activity.RESULT_OK) {
-            Intent data = result.getData();
-            if (data != null && data.getData() != null) {
-                Uri uri = data.getData();
-                try (InputStream in = getContext().getContentResolver().openInputStream(uri);
-                     BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
-                    StringBuilder sb = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        sb.append(line).append("\n");
-                    }
-                    JSObject ret = new JSObject();
-                    ret.put("content", sb.toString());
-                    ret.put("success", true);
-                    call.resolve(ret);
-                } catch (Exception e) {
-                    Log.e(TAG, "Failed to read imported backup", e);
-                    call.reject("Failed to read file: " + e.getMessage(), e);
-                }
-            } else {
-                call.reject("No file selected");
-            }
-        } else {
-            JSObject ret = new JSObject();
-            ret.put("canceled", true);
-            call.resolve(ret);
-        }
-    }
-
-    public boolean hasBackListeners() {
-        return hasListeners("backPressed");
-    }
-
-    public void triggerBackPressed() {
-        notifyListeners("backPressed", new JSObject());
-    }
-
-    @PluginMethod
-    public void sanitizeImportApps(PluginCall call) {
-        try {
-            JSArray candidateArray = call.getArray("candidatePackageIds");
-            JSArray activeServicesArray = call.getArray("activeServices");
-
-            Set<String> activeServiceIds = new HashSet<>();
-            if (activeServicesArray != null) {
-                for (int i = 0; i < activeServicesArray.length(); i++) {
-                    try {
-                        String s = activeServicesArray.getString(i);
-                        if (s != null && !s.trim().isEmpty()) {
-                            activeServiceIds.add(s.trim().toLowerCase(Locale.US));
-                        }
-                    } catch (Exception ignore) {}
-                }
-            }
-
-            JSArray cleanPackageIds = new JSArray();
-            JSArray purgedPackageIds = new JSArray();
-            Set<String> processed = new HashSet<>();
-
-            if (candidateArray != null) {
-                PackageManager pm = getContext() != null ? getContext().getPackageManager() : null;
-                for (int i = 0; i < candidateArray.length(); i++) {
-                    String pkg;
-                    try {
-                        pkg = candidateArray.getString(i);
-                    } catch (Exception e) {
-                        continue;
-                    }
-                    if (pkg == null) continue;
-                    pkg = pkg.trim();
-                    if (pkg.isEmpty() || processed.contains(pkg)) continue;
-                    processed.add(pkg);
-
-                    ApplicationInfo appInfo = null;
-                    String appLabel = "";
-                    if (pm != null) {
-                        try {
-                            appInfo = pm.getApplicationInfo(pkg, 0);
-                            CharSequence lbl = pm.getApplicationLabel(appInfo);
-                            if (lbl != null) appLabel = lbl.toString();
-                        } catch (Exception ignore) {}
-                    }
-
-                    // Stage 1: Master Veto Gate (Settings, Device Admins, Bloatware)
-                    if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || AppClassifier.isStage1Bloat(pkg, appLabel)) {
-                        purgedPackageIds.put(pkg);
-                        continue;
-                    }
-
-                    // Check if package belongs to any Unified Policy Service (e.g. YouTube, AI) or is Google App
-                    if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || 
-                        pkg.equals("com.google.android.googlequicksearchbox") || 
-                        isAiAppKeywords(pkg, appLabel)) {
-                        // Unified service packages are governed exclusively by UnifiedPolicyRegistry
-                        // and must not inhabit the custom allowed apps whitelist.
-                        purgedPackageIds.put(pkg);
-                        continue;
-                    }
-
-                    // Check KnownDistracting & ForbiddenDistraction (Games, TikTok, Social, Screen shares, Coxeta)
-                    if (KnownDistracting.isKnownDistracting(pkg, appLabel) ||
-                        AppClassifier.isForbiddenDistraction(getContext(), pkg)) {
-                        purgedPackageIds.put(pkg);
-                        continue;
-                    }
-
-                    // Check Hidden Infrastructure (camera lens proxy, internal installers)
-                    if (isHiddenInfrastructureApp(pkg, appLabel)) {
-                        purgedPackageIds.put(pkg);
-                        continue;
-                    }
-
-                    // Check Home Launchers (launchers belong in Always Allowed by System, not custom allowedApps)
-                    if (LockAccessibilityService.isLauncherApp(getContext(), pkg)) {
-                        purgedPackageIds.put(pkg);
-                        continue;
-                    }
-
-                    // Stage 3 Universal System Gateway (SYSALLOW) Non-Rendering Principle:
-                    // Pre-installed OEM system utilities (Phone dialer, Clock, Calendar, Contacts, Email, STK)
-                    // are dynamically permitted by the OS during lockdown and must NOT render in custom allowedApps.
-                    if (appInfo != null && AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) {
-                        purgedPackageIds.put(pkg);
-                        continue;
-                    }
-
-                    // S3: Safe / Permitted Study App
-                    cleanPackageIds.put(pkg);
-                }
-            }
-
-            JSObject ret = new JSObject();
-            ret.put("cleanPackageIds", cleanPackageIds);
-            ret.put("purgedPackageIds", purgedPackageIds);
-            ret.put("purgedCount", purgedPackageIds.length());
-            call.resolve(ret);
-        } catch (Throwable t) {
-            Log.e(TAG, "sanitizeImportApps failed: " + t.getMessage(), t);
-            call.reject("Security sanitization error: " + t.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void exitToHome(PluginCall call) {
-        if (getActivity() != null) {
-            getActivity().runOnUiThread(() -> {
-                getActivity().moveTaskToBack(true);
-                call.resolve();
-            });
-        } else {
-            call.resolve();
-        }
-    }
-
-    @PluginMethod
-    public void showToast(PluginCall call) {
-        String message = call.getString("message", "");
-        if (message != null && !message.trim().isEmpty() && getActivity() != null) {
-            getActivity().runOnUiThread(() -> {
-                android.widget.Toast.makeText(getActivity(), message, android.widget.Toast.LENGTH_SHORT).show();
-                call.resolve();
-            });
-        } else {
-            call.resolve();
-        }
-    }
-
-    @PluginMethod
-    public void getInstalledLaunchers(PluginCall call) {
-        try {
-            JSArray launchers = InstalledLauncherDetector.getInstalledLaunchersJson(getContext());
-            JSObject ret = new JSObject();
-            ret.put("launchers", launchers);
-            call.resolve(ret);
-        } catch (Throwable t) {
-            Log.e(TAG, "getInstalledLaunchers failed: " + t.getMessage(), t);
-            call.reject("Failed to get installed launchers: " + t.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void setSelectedLauncher(PluginCall call) {
-        String pkg = call.getString("packageName");
-        String cls = call.getString("className", "");
-        if (pkg == null || pkg.trim().isEmpty()) {
-            call.reject("Package name is required");
-            return;
-        }
-        boolean ok = LauncherStateManager.saveSelectedLauncher(getContext(), pkg, cls);
-        if (ok) {
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("packageName", pkg);
-            ret.put("className", cls);
-            call.resolve(ret);
-        } else {
-            call.reject("Package is vetoed by Stage 1 security or invalid");
-        }
-    }
-
-    @PluginMethod
-    public void getSelectedLauncher(PluginCall call) {
-        try {
-            ComponentName launcher = LauncherStateManager.getSelectedLauncher(getContext());
-            JSObject ret = new JSObject();
-            if (launcher != null) {
-                ret.put("packageName", launcher.getPackageName());
-                ret.put("className", launcher.getClassName());
-            } else {
-                ret.put("packageName", null);
-                ret.put("className", null);
-            }
-            call.resolve(ret);
-        } catch (Throwable t) {
-            Log.e(TAG, "getSelectedLauncher failed: " + t.getMessage(), t);
-            call.reject("Failed to get selected launcher: " + t.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void getSirenStatus(PluginCall call) {
-        try {
-            PackageManager pm = getContext().getPackageManager();
-            boolean installed = false;
-            try {
-                pm.getPackageInfo("com.siren.homeproxy", 0);
-                installed = true;
-            } catch (PackageManager.NameNotFoundException ignored) {}
-
-            boolean isDefaultHome = false;
-            Intent homeIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
-            ResolveInfo defaultHome = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY);
-            if (defaultHome != null && defaultHome.activityInfo != null) {
-                isDefaultHome = "com.siren.homeproxy".equals(defaultHome.activityInfo.packageName);
-            }
-
-            JSObject ret = new JSObject();
-            ret.put("installed", installed);
-            ret.put("isDefaultHome", isDefaultHome);
-            ret.put("packageName", "com.siren.homeproxy");
-            call.resolve(ret);
-        } catch (Throwable t) {
-            Log.e(TAG, "getSirenStatus failed: " + t.getMessage(), t);
-            call.reject("Failed to get SIREN status: " + t.getMessage());
-        }
-    }
-
-    @PluginMethod
-    public void requestSirenHomeRole(PluginCall call) {
-        try {
-            Intent intent = new Intent("com.siren.homeproxy.ACTION_REQUEST_HOME");
-            intent.setPackage("com.siren.homeproxy");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            PackageManager pm = getContext().getPackageManager();
-            if (pm.resolveActivity(intent, 0) != null) {
-                getContext().startActivity(intent);
-                JSObject ret = new JSObject();
-                ret.put("success", true);
-                call.resolve(ret);
-            } else {
-                Intent homeSettings = new Intent(android.provider.Settings.ACTION_HOME_SETTINGS);
-                homeSettings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                try {
-                    getContext().startActivity(homeSettings);
-                } catch (Exception e) {
-                    Intent fallback = new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS);
-                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    getContext().startActivity(fallback);
-                }
-                JSObject ret = new JSObject();
-                ret.put("success", true);
-                call.resolve(ret);
-            }
-        } catch (Throwable t) {
-            Log.e(TAG, "requestSirenHomeRole failed: " + t.getMessage(), t);
-            call.reject("Failed to request SIREN home role: " + t.getMessage());
-        }
-    }
-}
+package com.uncode.app;
+
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
+import android.util.Base64;
+import android.util.Log;
+import java.io.ByteArrayOutputStream;
+
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+import org.json.JSONException;
+
+import android.content.Intent;
+import android.net.Uri;
+import android.net.VpnService;
+import android.app.Activity;
+import android.app.Notification;
+import android.os.Handler;
+import android.os.Looper;
+import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.OutputStream;
+import java.io.InputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import android.view.accessibility.AccessibilityManager;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.content.pm.ResolveInfo;
+import android.provider.MediaStore;
+import android.provider.Settings;
+import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.InputMethodInfo;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
+import com.getcapacitor.PermissionState;
+
+@CapacitorPlugin(
+    name = "LockPlugin",
+    permissions = {
+        @Permission(
+            alias = "notifications",
+            strings = { android.Manifest.permission.POST_NOTIFICATIONS }
+        )
+    }
+)
+public class LockPlugin extends Plugin {
+
+    private static final String TAG = "LockPlugin";
+    private static final String PREFS_NAME = "uncode_lock";
+    private DevicePolicyManager dpm;
+    private ComponentName adminComponent;
+    private SharedPreferences prefs;
+
+    @Override
+    public void load() {
+        dpm = (DevicePolicyManager) getActivity().getSystemService(Context.DEVICE_POLICY_SERVICE);
+        adminComponent = new ComponentName(getActivity(), AdminReceiver.class);
+        prefs = getActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    private Long getLongFromCall(PluginCall call, String key) {
+        if (call == null || call.getData() == null) return null;
+        Object val = call.getData().opt(key);
+        if (val instanceof Number) {
+            return ((Number) val).longValue();
+        }
+        if (val instanceof String) {
+            try {
+                return Long.parseLong((String) val);
+            } catch (NumberFormatException ignored) {}
+        }
+        return null;
+    }
+
+    @PluginMethod
+    public void startLockdown(PluginCall call) {
+        try {
+            JSArray allowedAppIds = call.getArray("allowedAppIds");
+            long durationMinutes = Math.min(90, Math.max(1, call.getInt("durationMinutes", 25)));
+            Long customEndTime = getLongFromCall(call, "lockEndTime");
+            String scheduleId = call.getString("scheduleId", "");
+
+            long timeOffset = prefs.getLong("time_offset", 0L);
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+
+            boolean currentlyActive = prefs.getBoolean("lockdown_active", false);
+            long existingEndTime = prefs.getLong("lock_end_time", 0L);
+
+            long lockEndTime;
+            if (customEndTime != null && customEndTime > 0) {
+                lockEndTime = customEndTime;
+            } else if (currentlyActive && existingEndTime > effectiveNow) {
+                // If lockdown is already active and still has time remaining, preserve ongoing timer!
+                lockEndTime = existingEndTime;
+                Log.i(TAG, "startLockdown: Preserving active ongoing lockEndTime=" + lockEndTime);
+            } else {
+                lockEndTime = effectiveNow + (durationMinutes * 60L * 1000L);
+            }
+
+            long maxAllowedEnd = effectiveNow + (durationMinutes * 60L * 1000L);
+            if (lockEndTime > maxAllowedEnd) {
+                Log.w(TAG, "startLockdown: Clamping lockEndTime (" + lockEndTime + ") to maxAllowedEnd (" + maxAllowedEnd + ")");
+                lockEndTime = maxAllowedEnd;
+            }
+
+            Set<String> whitelist = new HashSet<>();
+            whitelist.add(getActivity().getPackageName()); // Always allow QIEZKA itself
+
+            // Always silently whitelist all system and third-party keyboards so typing never bricks lockdown
+            try {
+                String defaultIme = Settings.Secure.getString(getActivity().getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+                if (defaultIme != null && defaultIme.contains("/")) {
+                    whitelist.add(defaultIme.split("/")[0]);
+                }
+                InputMethodManager imm = (InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    List<InputMethodInfo> imis = imm.getInputMethodList();
+                    if (imis != null) {
+                        for (InputMethodInfo imi : imis) {
+                            if (imi != null && imi.getPackageName() != null) {
+                                whitelist.add(imi.getPackageName());
+                            }
+                        }
+                    }
+                    List<InputMethodInfo> enabledImis = imm.getEnabledInputMethodList();
+                    if (enabledImis != null) {
+                        for (InputMethodInfo imi : enabledImis) {
+                            if (imi != null && imi.getPackageName() != null) {
+                                whitelist.add(imi.getPackageName());
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+
+            if (allowedAppIds != null) {
+                for (int i = 0; i < allowedAppIds.length(); i++) {
+                    String appId = allowedAppIds.getString(i);
+                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null) &&
+                        !UnifiedPolicyRegistry.isPackageRegisteredInAnyService(appId) &&
+                        !appId.equals("com.google.android.googlequicksearchbox")) {
+                        whitelist.add(appId);
+                    }
+                }
+            }
+
+            // Always exempt document pickers and media providers
+            whitelist.addAll(LockAccessibilityService.MEDIA_AND_FILE_EXEMPT);
+
+            // Save whitelist and timestamp for AccessibilityService
+            prefs.edit()
+                    .putStringSet("whitelist", whitelist)
+                    .putBoolean("lockdown_active", true)
+                    .putLong("lock_end_time", lockEndTime)
+                    .putString("active_schedule_id", scheduleId)
+                    .apply();
+
+            AppClassifier.clearCache();
+
+            // Schedule exact lock end auto-release alarm
+            AlarmReceiver.scheduleLockEndAlarm(getActivity(), lockEndTime, scheduleId);
+
+            // Start Floating Assistive Timer Ball Overlay
+            FloatingOverlayService.startService(getActivity(), lockEndTime, scheduleId);
+
+            // Start Local DNS Sinkhole if web protection mode is dns_vpn or dual_hybrid
+            String webMode = prefs.getString("web_protection_mode", "accessibility");
+            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
+                LocalDnsVpnService.startVpn(getActivity());
+            }
+
+
+
+            JSObject ret = new JSObject();
+            ret.put("lockEndTime", lockEndTime);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "startLockdown failed", e);
+            call.reject("startLockdown failed: " + e.getMessage());
+        }
+    }
+
+    public static void clearLockdownState(Context context) {
+        if (context == null) return;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String activeScheduleId = prefs.getString("active_schedule_id", "");
+            long timeOffset = prefs.getLong("time_offset", 0L);
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+            long currentLockEnd = prefs.getLong("lock_end_time", effectiveNow);
+
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putBoolean("lockdown_active", false)
+                    .putBoolean("consequence_active", false)
+                    .remove("consequence_schedule_id")
+                    .remove("lock_end_time")
+                    .remove("active_schedule_id")
+                    .putStringSet("whitelist", new HashSet<>());
+
+            if (activeScheduleId != null && !activeScheduleId.trim().isEmpty()) {
+                editor.putLong("last_completed_window_end_" + activeScheduleId, currentLockEnd);
+                Log.i(TAG, "clearLockdownState: recorded completed window for " + activeScheduleId + " until " + currentLockEnd);
+            }
+            editor.apply();
+            AppClassifier.clearCache();
+
+            // 1. Cancel Alarms
+            AlarmReceiver.cancelLockEndAlarm(context);
+
+            // 2. Stop Floating Overlay Service
+            FloatingOverlayService.stopService(context);
+
+            // 3. Stop Local DNS Sinkhole VPN
+            LocalDnsVpnService.stopVpn(context);
+
+            // 4. Cancel Notifications
+            android.app.NotificationManager nm = (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.cancel(AlarmReceiver.NOTIF_ID_STATUS);
+                nm.cancel(AlarmReceiver.NOTIF_ID_COMPLETED);
+            }
+
+
+
+            Log.i(TAG, "clearLockdownState: complete and authoritative unlock executed successfully");
+        } catch (Exception e) {
+            Log.e(TAG, "clearLockdownState error", e);
+        }
+    }
+
+    public static void startConsequenceState(Context context, String scheduleId, Set<String> whitelist) {
+        if (context == null) return;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putBoolean("consequence_active", true)
+                    .putBoolean("lockdown_active", true)
+                    .remove("lock_end_time");
+
+            if (scheduleId != null && !scheduleId.trim().isEmpty()) {
+                editor.putString("consequence_schedule_id", scheduleId);
+            }
+            if (whitelist != null && !whitelist.isEmpty()) {
+                Set<String> cleanWhitelist = new HashSet<>();
+                for (String p : whitelist) {
+                    if (p != null && !UnifiedPolicyRegistry.isPackageRegisteredInAnyService(p) &&
+                        !p.equals("com.google.android.googlequicksearchbox")) {
+                        cleanWhitelist.add(p);
+                    }
+                }
+                editor.putStringSet("whitelist", cleanWhitelist);
+            }
+            editor.apply();
+
+            // 1. Clear classification cache so whitelist takes immediate effect
+            AppClassifier.clearCache();
+
+
+
+            // 3. Start Local DNS Sinkhole VPN if configured
+            String webMode = prefs.getString("web_protection_mode", "accessibility");
+            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
+                LocalDnsVpnService.startVpn(context);
+            }
+
+            // 4. Start Floating Overlay Service with Consequence Mode indicator
+            FloatingOverlayService.startService(context, 0L, "Consequence Mode");
+
+            // 5. Post Status Notification
+            long timeOffset = prefs.getLong("time_offset", 0L);
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+            boolean inOperatingHours = LockAccessibilityService.isInOperatingHours(context, effectiveNow);
+            boolean isHardcore = "hardcore".equalsIgnoreCase(prefs.getString("operating_mode", "safemode"));
+            String notifMsg;
+            if (isHardcore) {
+                notifMsg = "Distracting apps remain restricted 24/7 (Hardcore Mode) until homework is rescheduled and passed.";
+            } else {
+                notifMsg = inOperatingHours
+                        ? "Distracting apps are restricted until homework is rescheduled and passed."
+                        : "Consequence active: Enforcement paused during daytime (resumes at 7:00 PM).";
+            }
+
+            AlarmReceiver.createNotificationChannels(context);
+            AlarmReceiver.showNotificationStatic(
+                    context,
+                    AlarmReceiver.NOTIF_ID_STATUS,
+                    AlarmReceiver.CHANNEL_ID_STATUS,
+                    "⚠️ QIEZKA Consequence Mode",
+                    notifMsg,
+                    Notification.PRIORITY_HIGH,
+                    true
+            );
+
+            // 6. Immediately kick user out if currently inside a blocked app (if in operating hours)
+            if (inOperatingHours) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    try {
+                        if (LockAccessibilityService.getInstance() != null) {
+                            String activePkg = LockAccessibilityService.getInstance().detectCurrentForegroundPackage();
+                            if (activePkg != null && LockAccessibilityService.getInstance().isPackageBlocked(activePkg)) {
+                                LockAccessibilityService.getInstance().enforceBlock(activePkg);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }, 300L);
+            }
+
+            Log.i(TAG, "startConsequenceState: complete consequence enforcement engaged (inOperatingHours=" + inOperatingHours + ")");
+        } catch (Exception e) {
+            Log.e(TAG, "startConsequenceState error", e);
+        }
+    }
+
+    @PluginMethod
+    public void endLockdown(PluginCall call) {
+        try {
+            clearLockdownState(getActivity());
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "endLockdown failed", e);
+            call.reject("endLockdown failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setConsequenceActive(PluginCall call) {
+        try {
+            boolean active = call.getBoolean("active", false);
+            String scheduleId = call.getString("scheduleId", "");
+
+            if (active) {
+                JSArray rawWhitelist = call.getArray("whitelist");
+                Set<String> whitelist = new HashSet<>();
+                if (rawWhitelist != null) {
+                    for (int i = 0; i < rawWhitelist.length(); i++) {
+                        whitelist.add(rawWhitelist.getString(i));
+                    }
+                }
+                startConsequenceState(getActivity(), scheduleId, whitelist);
+            } else {
+                clearLockdownState(getActivity());
+            }
+
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "setConsequenceActive failed", e);
+            call.reject("setConsequenceActive failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setOperatingMode(PluginCall call) {
+        try {
+            String mode = call.getString("mode", "safemode");
+            prefs.edit().putString("operating_mode", mode).apply();
+            Log.i(TAG, "Operating mode set to: " + mode);
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setOperatingMode failed", e);
+            call.reject("setOperatingMode failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setWebProtectionMode(PluginCall call) {
+        try {
+            String mode = call.getString("mode", "accessibility");
+            if ("off".equalsIgnoreCase(mode)) {
+                mode = "accessibility"; // Milestone 18: No unrestricted mode; baseline protection mandatory
+            } else if ("dns_vpn".equalsIgnoreCase(mode)) {
+                mode = "dual_hybrid"; // Standalone dns_vpn streamlined to dual_hybrid
+            }
+            prefs.edit().putString("web_protection_mode", mode).apply();
+            Log.i(TAG, "Web protection mode set to: " + mode);
+
+            boolean isLockActive = prefs.getBoolean("lockdown_active", false) || prefs.getBoolean("consequence_active", false);
+            if (isLockActive) {
+                if ("dns_vpn".equalsIgnoreCase(mode) || "dual_hybrid".equalsIgnoreCase(mode)) {
+                    LocalDnsVpnService.startVpn(getActivity());
+                } else {
+                    LocalDnsVpnService.stopVpn(getActivity());
+                }
+            } else {
+                LocalDnsVpnService.stopVpn(getActivity());
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setWebProtectionMode failed", e);
+            call.reject("setWebProtectionMode failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setAllowYoutube(PluginCall call) {
+        try {
+            boolean allow = Boolean.TRUE.equals(call.getBoolean("allow", false));
+            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
+            if (allow) {
+                activeServices.add("youtube");
+            } else {
+                activeServices.remove("youtube");
+            }
+
+            Set<String> domains = UnifiedPolicyRegistry.getDomainsForServices(activeServices);
+
+            prefs.edit()
+                .putBoolean("allow_youtube", allow)
+                .putStringSet("active_unified_services", activeServices)
+                .putStringSet("allowed_domains", domains)
+                .apply();
+
+            AppClassifier.clearCache();
+            WebClassifier.clearCache();
+            Log.i(TAG, "Allow YouTube set to: " + allow + " (active_unified_services=" + activeServices + ")");
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setAllowYoutube failed", e);
+            call.reject("setAllowYoutube failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setServicePolicy(PluginCall call) {
+        try {
+            String serviceId = call.getString("serviceId", "");
+            if (serviceId == null || serviceId.trim().isEmpty()) {
+                call.reject("serviceId is required");
+                return;
+            }
+            String key = serviceId.toLowerCase(Locale.US).trim();
+            boolean allowed = Boolean.TRUE.equals(call.getBoolean("allowed", false));
+
+            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
+            if (allowed) {
+                activeServices.add(key);
+            } else {
+                activeServices.remove(key);
+            }
+
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.putStringSet("active_unified_services", activeServices);
+
+            if ("youtube".equals(key)) {
+                editor.putBoolean("allow_youtube", allowed);
+            }
+
+            // Synchronize active domains
+            Set<String> domains = UnifiedPolicyRegistry.getDomainsForServices(activeServices);
+            editor.putStringSet("allowed_domains", domains);
+            editor.apply();
+
+            AppClassifier.clearCache();
+            WebClassifier.clearCache();
+
+            Log.i(TAG, "Unified service policy updated: " + key + "=" + allowed + " (active=" + activeServices + ")");
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            JSArray activeArr = new JSArray();
+            for (String s : activeServices) {
+                activeArr.put(s);
+            }
+            ret.put("activeServices", activeArr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setServicePolicy failed", e);
+            call.reject("setServicePolicy failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getActiveServices(PluginCall call) {
+        try {
+            Set<String> activeServices = new HashSet<>(prefs.getStringSet("active_unified_services", new HashSet<>()));
+            if (prefs.getBoolean("allow_youtube", false)) {
+                activeServices.add("youtube");
+            }
+            JSObject ret = new JSObject();
+            JSArray activeArr = new JSArray();
+            for (String s : activeServices) {
+                activeArr.put(s);
+            }
+            ret.put("activeServices", activeArr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "getActiveServices failed", e);
+            call.reject("getActiveServices failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getRegisteredServices(PluginCall call) {
+        try {
+            JSArray servicesArr = new JSArray();
+            for (UnifiedService svc : UnifiedPolicyRegistry.SERVICES.values()) {
+                JSObject obj = new JSObject();
+                obj.put("id", svc.getId());
+                obj.put("name", svc.getDisplayName());
+                obj.put("displayName", svc.getDisplayName());
+                obj.put("description", svc.getDescription());
+                obj.put("badge", svc.getBadge());
+                obj.put("iconName", svc.getIconName());
+                obj.put("themeColor", svc.getThemeColor());
+
+                JSArray pkgArr = new JSArray();
+                for (String p : svc.getPackages()) {
+                    pkgArr.put(p);
+                }
+                obj.put("packages", pkgArr);
+
+                JSArray domainArr = new JSArray();
+                for (String d : svc.getDomains()) {
+                    domainArr.put(d);
+                }
+                obj.put("domains", domainArr);
+
+                servicesArr.put(obj);
+            }
+            JSObject ret = new JSObject();
+            ret.put("services", servicesArr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "getRegisteredServices failed", e);
+            call.reject("getRegisteredServices failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setBlockWebGames(PluginCall call) {
+        try {
+            // Milestone 18: Web games blocking is permanently active and cannot be turned off
+            prefs.edit().putBoolean("block_web_games", true).apply();
+            Log.i(TAG, "Block web games locked to: true");
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setBlockWebGames failed", e);
+            call.reject("setBlockWebGames failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setDnsFilterProfile(PluginCall call) {
+        try {
+            // Upstream DNS is handled on-device with WebClassifier
+            prefs.edit().putString("dns_filter_profile", "webclassifier").apply();
+            Log.i(TAG, "DNS filter profile set to WebClassifier");
+            LocalDnsVpnService.updateNotification(getActivity());
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setDnsFilterProfile failed", e);
+            call.reject("setDnsFilterProfile failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setEnforceSafeSearch(PluginCall call) {
+        try {
+            boolean enforce = Boolean.TRUE.equals(call.getBoolean("enforce", true));
+            prefs.edit().putBoolean("enforce_safesearch", enforce).apply();
+            Log.i(TAG, "Enforce SafeSearch set to: " + enforce);
+            LocalDnsVpnService.updateNotification(getActivity());
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "setEnforceSafeSearch failed", e);
+            call.reject("setEnforceSafeSearch failed: " + e.getMessage());
+        }
+    }
+
+
+    @PluginMethod
+    public void requestVpnPermission(PluginCall call) {
+        try {
+            Intent vpnIntent = VpnService.prepare(getActivity());
+            if (vpnIntent == null) {
+                JSObject ret = new JSObject();
+                ret.put("granted", true);
+                call.resolve(ret);
+            } else {
+                startActivityForResult(call, vpnIntent, "vpnPermissionCallback");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "requestVpnPermission failed", e);
+            JSObject ret = new JSObject();
+            ret.put("granted", false);
+            call.resolve(ret);
+        }
+    }
+
+    @ActivityCallback
+    private void vpnPermissionCallback(PluginCall call, ActivityResult result) {
+        JSObject ret = new JSObject();
+        boolean granted = (result != null && result.getResultCode() == Activity.RESULT_OK);
+        ret.put("granted", granted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getLockStatus(PluginCall call) {
+        try {
+            boolean isActive = prefs.getBoolean("lockdown_active", false);
+            boolean isConsequence = prefs.getBoolean("consequence_active", false);
+            long lockEndTime = prefs.getLong("lock_end_time", 0L);
+            String scheduleId = prefs.getString("active_schedule_id", "");
+
+            long timeOffset = prefs.getLong("time_offset", 0L);
+            long effectiveNow = System.currentTimeMillis() + timeOffset;
+
+            // Native timestamp auto-expire only when NOT in consequence mode
+            if (isActive && !isConsequence && lockEndTime > 0 && effectiveNow >= lockEndTime) {
+                isActive = false;
+                clearLockdownState(getActivity());
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("isLockActive", isActive);
+            ret.put("isConsequenceActive", isConsequence);
+            ret.put("lockEndTime", lockEndTime);
+            ret.put("activeScheduleId", scheduleId);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "getLockStatus failed", e);
+            call.reject("getLockStatus failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void syncTimeOffset(PluginCall call) {
+        try {
+            Long timeOffset = getLongFromCall(call, "timeOffset");
+            if (timeOffset == null) timeOffset = 0L;
+            prefs.edit().putLong("time_offset", timeOffset).apply();
+            Log.i(TAG, "Synchronized timeOffset to native: " + timeOffset + "ms");
+
+            ScheduleManager.rescheduleAll(getActivity());
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "syncTimeOffset failed", e);
+            call.reject("syncTimeOffset failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void syncSchedules(PluginCall call) {
+        try {
+            JSArray schedulesArr = call.getArray("schedules");
+            JSArray allowedAppIds = call.getArray("allowedAppIds");
+
+            String schedulesJson = schedulesArr != null ? schedulesArr.toString() : "[]";
+
+            Set<String> whitelist = new HashSet<>();
+            whitelist.add(getActivity().getPackageName());
+            if (allowedAppIds != null) {
+                for (int i = 0; i < allowedAppIds.length(); i++) {
+                    String appId = allowedAppIds.getString(i);
+                    if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null)) {
+                        whitelist.add(appId);
+                    }
+                }
+            }
+
+            ScheduleManager.syncSchedules(getActivity(), schedulesJson, whitelist);
+            AppClassifier.clearCache();
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "syncSchedules failed", e);
+            call.reject("syncSchedules failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getInstalledApps(PluginCall call) {
+        Runnable task = () -> {
+            try {
+                PackageManager pm = getActivity().getPackageManager();
+                String myPkg = getActivity().getPackageName();
+
+                // 1. Single-pass pre-queries (run once, not inside any package loop)
+                Set<String> browserPackages = new HashSet<>();
+                try {
+                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"));
+                    browserIntent.addCategory(Intent.CATEGORY_BROWSABLE);
+                    List<ResolveInfo> bList = pm.queryIntentActivities(browserIntent, 0);
+                    for (ResolveInfo r : bList) {
+                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
+                            browserPackages.add(r.activityInfo.packageName);
+                        }
+                    }
+                } catch (Exception ignore) {}
+
+                Set<String> musicPackages = new HashSet<>();
+                try {
+                    Intent musicIntent = new Intent(Intent.ACTION_MAIN);
+                    musicIntent.addCategory(Intent.CATEGORY_APP_MUSIC);
+                    List<ResolveInfo> mList = pm.queryIntentActivities(musicIntent, 0);
+                    for (ResolveInfo r : mList) {
+                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
+                            musicPackages.add(r.activityInfo.packageName);
+                        }
+                    }
+                    Intent audioIntent = new Intent(Intent.ACTION_VIEW);
+                    audioIntent.setDataAndType(Uri.parse("file://test.mp3"), "audio/*");
+                    List<ResolveInfo> aList = pm.queryIntentActivities(audioIntent, 0);
+                    for (ResolveInfo r : aList) {
+                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
+                            musicPackages.add(r.activityInfo.packageName);
+                        }
+                    }
+                } catch (Exception ignore) {}
+
+                Set<String> cameraPackages = new HashSet<>();
+                try {
+                    Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                    List<ResolveInfo> cList = pm.queryIntentActivities(cameraIntent, 0);
+                    for (ResolveInfo r : cList) {
+                        if (r.activityInfo != null && r.activityInfo.packageName != null) {
+                            cameraPackages.add(r.activityInfo.packageName);
+                        }
+                    }
+                } catch (Exception ignore) {}
+
+                Set<String> keyboardPackages = new HashSet<>();
+                try {
+                    String defaultIme = Settings.Secure.getString(getActivity().getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+                    if (defaultIme != null && defaultIme.contains("/")) {
+                        keyboardPackages.add(defaultIme.split("/")[0]);
+                    }
+                    InputMethodManager imm = (InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) {
+                        List<InputMethodInfo> imis = imm.getInputMethodList();
+                        if (imis != null) {
+                            for (InputMethodInfo imi : imis) {
+                                if (imi != null && imi.getPackageName() != null) {
+                                    keyboardPackages.add(imi.getPackageName());
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignore) {}
+
+                // 2. Query user-launchable apps directly to avoid iterating hundreds of hidden system daemons
+                Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
+                launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+                List<ResolveInfo> launcherList = pm.queryIntentActivities(launcherIntent, 0);
+
+                Set<String> candidatePackages = new LinkedHashSet<>();
+                for (ResolveInfo r : launcherList) {
+                    if (r.activityInfo != null && r.activityInfo.packageName != null) {
+                        candidatePackages.add(r.activityInfo.packageName);
+                    }
+                }
+                candidatePackages.addAll(browserPackages);
+                candidatePackages.addAll(musicPackages);
+                candidatePackages.addAll(cameraPackages);
+
+                JSArray apps = new JSArray();
+                Set<String> addedPackages = new HashSet<>();
+
+                for (String pkg : candidatePackages) {
+                    if (pkg == null || pkg.equals(myPkg) || addedPackages.contains(pkg)) {
+                        continue;
+                    }
+                    if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || 
+                        AppClassifier.isStage1Bloat(pkg, null) || 
+                        AppClassifier.isForbiddenDistraction(getActivity(), pkg) ||
+                        KnownDistracting.isKnownDistracting(pkg)) {
+                        continue; // Strictly omit anti-tamper, bloatware, games, and social media from candidate selection
+                    }
+                    boolean isBaselineSafe = KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg);
+                    if (!isBaselineSafe && (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || isAiAppKeywords(pkg, null))) {
+                        continue; // Governed strictly via Unified Service Policy Engine in Settings
+                    }
+                    if (keyboardPackages.contains(pkg) || isKeyboardAppKeywords(pkg)) {
+                        continue; // Keyboards are silently exempted in lockdown, hidden from whitelist UI
+                    }
+
+                    try {
+                        ApplicationInfo appInfo = pm.getApplicationInfo(pkg, 0);
+                        String appLabel = pm.getApplicationLabel(appInfo).toString();
+
+                        if (isHiddenInfrastructureApp(pkg, appLabel)) {
+                            continue; // Hide camera extension proxies, aperture lens launchers, etc.
+                        }
+                        if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || 
+                            AppClassifier.isStage1Bloat(pkg, appLabel) || 
+                            KnownDistracting.isKnownDistracting(pkg, appLabel) || 
+                            (!isBaselineSafe && isAiAppKeywords(pkg, appLabel))) {
+                            continue;
+                        }
+
+                        boolean isLauncher = LockAccessibilityService.isLauncherApp(getActivity(), pkg);
+                        if (isLauncher) {
+                            continue; // Home Launchers have their own dedicated section in Settings; do not display in Allowed Apps
+                        }
+
+                        // Stage 3 Universal System Gateway (SYSALLOW) UI Non-Rendering Principle:
+                        // Anything that passed Stage 3 as allow is already allowed dynamically by the OS during lockdown.
+                        // Do NOT render them at the UI!
+                        if (AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) {
+                            continue;
+                        }
+
+                        boolean isHardcoded = KnownSafe.isHardcodedApp(getActivity(), appInfo, pkg, appLabel);
+
+                        // Strict Whitelist Invariant: User can ONLY whitelist apps that are in KnownSafe
+                        // or detected as safe by the Secondary App Classifier.
+                        if (!isHardcoded && !isBaselineSafe && AppClassifier.isPackageBlocked(getActivity(), pkg, null)) {
+                            continue; // Omit unverified or distracting third-party apps
+                        }
+
+                        boolean isBrowser = browserPackages.contains(pkg) || isBrowserAppKeywords(pkg);
+                        boolean isMusic = musicPackages.contains(pkg) || isMusicAppKeywords(pkg);
+                        boolean isCamera = cameraPackages.contains(pkg) || isCameraAppKeywords(pkg);
+                        boolean isAuthenticator = isAuthenticatorAppKeywords(pkg, appLabel);
+                        boolean isNotes = isNotesAppKeywords(pkg, appLabel);
+                        boolean isStudentApp = isBaselineSafe || isStudentAppKeywords(pkg, appLabel);
+                        boolean isAi = isAiAppKeywords(pkg, appLabel);
+                        boolean isMessaging = AppClassifier.isMessagingApp(pkg, appLabel);
+
+                        addedPackages.add(pkg);
+
+                        JSObject app = new JSObject();
+                        app.put("id", pkg);
+                        app.put("name", appLabel);
+
+                        boolean isSimOrCarrier = LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
+
+                        String iconName = "LayoutGrid";
+                        if (isLauncher) iconName = "Home";
+                        else if (isBrowser) iconName = "Globe";
+                        else if (isMusic) iconName = "Music";
+                        else if (isCamera) iconName = "Camera";
+                        else if (isAuthenticator) iconName = "ShieldCheck";
+                        else if (isAi) iconName = "Sparkles";
+                        else if (isNotes) iconName = "FileText";
+                        else if (isStudentApp) iconName = "BookOpen";
+                        else if (isMessaging || isSimOrCarrier) iconName = "MessageSquare";
+
+                        boolean isAutoAllowed = !isHardcoded && !isLauncher && (isMessaging || isStudentApp);
+
+                        app.put("iconName", iconName);
+                        app.put("isHardcoded", isHardcoded);
+                        app.put("isLauncher", isLauncher);
+                        app.put("isAutoAllowed", isAutoAllowed);
+                        app.put("isMessaging", isMessaging);
+                        app.put("isBrowser", isBrowser);
+                        app.put("isMusic", isMusic);
+                        app.put("isCamera", isCamera);
+                        app.put("isAuthenticator", isAuthenticator);
+                        app.put("isNotes", isNotes);
+                        app.put("isStudentApp", isStudentApp);
+                        app.put("isAi", isAi);
+
+                        try {
+                            Drawable icon = pm.getApplicationIcon(appInfo);
+                            String base64Icon = getBase64Icon(icon);
+                            if (base64Icon != null) {
+                                app.put("iconBase64", base64Icon);
+                            }
+                        } catch (Exception ignore) {}
+
+                        apps.put(app);
+                    } catch (PackageManager.NameNotFoundException ignore) {}
+                }
+
+                JSObject result = new JSObject();
+                result.put("apps", apps);
+                call.resolve(result);
+            } catch (Exception e) {
+                Log.e(TAG, "getInstalledApps failed", e);
+                call.reject("getInstalledApps failed: " + e.getMessage());
+            }
+        };
+
+        if (getBridge() != null) {
+            getBridge().execute(task);
+        } else {
+            new Thread(task).start();
+        }
+    }
+
+    private boolean isAuthenticatorAppKeywords(String packageName, String label) {
+        if (packageName != null) {
+            String lower = packageName.toLowerCase();
+            if (lower.contains("authenticator") || lower.contains("twofas") || lower.contains("duomobile") || lower.contains("yubioath")) {
+                return true;
+            }
+        }
+        if (label != null) {
+            String lowerLabel = label.toLowerCase();
+            if (lowerLabel.contains("authenticator") || lowerLabel.contains("2fa") || lowerLabel.contains("otp")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isNotesAppKeywords(String packageName, String label) {
+        if (packageName != null) {
+            String lower = packageName.toLowerCase();
+            if (lower.contains("keep") || lower.contains("onenote") || lower.contains("obsidian") ||
+                lower.contains("notion") || lower.contains("notepad") || lower.contains(".notes") ||
+                lower.contains("memo") || lower.contains("simplenote") || lower.contains("colornote")) {
+                return true;
+            }
+        }
+        if (label != null) {
+            String lowerLabel = label.toLowerCase();
+            if (lowerLabel.contains("notes") || lowerLabel.contains("notepad") || lowerLabel.contains("memo") ||
+                lowerLabel.contains("keep") || lowerLabel.contains("onenote") || lowerLabel.contains("notion") ||
+                lowerLabel.contains("obsidian") || lowerLabel.contains("journal")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isStudentAppKeywords(String packageName, String label) {
+        if (packageName != null) {
+            String lower = packageName.toLowerCase();
+            if (lower.contains("classroom") || lower.contains("canvas") || lower.contains("blackboard") ||
+                lower.contains("schoology") || lower.contains("quizlet") || lower.contains("anki") ||
+                lower.contains("gizmo") || lower.contains("saveall") || lower.contains("quiz") ||
+                lower.contains("flashcard") || lower.contains("cram") || lower.contains("brainscape") ||
+                lower.contains("studysmarter") || lower.contains("kahoot") || lower.contains("quizizz") ||
+                lower.contains("desmos") || lower.contains("geogebra") || lower.contains("calculator") ||
+                lower.contains("docs.editors") || (lower.contains("google") && lower.contains("docs")) ||
+                lower.contains("photomath") || lower.contains("wolfram") || lower.contains("adobe.reader") ||
+                lower.contains("camscanner") || lower.contains("translate") || lower.contains("deepl") ||
+                lower.contains("duolingo") || lower.contains("khanacademy") || lower.contains("symbolab") ||
+                lower.contains("mathway") || lower.contains("chegg") || lower.contains("termux") ||
+                lower.contains("pydroid") || lower.contains("skydrive") || lower.contains("dropbox") ||
+                lower.contains("readera") || lower.contains("wps")) {
+                return true;
+            }
+        }
+        if (label != null) {
+            String lowerLabel = label.toLowerCase();
+            if (lowerLabel.contains("classroom") || lowerLabel.contains("canvas") || lowerLabel.contains("blackboard") ||
+                lowerLabel.contains("schoology") || lowerLabel.contains("quizlet") || lowerLabel.contains("anki") ||
+                lowerLabel.contains("gizmo") || lowerLabel.contains("quiz") || lowerLabel.contains("quizzes") ||
+                lowerLabel.contains("flashcard") || lowerLabel.contains("flashcards") || lowerLabel.contains("tutor") ||
+                lowerLabel.contains("brainscape") || lowerLabel.contains("studysmarter") || lowerLabel.contains("kahoot") ||
+                lowerLabel.contains("quizizz") || lowerLabel.contains("exam") || lowerLabel.contains("testprep") ||
+                lowerLabel.contains("desmos") || lowerLabel.contains("geogebra") || lowerLabel.contains("calculator") ||
+                lowerLabel.contains("photomath") || lowerLabel.contains("docs") || lowerLabel.contains("sheets") ||
+                lowerLabel.contains("slides") || lowerLabel.contains("drive") || lowerLabel.contains("student") ||
+                lowerLabel.contains("acrobat") || lowerLabel.contains("scanner") || lowerLabel.contains("translate") ||
+                lowerLabel.contains("dictionary") || lowerLabel.contains("duolingo") || lowerLabel.contains("khan academy") ||
+                lowerLabel.contains("symbolab") || lowerLabel.contains("mathway") || lowerLabel.contains("chegg") ||
+                lowerLabel.contains("termux") || lowerLabel.contains("onedrive") || lowerLabel.contains("dropbox") ||
+                lowerLabel.contains("readera") || lowerLabel.contains("wps office")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isAiAppKeywords(String packageName, String label) {
+        if (packageName != null) {
+            String lower = packageName.toLowerCase();
+            if (lower.contains("chatgpt") || lower.contains("bard") || lower.contains("gemini") ||
+                lower.contains("claude") || lower.contains("copilot") || lower.contains("perplexity") ||
+                lower.contains("deepseek") || lower.contains(".poe") || lower.contains("grok")) {
+                return true;
+            }
+        }
+        if (label != null) {
+            String lowerLabel = label.toLowerCase();
+            if (lowerLabel.contains("chatgpt") || lowerLabel.contains("gemini") || lowerLabel.contains("claude") ||
+                lowerLabel.contains("copilot") || lowerLabel.contains("perplexity") || lowerLabel.contains("deepseek") ||
+                lowerLabel.contains("ai assistant") || lowerLabel.contains("poe") || lowerLabel.contains("grok")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isBrowserAppKeywords(String packageName) {
+        if (packageName == null) return false;
+        String lower = packageName.toLowerCase();
+        return lower.contains("chrome") || lower.contains("browser") || lower.contains("firefox") || lower.contains("opera") || lower.contains("brave") || lower.contains("duckduckgo");
+    }
+
+    private boolean isMusicAppKeywords(String packageName) {
+        if (packageName == null) return false;
+        String lower = packageName.toLowerCase();
+        return lower.contains("music") || lower.contains("spotify") || lower.contains("tidal") || lower.contains("deezer") || lower.contains("soundcloud") || lower.contains("aspiro");
+    }
+
+    private boolean isCameraAppKeywords(String packageName) {
+        if (packageName == null) return false;
+        String lower = packageName.toLowerCase();
+        return lower.contains("camera");
+    }
+
+    private boolean isKeyboardAppKeywords(String packageName) {
+        if (packageName == null) return false;
+        String lower = packageName.toLowerCase();
+        return lower.contains("inputmethod") || 
+            lower.contains("honeyboard") || 
+            lower.contains("keyboard") || 
+            lower.contains("gboard") || 
+            lower.contains("swiftkey") || 
+            lower.contains(".ime");
+    }
+
+    private boolean isHiddenInfrastructureApp(String packageName, String label) {
+        if (packageName != null) {
+            String lower = packageName.toLowerCase();
+            if (lower.contains("cameraextension") ||
+                lower.contains("extensionproxy") ||
+                lower.contains("lenslauncher") ||
+                lower.contains("aperturelenslauncher") ||
+                lower.contains("opensourcemusicplayer") ||
+                lower.contains("androidopensourcemusicplayer") ||
+                lower.contains("packageinstaller") ||
+                lower.contains(".installer") ||
+                lower.equals("com.android.vending") ||
+                lower.equals("com.google.android.feedback") ||
+                lower.equals("com.google.android.gms")) {
+                return true;
+            }
+        }
+        if (label != null) {
+            String lowerLabel = label.toLowerCase().replace(" ", "");
+            if (lowerLabel.contains("cameraextensionproxy") ||
+                lowerLabel.contains("cameraextension") ||
+                lowerLabel.contains("lenslauncher") ||
+                lowerLabel.contains("aperturelenslauncher") ||
+                lowerLabel.contains("aperaturelenslauncher") ||
+                lowerLabel.contains("androidopensourcemusicplayer") ||
+                lowerLabel.contains("opensourcemusicplayer") ||
+                lowerLabel.contains("packageinstaller") ||
+                lowerLabel.contains("googleplaystore") ||
+                lowerLabel.contains("playstore")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String getBase64Icon(Drawable icon) {
+        if (icon == null) return null;
+        try {
+            int targetDim = 96;
+            Bitmap bitmap = Bitmap.createBitmap(targetDim, targetDim, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            icon.setBounds(0, 0, targetDim, targetDim);
+            icon.draw(canvas);
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.PNG, 75, outputStream);
+            return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    @PluginMethod
+    public void checkPermissions(PluginCall call) {
+        JSObject result = new JSObject();
+
+        result.put("isAdminActive", dpm.isAdminActive(adminComponent));
+        
+        boolean accessibilityEnabled = false;
+
+        // 1. Primary Check: Query active AccessibilityManager services
+        try {
+            AccessibilityManager am = (AccessibilityManager) getActivity().getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (am != null) {
+                List<AccessibilityServiceInfo> runningServices = 
+                    am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+                if (runningServices != null) {
+                    String pkg = getActivity().getPackageName();
+                    for (AccessibilityServiceInfo s : runningServices) {
+                        if (s.getId() != null && s.getId().contains(pkg)) {
+                            accessibilityEnabled = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "AccessibilityManager query failed", e);
+        }
+
+        // 2. Secondary Check: Fallback to Settings.Secure
+        if (!accessibilityEnabled) {
+            try {
+                int enabled = android.provider.Settings.Secure.getInt(
+                    getActivity().getContentResolver(),
+                    android.provider.Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+                if (enabled == 1) {
+                    String services = android.provider.Settings.Secure.getString(
+                        getActivity().getContentResolver(),
+                        android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+                    if (services != null) {
+                        String pkg = getActivity().getPackageName();
+                        if (services.contains(pkg + "/") || services.contains("LockAccessibilityService")) {
+                            accessibilityEnabled = true;
+                        }
+                    }
+                }
+            } catch (Exception e) {}
+        }
+        
+        result.put("isAccessibilityEnabled", accessibilityEnabled);
+
+        // 3. Detect Installation Source (ADB vs On-Device Package Installer)
+        String installSource = "On-Device Package Installer";
+        boolean isAdbInstall = false;
+        try {
+            PackageManager pm = getActivity().getPackageManager();
+            String installer = null;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                android.content.pm.InstallSourceInfo info = pm.getInstallSourceInfo(getActivity().getPackageName());
+                if (info != null) {
+                    installer = info.getInstallingPackageName();
+                    if (installer == null) {
+                        installer = info.getInitiatingPackageName();
+                    }
+                }
+            } else {
+                installer = pm.getInstallerPackageName(getActivity().getPackageName());
+            }
+
+            // Sideload via ADB has null or "com.android.shell" installer
+            if (installer == null || "com.android.shell".equals(installer)) {
+                isAdbInstall = true;
+                installSource = "ADB (PC Script / USB)";
+            } else if (installer.contains("vending")) {
+                installSource = "Google Play Store";
+            } else if (installer.contains("packageinstaller")) {
+                installSource = "On-Device Package Installer";
+            } else {
+                installSource = "Installer: " + installer;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to query installer info", e);
+        }
+
+        // Check intent extra or prefs from qiezka.bat
+        try {
+            Intent launchIntent = getActivity().getIntent();
+            if (launchIntent != null && "adb".equals(launchIntent.getStringExtra("setup_source"))) {
+                isAdbInstall = true;
+                installSource = "ADB (PC Script / USB)";
+                prefs.edit().putBoolean("configured_via_adb", true).apply();
+            } else if (prefs.getBoolean("configured_via_adb", false)) {
+                isAdbInstall = true;
+                installSource = "ADB (PC Script / USB)";
+            }
+        } catch (Exception e) {}
+
+        result.put("isAdbInstall", isAdbInstall);
+        result.put("installSource", installSource);
+
+        boolean isBatteryIgnored = false;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getActivity().getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                isBatteryIgnored = pm.isIgnoringBatteryOptimizations(getActivity().getPackageName());
+            }
+        } catch (Exception e) {}
+        result.put("isBatteryOptimizationIgnored", isBatteryIgnored);
+
+        boolean isNotificationGranted = true;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                isNotificationGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    getActivity(), android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+            } else {
+                isNotificationGranted = androidx.core.app.NotificationManagerCompat.from(getActivity()).areNotificationsEnabled();
+            }
+        } catch (Exception e) {}
+        result.put("isNotificationGranted", isNotificationGranted);
+
+        boolean isExactAlarmGranted = true;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                android.app.AlarmManager am = (android.app.AlarmManager) getActivity().getSystemService(Context.ALARM_SERVICE);
+                if (am != null) {
+                    isExactAlarmGranted = am.canScheduleExactAlarms();
+                }
+            }
+        } catch (Exception e) {}
+        result.put("isExactAlarmGranted", isExactAlarmGranted);
+
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestBatteryOptimization(PluginCall call) {
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getActivity().getSystemService(Context.POWER_SERVICE);
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(getActivity().getPackageName())) {
+                Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getActivity().getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().startActivity(intent);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            try {
+                Intent fallback = new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().startActivity(fallback);
+                call.resolve();
+            } catch (Exception ex) {
+                Log.e(TAG, "Failed to request battery optimization", ex);
+                call.reject("Failed to request battery optimization: " + ex.getMessage());
+            }
+        }
+    }
+
+    @PluginMethod
+    public void requestNotificationPermission(PluginCall call) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                if (getPermissionState("notifications") != PermissionState.GRANTED) {
+                    requestPermissionForAlias("notifications", call, "notificationPermCallback");
+                    return;
+                }
+            }
+            JSObject ret = new JSObject();
+            ret.put("granted", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            try {
+                Intent intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getActivity().getPackageName());
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().startActivity(intent);
+                call.resolve();
+            } catch (Exception ex) {
+                Log.e(TAG, "Failed to request notification permission", ex);
+                call.reject("Failed to request notification permission: " + ex.getMessage());
+            }
+        }
+    }
+
+    @PermissionCallback
+    private void notificationPermCallback(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openNotificationSettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getActivity().getPackageName());
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to open notification settings", e);
+            call.reject("Failed to open notification settings: " + e.getMessage());
+        }
+    }
+    
+    @PluginMethod
+    public void openAccessibilitySettings(PluginCall call) {
+        android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        getActivity().startActivity(intent);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void openAppInfo(PluginCall call) {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(android.net.Uri.parse("package:" + getActivity().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to open app info", e);
+            call.reject("Failed to open app info: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void openDeviceAdminSettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent);
+            intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Activate QIEZKA as Device Administrator to prevent uninstallation during lockdown.");
+            startActivityForResult(call, intent, "deviceAdminResult");
+        } catch (Exception e) {
+            Log.e(TAG, "Direct ADD_DEVICE_ADMIN failed, opening settings list", e);
+            openDeviceAdminListFallback(call);
+        }
+    }
+
+    @PluginMethod
+    public void openDeviceAdminList(PluginCall call) {
+        openDeviceAdminListFallback(call);
+    }
+
+    private void openDeviceAdminListFallback(PluginCall call) {
+        try {
+            Intent intent = new Intent("android.settings.DEVICE_ADMIN_SETTINGS");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception e1) {
+            try {
+                Intent fallback = new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS);
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().startActivity(fallback);
+                call.resolve();
+            } catch (Exception ex) {
+                Log.e(TAG, "Failed to open device admin settings", ex);
+                call.reject("Failed to open device admin settings: " + ex.getMessage());
+            }
+        }
+    }
+
+    @ActivityCallback
+    private void deviceAdminResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        boolean isAdmin = dpm.isAdminActive(adminComponent);
+        JSObject ret = new JSObject();
+        ret.put("isAdminActive", isAdmin);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void exportBackup(PluginCall call) {
+        String tempFileName = call.getString("tempFileName");
+        String defaultName = call.getString("defaultName", "backup.json");
+
+        if (tempFileName == null) {
+            call.reject("Must provide tempFileName");
+            return;
+        }
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        intent.putExtra(Intent.EXTRA_TITLE, defaultName);
+
+        startActivityForResult(call, intent, "exportBackupResult");
+    }
+
+    @ActivityCallback
+    private void exportBackupResult(PluginCall call, ActivityResult result) {
+        if (result != null && result.getResultCode() == android.app.Activity.RESULT_OK) {
+            Intent data = result.getData();
+            if (data != null && data.getData() != null) {
+                Uri uri = data.getData();
+                String tempFileName = call.getString("tempFileName");
+                
+                try {
+                    File cacheDir = getContext().getCacheDir();
+                    File tempFile = new File(cacheDir, tempFileName);
+                    
+                    if (!tempFile.exists()) {
+                        call.reject("Temp file not found");
+                        return;
+                    }
+                    
+                    InputStream in = new FileInputStream(tempFile);
+                    OutputStream out = getContext().getContentResolver().openOutputStream(uri);
+                    
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, read);
+                    }
+                    
+                    in.close();
+                    if (out != null) {
+                        out.flush();
+                        out.close();
+                    }
+                    
+                    tempFile.delete();
+                    
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    call.resolve(ret);
+                } catch (Exception e) {
+                    call.reject("Failed to copy file: " + e.getMessage(), e);
+                }
+            } else {
+                call.reject("No URI returned");
+            }
+        } else {
+            JSObject ret = new JSObject();
+            ret.put("canceled", true);
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void importBackup(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        String[] mimeTypes = {"application/json", "text/plain", "application/octet-stream", "*/*"};
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+
+        startActivityForResult(call, intent, "importBackupResult");
+    }
+
+    @ActivityCallback
+    private void importBackupResult(PluginCall call, ActivityResult result) {
+        if (result != null && result.getResultCode() == android.app.Activity.RESULT_OK) {
+            Intent data = result.getData();
+            if (data != null && data.getData() != null) {
+                Uri uri = data.getData();
+                try (InputStream in = getContext().getContentResolver().openInputStream(uri);
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        sb.append(line).append("\n");
+                    }
+                    JSObject ret = new JSObject();
+                    ret.put("content", sb.toString());
+                    ret.put("success", true);
+                    call.resolve(ret);
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to read imported backup", e);
+                    call.reject("Failed to read file: " + e.getMessage(), e);
+                }
+            } else {
+                call.reject("No file selected");
+            }
+        } else {
+            JSObject ret = new JSObject();
+            ret.put("canceled", true);
+            call.resolve(ret);
+        }
+    }
+
+    public boolean hasBackListeners() {
+        return hasListeners("backPressed");
+    }
+
+    public void triggerBackPressed() {
+        notifyListeners("backPressed", new JSObject());
+    }
+
+    @PluginMethod
+    public void sanitizeImportApps(PluginCall call) {
+        try {
+            JSArray candidateArray = call.getArray("candidatePackageIds");
+            JSArray activeServicesArray = call.getArray("activeServices");
+
+            Set<String> activeServiceIds = new HashSet<>();
+            if (activeServicesArray != null) {
+                for (int i = 0; i < activeServicesArray.length(); i++) {
+                    try {
+                        String s = activeServicesArray.getString(i);
+                        if (s != null && !s.trim().isEmpty()) {
+                            activeServiceIds.add(s.trim().toLowerCase(Locale.US));
+                        }
+                    } catch (Exception ignore) {}
+                }
+            }
+
+            JSArray cleanPackageIds = new JSArray();
+            JSArray purgedPackageIds = new JSArray();
+            Set<String> processed = new HashSet<>();
+
+            if (candidateArray != null) {
+                PackageManager pm = getContext() != null ? getContext().getPackageManager() : null;
+                for (int i = 0; i < candidateArray.length(); i++) {
+                    String pkg;
+                    try {
+                        pkg = candidateArray.getString(i);
+                    } catch (Exception e) {
+                        continue;
+                    }
+                    if (pkg == null) continue;
+                    pkg = pkg.trim();
+                    if (pkg.isEmpty() || processed.contains(pkg)) continue;
+                    processed.add(pkg);
+
+                    ApplicationInfo appInfo = null;
+                    String appLabel = "";
+                    if (pm != null) {
+                        try {
+                            appInfo = pm.getApplicationInfo(pkg, 0);
+                            CharSequence lbl = pm.getApplicationLabel(appInfo);
+                            if (lbl != null) appLabel = lbl.toString();
+                        } catch (Exception ignore) {}
+                    }
+
+                    // Stage 1: Master Veto Gate (Settings, Device Admins, Bloatware)
+                    if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || AppClassifier.isStage1Bloat(pkg, appLabel)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check if package belongs to any Unified Policy Service (e.g. YouTube, AI) or is Google App
+                    if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || 
+                        pkg.equals("com.google.android.googlequicksearchbox") || 
+                        isAiAppKeywords(pkg, appLabel)) {
+                        // Unified service packages are governed exclusively by UnifiedPolicyRegistry
+                        // and must not inhabit the custom allowed apps whitelist.
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check KnownDistracting & ForbiddenDistraction (Games, TikTok, Social, Screen shares, Coxeta)
+                    if (KnownDistracting.isKnownDistracting(pkg, appLabel) ||
+                        AppClassifier.isForbiddenDistraction(getContext(), pkg)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check Hidden Infrastructure (camera lens proxy, internal installers)
+                    if (isHiddenInfrastructureApp(pkg, appLabel)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Check Home Launchers (launchers belong in Always Allowed by System, not custom allowedApps)
+                    if (LockAccessibilityService.isLauncherApp(getContext(), pkg)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // Stage 3 Universal System Gateway (SYSALLOW) Non-Rendering Principle:
+                    // Pre-installed OEM system utilities (Phone dialer, Clock, Calendar, Contacts, Email, STK)
+                    // are dynamically permitted by the OS during lockdown and must NOT render in custom allowedApps.
+                    if (appInfo != null && AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) {
+                        purgedPackageIds.put(pkg);
+                        continue;
+                    }
+
+                    // S3: Safe / Permitted Study App
+                    cleanPackageIds.put(pkg);
+                }
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("cleanPackageIds", cleanPackageIds);
+            ret.put("purgedPackageIds", purgedPackageIds);
+            ret.put("purgedCount", purgedPackageIds.length());
+            call.resolve(ret);
+        } catch (Throwable t) {
+            Log.e(TAG, "sanitizeImportApps failed: " + t.getMessage(), t);
+            call.reject("Security sanitization error: " + t.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void exitToHome(PluginCall call) {
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(() -> {
+                getActivity().moveTaskToBack(true);
+                call.resolve();
+            });
+        } else {
+            call.resolve();
+        }
+    }
+
+    @PluginMethod
+    public void showToast(PluginCall call) {
+        String message = call.getString("message", "");
+        if (message != null && !message.trim().isEmpty() && getActivity() != null) {
+            getActivity().runOnUiThread(() -> {
+                android.widget.Toast.makeText(getActivity(), message, android.widget.Toast.LENGTH_SHORT).show();
+                call.resolve();
+            });
+        } else {
+            call.resolve();
+        }
+    }
+
+    @PluginMethod
+    public void getInstalledLaunchers(PluginCall call) {
+        try {
+            JSArray launchers = InstalledLauncherDetector.getInstalledLaunchersJson(getContext());
+            JSObject ret = new JSObject();
+            ret.put("launchers", launchers);
+            call.resolve(ret);
+        } catch (Throwable t) {
+            Log.e(TAG, "getInstalledLaunchers failed: " + t.getMessage(), t);
+            call.reject("Failed to get installed launchers: " + t.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void setSelectedLauncher(PluginCall call) {
+        String pkg = call.getString("packageName");
+        String cls = call.getString("className", "");
+        if (pkg == null || pkg.trim().isEmpty()) {
+            call.reject("Package name is required");
+            return;
+        }
+        boolean ok = LauncherStateManager.saveSelectedLauncher(getContext(), pkg, cls);
+        if (ok) {
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("packageName", pkg);
+            ret.put("className", cls);
+            call.resolve(ret);
+        } else {
+            call.reject("Package is vetoed by Stage 1 security or invalid");
+        }
+    }
+
+    @PluginMethod
+    public void clearSelectedLauncher(PluginCall call) {
+        try {
+            LauncherStateManager.clearSelectedLauncher(getContext());
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Throwable t) {
+            Log.e(TAG, "clearSelectedLauncher failed: " + t.getMessage(), t);
+            call.reject("Failed to clear selected launcher: " + t.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getSelectedLauncher(PluginCall call) {
+        try {
+            ComponentName launcher = LauncherStateManager.getSelectedLauncher(getContext());
+            JSObject ret = new JSObject();
+            if (launcher != null) {
+                ret.put("packageName", launcher.getPackageName());
+                ret.put("className", launcher.getClassName());
+            } else {
+                ret.put("packageName", null);
+                ret.put("className", null);
+            }
+            call.resolve(ret);
+        } catch (Throwable t) {
+            Log.e(TAG, "getSelectedLauncher failed: " + t.getMessage(), t);
+            call.reject("Failed to get selected launcher: " + t.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getSirenStatus(PluginCall call) {
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            boolean installed = false;
+            try {
+                pm.getPackageInfo("com.siren.homeproxy", 0);
+                installed = true;
+            } catch (PackageManager.NameNotFoundException ignored) {}
+
+            boolean isDefaultHome = false;
+            Intent homeIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            ResolveInfo defaultHome = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY);
+            if (defaultHome != null && defaultHome.activityInfo != null) {
+                isDefaultHome = "com.siren.homeproxy".equals(defaultHome.activityInfo.packageName);
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("installed", installed);
+            ret.put("isDefaultHome", isDefaultHome);
+            ret.put("packageName", "com.siren.homeproxy");
+            call.resolve(ret);
+        } catch (Throwable t) {
+            Log.e(TAG, "getSirenStatus failed: " + t.getMessage(), t);
+            call.reject("Failed to get SIREN status: " + t.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void requestSirenHomeRole(PluginCall call) {
+        try {
+            Intent intent = new Intent("com.siren.homeproxy.ACTION_REQUEST_HOME");
+            intent.setPackage("com.siren.homeproxy");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PackageManager pm = getContext().getPackageManager();
+            if (pm.resolveActivity(intent, 0) != null) {
+                getContext().startActivity(intent);
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                call.resolve(ret);
+            } else {
+                Intent homeSettings = new Intent(android.provider.Settings.ACTION_HOME_SETTINGS);
+                homeSettings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    getContext().startActivity(homeSettings);
+                } catch (Exception e) {
+                    Intent fallback = new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS);
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(fallback);
+                }
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                call.resolve(ret);
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "requestSirenHomeRole failed: " + t.getMessage(), t);
+            call.reject("Failed to request SIREN home role: " + t.getMessage());
+        }
+    }
+}

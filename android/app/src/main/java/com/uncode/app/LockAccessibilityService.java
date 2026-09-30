@@ -46,65 +46,16 @@ public class LockAccessibilityService extends AccessibilityService {
      */
     private String lastBrowserEventClass = null;
 
-    /**
-     * Known launcher packages. These are always allowed so the user can freely use
-     * the home screen.
-     */
-    private static final Set<String> KNOWN_LAUNCHERS = new HashSet<>(Arrays.asList(
-        "com.siren.homeproxy",
-        "com.google.android.apps.nexuslauncher",
-        "com.android.launcher",
-        "com.android.launcher2",
-        "com.android.launcher3",
-        "com.miui.home",
-        "com.sec.android.app.launcher",
-        "com.huawei.android.launcher",
-        "com.oneplus.launcher",
-        "com.oppo.launcher",
-        "com.coloros.launcher",
-        "com.realme.launcher",
-        "com.transsion.launcher",
-        "com.bbk.launcher2",
-        "com.vivo.launcher",
-        // Popular third-party and custom launchers
-        "ch.deletescape.lawnchair",
-        "app.lawnchair",
-        "app.lawnchair.playstore",
-        "com.teslacoilsw.launcher",
-        "com.teslacoilsw.launcher.prime",
-        "com.microsoft.launcher",
-        "bitpit.launcher",
-        "ginlemon.flowerfree",
-        "ginlemon.flowerpro",
-        "com.mi.android.globallauncher",
-        "com.actionlauncher.playstore",
-        "com.hyperion.launcher",
-        "app.olauncher",
-        "fr.neamar.kiss",
-        "com.indistractable.launcher",
-        "com.simplemobiletools.launcher"
-    ));
+
 
     /**
      * Common OEM cameras, galleries, and system file/photo pickers.
      * These must be exempt so users can take photos or upload images to submit homework.
      */
-    public static final Set<String> MEDIA_AND_FILE_EXEMPT = new HashSet<>(Arrays.asList(
-        // Camera apps
-        "com.google.android.GoogleCamera",
-        "com.sec.android.app.camera",
-        "com.android.camera",
-        "com.android.camera2",
-        "com.miui.camera",
-        "com.huawei.camera",
-        "com.oppo.camera",
-        "com.coloros.camera",
-        "com.oneplus.camera",
-        "com.vivo.camera",
-        "org.codeaurora.snapcam",
-        "net.sourceforge.opencamera",
-
-        // Gallery & Photos
+    public static final Set<String> MEDIA_AND_FILE_EXEMPT = new HashSet<String>() {{
+        addAll(KnownSafe.KNOWN_CAMERA_PACKAGES);
+        addAll(Arrays.asList(
+            // Gallery & Photos
         "com.google.android.apps.photos",
         "com.google.android.apps.photosgo",
         "com.sec.android.gallery3d",
@@ -131,6 +82,7 @@ public class LockAccessibilityService extends AccessibilityService {
         "com.motorola.filemanager",
         "com.asus.filemanager"
     ));
+}};
 
     /**
      * Known Music & Audio player packages that are hardcoded to be allowed during lock.
@@ -377,20 +329,20 @@ public class LockAccessibilityService extends AccessibilityService {
 
     public static boolean isLauncherApp(Context context, String pkg) {
         if (pkg == null) return false;
+        if (pkg.equals("com.siren.homeproxy")) return true;
         if (context != null && pkg.equals(context.getPackageName())) return false;
         if (AppClassifier.isStage1Vetoed(pkg, null)) return false;
-        if ("com.siren.homeproxy".equals(pkg)) return true;
-        if (KNOWN_LAUNCHERS.contains(pkg) || dynamicLauncherPackages.contains(pkg)) return true;
-
-        Context ctx = context != null ? context : instance;
-        if (ctx != null) {
+        if (dynamicLauncherPackages.contains(pkg)) return true;
+        if (context != null) {
             try {
-                android.content.ComponentName selected = LauncherStateManager.getSelectedLauncher(ctx);
-                if (selected != null && pkg.equals(selected.getPackageName())) {
+                // If explicitly saved in preferences, honor it immediately
+                android.content.ComponentName saved = LauncherStateManager.getSelectedLauncher(context);
+                if (saved != null && pkg.equals(saved.getPackageName())) {
                     dynamicLauncherPackages.add(pkg);
                     return true;
                 }
-                PackageManager pm = ctx.getPackageManager();
+
+                PackageManager pm = context.getPackageManager();
                 if (pm != null) {
                     Intent homeIntent = new Intent(Intent.ACTION_MAIN);
                     homeIntent.addCategory(Intent.CATEGORY_HOME);
@@ -398,7 +350,7 @@ public class LockAccessibilityService extends AccessibilityService {
                     List<ResolveInfo> list = pm.queryIntentActivities(homeIntent, 0);
                     if (list != null && !list.isEmpty()) {
                         for (ResolveInfo info : list) {
-                            if (InstalledLauncherDetector.isRealLauncher(info, ctx.getPackageName())) {
+                            if (InstalledLauncherDetector.isRealLauncher(info, context.getPackageName())) {
                                 dynamicLauncherPackages.add(pkg);
                                 return true;
                             }
@@ -514,7 +466,7 @@ public class LockAccessibilityService extends AccessibilityService {
             PackageManager pm = getPackageManager();
             if (pm == null) return;
 
-            // Camera capture handlers
+            // Camera capture & still camera handlers
             Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
             List<ResolveInfo> cameraApps = pm.queryIntentActivities(cameraIntent, 0);
             for (ResolveInfo info : cameraApps) {
@@ -522,6 +474,15 @@ public class LockAccessibilityService extends AccessibilityService {
                     dynamicExemptPackages.add(info.activityInfo.packageName);
                 }
             }
+            try {
+                Intent stillCameraIntent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+                List<ResolveInfo> stillApps = pm.queryIntentActivities(stillCameraIntent, 0);
+                for (ResolveInfo info : stillApps) {
+                    if (info.activityInfo != null && info.activityInfo.packageName != null) {
+                        dynamicExemptPackages.add(info.activityInfo.packageName);
+                    }
+                }
+            } catch (Exception ignore) {}
 
             // Photo picker & Gallery handlers
             Intent galleryIntent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
@@ -893,7 +854,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
-            if (!pkgStr.equals(getPackageName())) {
+            if (!pkgStr.equals(getPackageName()) && !isSystemOrLauncher(pkgStr)) {
 
                 String appLabel = null;
                 try {
@@ -1154,15 +1115,13 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkg.contains("permissioncontroller")) {
             return false;
         }
-        if ("com.siren.homeproxy".equals(pkg)) {
-            return true;
-        }
         if (pkg.equals("com.google.android.googlequicksearchbox") && isGeminiActive(pkg, lastBrowserEventClass, null)) {
             if (!isGeminiAllowed()) {
                 return false;
             }
         }
-        if (pkg.equals("com.android.systemui") || isLauncherApp(this, pkg)) {
+        // Stage 2: Verified Home Launchers (OEM, third-party, and SIREN proxy)
+        if (isLauncherApp(this, pkg)) {
             return true;
         }
         // Universal System Partition Gateway for non-browser, non-settings system overlays
@@ -1903,6 +1862,7 @@ public class LockAccessibilityService extends AccessibilityService {
         if (isBrowserPackage(pkg)) return false;
         if (isKeyboardApp(pkg)) return false;
         if (isLauncherApp(this, pkg)) return false;
+        if (KnownSafe.isCameraApp(this, pkg, appLabel) || dynamicExemptPackages.contains(pkg)) return false;
 
         // Gemini / Robin active inside Google App
         if (pkg.equals("com.google.android.googlequicksearchbox") && isGeminiActive(pkg, lastBrowserEventClass, null)) {
@@ -1974,7 +1934,9 @@ public class LockAccessibilityService extends AccessibilityService {
 
         if (shouldVpnRun) {
             if (!LocalDnsVpnService.isRunning) {
-                LocalDnsVpnService.startVpn(this);
+                if (android.net.VpnService.prepare(this) == null) {
+                    LocalDnsVpnService.startVpn(this);
+                }
             }
         } else {
             if (LocalDnsVpnService.isRunning) {
@@ -2236,8 +2198,11 @@ public class LockAccessibilityService extends AccessibilityService {
     private long lastBlockTimestamp = 0L;
 
     public void enforceBlock(String pkg) {
+        if (pkg == null || pkg.equals(getPackageName()) || isSystemOrLauncher(pkg)) {
+            return;
+        }
         long now = System.currentTimeMillis();
-        if (now - lastBlockTimestamp < 350L && pkg != null && pkg.equals(lastBlockedPackage)) {
+        if (now - lastBlockTimestamp < 350L && pkg.equals(lastBlockedPackage)) {
             return; // Debounce rapid accessibility events from the same launch attempt
         }
         lastBlockTimestamp = now;
