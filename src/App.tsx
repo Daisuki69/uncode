@@ -310,8 +310,8 @@ export default function App() {
 
       setSettings(loadedSettings);
       setOperatingMode(loadedSettings.operatingMode || 'safemode');
-      const safeWebMode = loadedSettings.webProtectionMode === 'dns_vpn' || loadedSettings.webProtectionMode === 'dual_hybrid'
-        ? loadedSettings.webProtectionMode
+      const safeWebMode: 'accessibility' | 'dual_hybrid' = loadedSettings.webProtectionMode === 'dual_hybrid' || (loadedSettings.webProtectionMode as string) === 'dns_vpn'
+        ? 'dual_hybrid'
         : 'accessibility';
       setWebProtectionMode(safeWebMode);
       setAllowYoutube(loadedSettings.allowYoutube ?? false);

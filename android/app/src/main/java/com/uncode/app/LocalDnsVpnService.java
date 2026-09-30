@@ -169,7 +169,7 @@ public class LocalDnsVpnService extends VpnService {
             try {
                 startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
             } catch (Exception e) {
-                Log.w(TAG, "VPN startForeground failed, falling back to specialUse: " + e.getMessage());
+                Log.w(TAG, "systemExempted startForeground failed, falling back to specialUse: " + e.getMessage());
                 startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

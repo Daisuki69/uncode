@@ -62,12 +62,10 @@ public class InstalledLauncherDetector {
         }
     }
 
-    public static final String SIREN_PACKAGE = "com.siren.homeproxy";
-
     /**
      * Determines whether a ResolveInfo responds as a legitimate user-facing Home Launcher,
      * filtering out internal fallback activities (such as FallbackHome), direct boot placeholders,
-     * SIREN itself, and apps vetoed by QIEZKA's Stage 1 Master Veto Gate.
+     * and apps vetoed by QIEZKA's Stage 1 Master Veto Gate (Settings, Device Managers, Bloatware, Distractions).
      */
     public static boolean isRealLauncher(ResolveInfo info, String myPkg) {
         if (info == null || info.activityInfo == null || info.activityInfo.packageName == null) {
@@ -76,11 +74,13 @@ public class InstalledLauncherDetector {
 
         String pkg = info.activityInfo.packageName.trim();
 
-        // 1. Exclude self and SIREN Home Proxy (SIREN is the proxy coordinator, not a delegation target)
+        // 1. Exclude self
         if (myPkg != null && pkg.equalsIgnoreCase(myPkg.trim())) {
             return false;
         }
-        if (pkg.equalsIgnoreCase(SIREN_PACKAGE)) {
+
+        // 1b. Exclude SIREN HomeProxy (companion proxy shell, not a selectable target launcher)
+        if (LauncherStateManager.SIREN_PACKAGE.equalsIgnoreCase(pkg)) {
             return false;
         }
 

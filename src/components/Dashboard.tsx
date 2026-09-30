@@ -915,12 +915,12 @@ export function Dashboard({
         {(() => {
           const pool = (installedApps && installedApps.length > 0) ? installedApps : availableApps;
           const hardcodedApps: AllowedApp[] = (pool || []).filter(app => 
-            !isAppBlacklisted(app.id) && (app.isHardcoded || app.isLauncher)
+            !isAppBlacklisted(app.id) && app.isHardcoded && !app.isLauncher
           );
 
           const customApps = (settings.allowedApps || []).filter(app => 
             !isAppBlacklisted(app.id) && 
-            !(app.isHardcoded || app.isLauncher) &&
+            !app.isHardcoded && !app.isLauncher &&
             !hardcodedApps.some(h => h.id === app.id)
           );
 

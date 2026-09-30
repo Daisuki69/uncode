@@ -208,7 +208,35 @@ object KnownDistracting {
         "com.cloudmosa.puffinfree",
         "com.cloudmosa.puffin",
         "com.ucmobile.intl",
-        "com.uc.browser.en"
+        "com.uc.browser.en",
+
+        // ── Commercial & Bypass VPNs / Tunnels / Proxies ──
+        "free.vpn.unblock.proxy.turbovpn",
+        "free.vpn.unblock.proxy.turbovpn.lite",
+        "com.psiphon3",
+        "com.psiphon3.subscription",
+        "com.jrzheng.supervpnfree",
+        "com.fast.free.unblock.thunder.vpn",
+        "org.hola",
+        "com.windscribe.vpn",
+        "ch.protonvpn.android",
+        "com.nordvpn.android",
+        "com.expressvpn.vpn",
+        "com.surfshark.vpnclient.android",
+        "de.mobileconcepts.cyberghost",
+        "com.privateinternetaccess.android",
+        "com.securevpn.vpn",
+        "com.freevpnintouch",
+        "com.free.vpn.super.hotspot.master",
+        "com.inconnecting.hotspotvpn",
+        "com.security.identity.vpn",
+        "org.getlantern.lantern",
+        "com.v2ray.ang",
+        "com.github.kr328.clash",
+        "com.github.metacubex.clash.meta",
+        "io.nekohasekai.sfa",
+        "com.github.shadowsocks",
+        "com.quickq.android"
     )
 
     /**

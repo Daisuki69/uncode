@@ -1,15 +1,19 @@
 package com.uncode.app;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Build;
+import android.provider.MediaStore;
 import android.util.Log;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -47,99 +51,7 @@ public final class AppClassifier {
      */
     private static final Map<String, Boolean> decisionCache = new ConcurrentHashMap<>();
 
-    /**
-     * Essential telephony, in-call, SIM Toolkit (STK), MMS, carrier and emergency packages
-     * that must never be blocked during lockdown to ensure emergency calling, SIM management,
-     * carrier push messages, and critical communication remain operational.
-     */
-    public static final Set<String> TELEPHONY_PACKAGES = new HashSet<>(Arrays.asList(
-        // Core Telephony, In-Call UI & Telecom
-        "com.android.phone",
-        "com.android.server.telecom",
-        "com.android.incallui",
-        "com.google.android.dialer",
-        "com.samsung.android.dialer",
-        "com.samsung.android.incallui",
-        "com.samsung.android.app.telephonyui",
-        "com.sec.android.app.servicemodeapp",
-        "com.miui.telephonyui",
-        "com.oppo.telephonyui",
-        "com.coloros.telephonyui",
-        "com.vivo.telephonyui",
-        "com.asus.telephonyui",
 
-        // SIM Card Toolkit (STK) & SIM Application Services (AOSP, Samsung, MTK, Transsion, Qualcomm, etc.)
-        "com.android.stk",                         // AOSP SIM Toolkit
-        "com.android.stk2",                        // AOSP Dual-SIM STK slot 2
-        "com.google.android.stk",                  // Google SIM Toolkit
-        "com.sec.android.app.simappdialog",        // Samsung STK dialog & Flash SMS popup (Critical for Globe/Smart)
-        "com.sec.android.app.simsetting",          // Samsung SIM card manager
-        "com.sec.android.app.simsettings",         // Samsung SIM settings variant
-        "com.mediatek.stk",                        // MediaTek SIM Toolkit (Infinix, Tecno, etc.)
-        "com.mediatek.stk2",                       // MediaTek SIM Toolkit slot 2
-        "com.mediatek.simprocessor",               // MediaTek SIM Processor
-        "com.mediatek.engineermode",               // MediaTek Engineer Mode
-        "com.transsion.simtoolkit",                // Transsion SIM Toolkit (Infinix, Tecno, Itel)
-        "com.transsion.stk",                       // Transsion STK
-        "com.qualcomm.qti.simcontacts",            // Qualcomm SIM Contacts
-        "com.qualcomm.qti.uim",                    // Qualcomm User Identity Module
-        "com.qualcomm.qti.modemtestmode",          // Qualcomm Modem test
-        "com.vivo.stk",                            // Vivo SIM Toolkit
-        "com.coloros.simsettings",                 // Oppo / Realme SIM Settings
-        "com.oppo.stk",                            // Oppo STK
-        "com.coloros.stk",                         // ColorOS STK
-        "com.huawei.stk",                          // Huawei SIM Toolkit
-        "com.motorola.stk",                        // Motorola STK
-        "com.zte.stk",                             // ZTE STK
-        "com.oneplus.stk",                         // OnePlus STK
-
-        // MMS & Native Carrier Messaging Services
-        "com.android.mms",                         // AOSP Messaging / MMS
-        "com.android.mms.service",                 // AOSP MMS Service
-        "com.google.android.apps.messaging",       // Google Messages / RCS / Class 0 Flash SMS (Default on Infinix/Pixel/Samsung)
-        "com.samsung.android.messaging",           // Samsung Messages / MMS
-        "com.transsion.mms",                       // Transsion MMS / SMS
-        "com.coloros.mms",                         // ColorOS / Oppo MMS
-        "com.vivo.mms",                            // Vivo MMS
-        "com.huawei.message",                      // Huawei Messaging
-        "com.motorola.messaging",                  // Motorola Messaging
-        "com.asus.message",                        // ASUS Messaging
-        "com.zte.mms",                             // ZTE MMS
-
-        // Cell Broadcast, Wireless Emergency Alerts (WEA) & Flash Alerts
-        "com.android.cellbroadcastreceiver",       // AOSP Cell Broadcast
-        "com.android.cellbroadcastreceiver.module",// Android Mainline Cell Broadcast Module
-        "com.android.cellbroadcastservice",        // AOSP Cell Broadcast Service
-        "com.google.android.cellbroadcastreceiver",// Google Emergency Alerts
-        "com.google.android.cellbroadcastservice", // Google Cell Broadcast Service
-        "com.mediatek.cellbroadcastreceiver",      // MediaTek Cell Broadcast
-        "com.transsion.cellbroadcastreceiver",     // Transsion Cell Broadcast
-        "com.oplus.cellbroadcastreceiver",         // Oppo / Realme Cell Broadcast
-        "com.qualcomm.qti.cellbroadcastreceiver",  // Qualcomm Cell Broadcast
-        "com.sec.android.app.wlantest",            // Samsung carrier wireless test
-        "com.sec.android.app.safetyinformation",   // Samsung Safety / Emergency Information
-
-        // Carrier Default Apps, Carrier Configuration & RCS/IMS
-        "com.android.carrierdefaultapp",           // Android Carrier Default App
-        "com.android.carrierconfig",               // Carrier Config
-        "com.google.android.carrierconfig",        // Google Carrier Config
-        "com.google.android.ims",                  // Google Carrier Services / RCS
-        "com.samsung.android.ims",                 // Samsung IMS
-        "com.sec.android.carrier.carrierwifi",     // Samsung Carrier Wi-Fi
-        "com.shannon.imsservice",                  // Samsung Exynos IMS Service
-        "com.mediatek.ims",                        // MediaTek IMS
-
-        // Philippine Carrier Ecosystem (Globe Telecom, Smart Communications, DITO)
-        "ph.com.globe",                            // Globe Telecom Carrier Services
-        "ph.com.globe.globeathome",                // Globe at Home
-        "ph.com.globe.globeonesuperapp",           // GlobeOne
-        "com.globe.services",                      // Globe Services / SIM Menu
-        "com.globe.telecom",                       // Globe Telecom
-        "ph.com.smart",                            // Smart Communications
-        "com.smart.services",                      // Smart Services / SIM Menu
-        "ph.dito.telecommunity",                   // DITO Telecommunity
-        "com.dito.services"                        // DITO Services
-    ));
 
     public static boolean isSimOrCarrierService(String pkg, String appLabel) {
         return LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
@@ -228,6 +140,71 @@ public final class AppClassifier {
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * Recognized Online Class, Lecture & Video Conferencing applications.
+     * Essential communication and class infrastructure (Google Meet, Zoom, Teams, Webex).
+     */
+    public static final Set<String> KNOWN_CONFERENCE_PACKAGES = new HashSet<>(Arrays.asList(
+        "com.google.android.apps.tachyon",
+        "com.google.android.apps.meetings",
+        "us.zoom.videomeetings",
+        "com.microsoft.teams",
+        "com.cisco.webex.meetings"
+    ));
+
+    public static boolean isMeetingOrVideoConferenceApp(String pkg, String appLabel) {
+        if (pkg == null) return false;
+        String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
+        if (KNOWN_CONFERENCE_PACKAGES.contains(lowerPkg)) {
+            return true;
+        }
+        if (lowerPkg.contains(".tachyon") || lowerPkg.contains(".zoom.") ||
+            lowerPkg.contains("teams.quickshare") || lowerPkg.contains("webex")) {
+            return true;
+        }
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
+            if (lowerLabel.equals("meet") || lowerLabel.equals("google meet") ||
+                lowerLabel.equals("zoom") || lowerLabel.equals("zoom workplace") ||
+                lowerLabel.equals("teams") || lowerLabel.equals("microsoft teams") ||
+                lowerLabel.equals("webex") || lowerLabel.equals("webex meetings")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isCameraApp(Context context, String pkg, String appLabel) {
+        return KnownSafe.isCameraApp(context, pkg, appLabel);
+    }
+
+    public static boolean isCameraIntentHandler(PackageManager pm, String pkg) {
+        if (pm == null || pkg == null || pkg.trim().isEmpty()) return false;
+        try {
+            Intent captureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            captureIntent.setPackage(pkg);
+            List<ResolveInfo> captureList = pm.queryIntentActivities(captureIntent, 0);
+            if (captureList != null && !captureList.isEmpty()) {
+                return true;
+            }
+
+            Intent stillIntent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+            stillIntent.setPackage(pkg);
+            List<ResolveInfo> stillList = pm.queryIntentActivities(stillIntent, 0);
+            if (stillList != null && !stillList.isEmpty()) {
+                return true;
+            }
+
+            Intent secureIntent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE);
+            secureIntent.setPackage(pkg);
+            List<ResolveInfo> secureList = pm.queryIntentActivities(secureIntent, 0);
+            if (secureList != null && !secureList.isEmpty()) {
+                return true;
+            }
+        } catch (Exception ignore) {}
         return false;
     }
 
@@ -361,7 +338,7 @@ public final class AppClassifier {
         ".webnovel.", ".wattpad.", ".gacha.", ".rpg.", ".brawl.",
         // Short video & social signatures
         ".musically.", ".trill.", ".aweme.",
-        // Stage 1 Bloatware & Game Booster Signatures
+        // Stage 1 Bloatware & Game Booster Signatures (UAD-NG Ground Truth)
         "joyose", "gamecenter", "gamebooster", "gamemode", "gamehome", "gamespace",
         "shortvideo", "mipicks", "palmstore", "glance"
     };
@@ -383,7 +360,9 @@ public final class AppClassifier {
         "history", "anatomy", "flashcard", "flashcards", "quizlet", "quiz", "quizzes",
         "gizmo", "saveall", "tutor", "tutoring", "exam", "exams", "testprep", "revision",
         "spaced repetition", "studysmarter", "kahoot", "quizizz", "brainscape",
-        "homework", "learning", "coding", "compiler", "terminal", "pydroid", "ide"
+        "homework", "learning", "coding", "compiler", "terminal", "pydroid", "ide",
+        "meeting", "conference", "webinar", "teams", "zoom",
+        "camera", "kamera", "gcam", "lmc", "sgcam", "agc", "snapcam", "photograph", "lens"
     };
 
     private AppClassifier() {}
@@ -469,10 +448,7 @@ public final class AppClassifier {
             return false;
         }
 
-        // Framework & Caller Immunity: android, SystemUI, and QIEZKA itself
-        if (pkg.equals("android") || pkg.equals("com.android.systemui")) {
-            return false;
-        }
+        // Self-immunity: QIEZKA itself is never blocked
         if (context != null && pkg.equals(context.getPackageName())) {
             return false;
         }
@@ -504,8 +480,8 @@ public final class AppClassifier {
             return true;
         }
 
-        // Home Launchers & SIREN Home Proxy: Allowed without restrictions (unless Stage 1 Master Veto matched above)
-        if (pkg.equals("com.siren.homeproxy") || LockAccessibilityService.isLauncherApp(context, pkg)) {
+        // Home Launchers (including system and third-party launchers) are never blocked
+        if (LockAccessibilityService.isLauncherApp(context, pkg)) {
             return false;
         }
 
@@ -649,15 +625,21 @@ public final class AppClassifier {
 
             case CATEGORY_SOCIAL:
                 // Direct messaging applications (WhatsApp, Telegram, Signal, Messenger)
-                // are legitimate communication tools, not infinite-scroll social media feeds.
-                if (isMessagingApp(pkg, appLabel)) {
-                    Log.d(TAG, "Allowed messaging app claiming CATEGORY_SOCIAL: " + pkg);
+                // and online lecture conferencing tools (Meet, Zoom, Teams)
+                if (isMessagingApp(pkg, appLabel) || isMeetingOrVideoConferenceApp(pkg, appLabel)) {
+                    Log.d(TAG, "Allowed messaging/meeting app claiming CATEGORY_SOCIAL: " + pkg);
                     return false;
                 }
                 Log.i(TAG, "Blocked by CATEGORY_SOCIAL: " + pkg + " (" + appLabel + ")");
                 return true;
 
             case CATEGORY_VIDEO:
+                // Video conferencing and online lecture tools are legitimate communication tools,
+                // distinct from entertainment video streaming services (YouTube, Netflix, TikTok).
+                if (isMeetingOrVideoConferenceApp(pkg, appLabel)) {
+                    Log.d(TAG, "Allowed meeting / video conference app claiming CATEGORY_VIDEO: " + pkg);
+                    return false;
+                }
                 Log.i(TAG, "Blocked by CATEGORY_VIDEO: " + pkg + " (" + appLabel + ")");
                 return true;
 
@@ -695,6 +677,12 @@ public final class AppClassifier {
             case CATEGORY_UNDEFINED:
             default:
                 break;
+        }
+
+        // ── Camera App Gate (Celso Azevedo GCam Ports, Open Camera & OEM Cameras) ──
+        if (KnownSafe.isCameraApp(context, pkg, appLabel) || isCameraIntentHandler(pm, pkg)) {
+            Log.d(TAG, "Allowed as verified camera application: " + pkg + " (" + appLabel + ")");
+            return false;
         }
 
         // ── Layer 4b: Positive Academic & Educational Promotion ──
@@ -753,8 +741,6 @@ public final class AppClassifier {
             lowerPkg.contains("permissioncontroller") ||
             lowerPkg.contains("setupwizard") ||
             lowerPkg.equals("com.android.provision") ||
-            lowerPkg.equals("android") ||
-            lowerPkg.equals("com.android.systemui") ||
             lowerPkg.contains("smartswitch") ||
             lowerPkg.contains("easymover") ||
             lowerPkg.contains("switchphone")) {
@@ -774,7 +760,7 @@ public final class AppClassifier {
     }
 
     /**
-     * Identifies hardware-level bloatware, Game Turbo daemons,
+     * Identifies UAD-NG-derived hardware-level bloatware, Game Turbo daemons,
      * and instant game portal stores.
      */
     public static boolean isStage1Bloat(String pkg, String appLabel) {
@@ -809,46 +795,6 @@ public final class AppClassifier {
         return isSettingsOrDeviceManager(pkg, appLabel) ||
                isStage1Bloat(pkg, appLabel) ||
                KnownDistracting.isKnownDistracting(pkg, appLabel);
-    }
-
-    /**
-     * Identifies core OEM hardware and system utilities (Phone dialer, Clock/Alarms,
-     * Calendar, Contacts, Email, STK, SystemUI).
-     * These apps are handled natively by Stage 3 Universal System Gateway (SYSALLOW)
-     * and do not need to clutter the user-configurable Allowed Apps UI.
-     */
-    public static boolean isSystemUtility(String pkg, String appLabel) {
-        if (pkg == null) return false;
-        String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
-        if (lowerPkg.equals("com.android.systemui") ||
-            lowerPkg.contains("stk") ||
-            lowerPkg.contains("simappdialog") ||
-            lowerPkg.contains(".carrier") ||
-            lowerPkg.contains(".telecom") ||
-            lowerPkg.contains(".teleservice") ||
-            lowerPkg.contains(".incallui") ||
-            lowerPkg.contains("dialer") ||
-            lowerPkg.contains("deskclock") ||
-            lowerPkg.contains("clockpackage") ||
-            lowerPkg.contains(".calendar") ||
-            lowerPkg.contains(".contacts") ||
-            lowerPkg.contains("addressbook") ||
-            lowerPkg.equals("com.google.android.gm") ||
-            lowerPkg.contains(".email") ||
-            lowerPkg.contains(".mail")) {
-            return true;
-        }
-        if (appLabel != null && !appLabel.trim().isEmpty()) {
-            String lowerLabel = appLabel.toLowerCase(Locale.ROOT).trim();
-            if (lowerLabel.equals("phone") || lowerLabel.equals("dialer") ||
-                lowerLabel.equals("clock") || lowerLabel.equals("alarm") ||
-                lowerLabel.equals("calendar") || lowerLabel.equals("contacts") ||
-                lowerLabel.equals("gmail") || lowerLabel.equals("email") ||
-                lowerLabel.equals("sim toolkit")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

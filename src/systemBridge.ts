@@ -86,7 +86,7 @@ interface LockPluginInterface {
 
   setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
 
-  setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }): Promise<{ success: boolean }>;
+  setWebProtectionMode(options: { mode: 'accessibility' | 'dual_hybrid' }): Promise<{ success: boolean }>;
 
   setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
 
@@ -230,7 +230,7 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
 
     },
 
-    setWebProtectionMode: async (opts: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }) => {
+    setWebProtectionMode: async (opts: { mode: 'accessibility' | 'dual_hybrid' }) => {
 
       console.log('[Dev] Simulating setWebProtectionMode:', opts);
 
@@ -934,7 +934,7 @@ export const setOperatingMode = async (mode: 'safemode' | 'hardcore'): Promise<b
 
 
 
-export const setWebProtectionMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid'): Promise<boolean> => {
+export const setWebProtectionMode = async (mode: 'accessibility' | 'dual_hybrid'): Promise<boolean> => {
 
   try {
 

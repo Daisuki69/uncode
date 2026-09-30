@@ -41,11 +41,11 @@ class BootReceiver : BroadcastReceiver() {
                 FloatingOverlayService.stopService(context)
             } else {
                 // RESCHED_ALARM: Lockdown still active
-                Log.i(TAG, "Boot detected with active lockdown — rescheduling lock end and relaunching QIEZKA")
+                Log.i(TAG, "Boot detected with active lockdown — rescheduling lock end and resuming headless enforcement")
                 if (lockEndTime > 0) {
                     AlarmReceiver.scheduleLockEndAlarm(context, lockEndTime, activeScheduleId)
                 }
-                relaunchQiezka(context)
+                ensureHeadlessEnforcement(context)
             }
         } else {
             // CHECK_BOOT_SCHED: Lockdown was NOT active before restart
@@ -141,7 +141,7 @@ class BootReceiver : BroadcastReceiver() {
                 // BOOT_START_LOCK: Device powered on while inside a lock window
                 Log.i(TAG, "Boot occurred inside active schedule window -> starting lockdown immediately")
                 AlarmReceiver.triggerScheduleStartDirectly(context, activeScheduleToStart, safeEndToStart)
-                relaunchQiezka(context)
+                ensureHeadlessEnforcement(context)
                 return
             }
 
@@ -153,13 +153,21 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun relaunchQiezka(context: Context) {
-        var launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        if (launch == null) {
-            launch = Intent().setClassName(context.packageName, "com.uncode.app.MainActivity")
+    private fun ensureHeadlessEnforcement(context: Context) {
+        try {
+            EnforcementCoreService.ensureRunning(context)
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val lockdownActive = prefs.getBoolean("lockdown_active", false)
+            val lockEndTime = prefs.getLong("lock_end_time", 0L)
+            val timeOffset = prefs.getLong("time_offset", 0L)
+            val effectiveNow = System.currentTimeMillis() + timeOffset
+
+            if (lockdownActive && lockEndTime > effectiveNow) {
+                FloatingOverlayService.startService(context, lockEndTime, "Study Session")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to ensure headless enforcement on boot: ${e.message}")
         }
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        context.startActivity(launch)
     }
 
     companion object {
