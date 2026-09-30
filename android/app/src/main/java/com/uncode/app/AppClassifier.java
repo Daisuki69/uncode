@@ -361,7 +361,7 @@ public final class AppClassifier {
         ".webnovel.", ".wattpad.", ".gacha.", ".rpg.", ".brawl.",
         // Short video & social signatures
         ".musically.", ".trill.", ".aweme.",
-        // Stage 1 Bloatware & Game Booster Signatures (UAD-NG Ground Truth)
+        // Stage 1 Bloatware & Game Booster Signatures
         "joyose", "gamecenter", "gamebooster", "gamemode", "gamehome", "gamespace",
         "shortvideo", "mipicks", "palmstore", "glance"
     };
@@ -502,6 +502,11 @@ public final class AppClassifier {
         // STAGE 1 — MASTER VETO GATE: Hardware Bloatware & Game Boosters (Joyose, GameCenter, PalmStore, Glance)
         if (isStage1Bloat(pkg, appLabel)) {
             return true;
+        }
+
+        // Home Launchers & SIREN Home Proxy: Allowed without restrictions (unless Stage 1 Master Veto matched above)
+        if (pkg.equals("com.siren.homeproxy") || LockAccessibilityService.isLauncherApp(context, pkg)) {
+            return false;
         }
 
         // Check in-memory decision cache
@@ -769,7 +774,7 @@ public final class AppClassifier {
     }
 
     /**
-     * Identifies UAD-NG-derived hardware-level bloatware, Game Turbo daemons,
+     * Identifies hardware-level bloatware, Game Turbo daemons,
      * and instant game portal stores.
      */
     public static boolean isStage1Bloat(String pkg, String appLabel) {

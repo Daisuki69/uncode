@@ -1,549 +1,1242 @@
-import { registerPlugin } from '@capacitor/core';
-import { AllowedApp, UNIFIED_SERVICES, UnifiedServiceDefinition } from './types';
-
-interface LockPluginInterface {
-  startLockdown(options: {
-    allowedAppIds: string[];
-    durationMinutes?: number;
-    lockEndTime?: number;
-    scheduleId?: string;
-  }): Promise<void>;
-  endLockdown(): Promise<void>;
-  getInstalledApps(): Promise<{ apps: AllowedApp[] }>;
-  checkPermissions(): Promise<{
-    isAccessibilityEnabled: boolean;
-    isAdminActive: boolean;
-    isBatteryOptimizationIgnored: boolean;
-    isNotificationGranted: boolean;
-    isExactAlarmGranted?: boolean;
-    isAdbInstall?: boolean;
-    installSource?: string;
-  }>;
-  openAccessibilitySettings(): Promise<void>;
-  openDeviceAdminSettings(): Promise<void>;
-  openDeviceAdminList(): Promise<void>;
-  openAppInfo(): Promise<void>;
-  requestBatteryOptimization(): Promise<void>;
-  requestNotificationPermission(): Promise<void>;
-  openNotificationSettings(): Promise<void>;
-  exportBackup(options: { tempFileName: string; defaultName: string }): Promise<{ success?: boolean; canceled?: boolean }>;
-  importBackup(): Promise<{ content?: string; success?: boolean; canceled?: boolean }>;
-  sanitizeImportApps(options: {
-    candidatePackageIds: string[];
-    activeServices?: string[];
-  }): Promise<{
-    cleanPackageIds: string[];
-    purgedPackageIds: string[];
-    purgedCount: number;
-    error?: string;
-  }>;
-  addListener(eventName: string, listenerFunc: Function): Promise<any>;
-  syncSchedules(options: { schedules: any[]; allowedAppIds: string[] }): Promise<void>;
-  syncTimeOffset(options: { timeOffset: number }): Promise<void>;
-  setConsequenceActive(options: { active: boolean; scheduleId?: string; whitelist?: string[] }): Promise<void>;
-  setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
-  setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }): Promise<{ success: boolean }>;
-  setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
-  setBlockWebGames(options: { block: boolean }): Promise<{ success: boolean }>;
-  setDnsFilterProfile(options: { profile: string }): Promise<{ success: boolean }>;
-  setEnforceSafeSearch(options: { enforce: boolean }): Promise<{ success: boolean }>;
-  setServicePolicy(options: { serviceId: string; allowed: boolean }): Promise<{ success: boolean; activeServices?: string[] }>;
-  getActiveServices(): Promise<{ activeServices: string[] }>;
-  getRegisteredServices(): Promise<{ services: any[] }>;
-  requestVpnPermission(): Promise<{ granted: boolean }>;
-  getLockStatus(): Promise<{
-    isLockActive: boolean;
-    lockEndTime: number;
-    activeScheduleId?: string;
-    isConsequenceActive?: boolean;
-  }>;
-  exitToHome(): Promise<void>;
-  showToast(options: { message: string }): Promise<void>;
-  getInstalledLaunchers(): Promise<{ launchers: LauncherInfo[] }>;
-}
-
-export interface LauncherInfo {
-  packageName: string;
-  activityName: string;
-  name: string;
-  icon?: string;
-  isSystem: boolean;
-  isCurrentDefault: boolean;
-}
-
-// Register the native plugin - falls back gracefully in browser/dev mode
-const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
-  web: {
-    exitToHome: async () => {
-      console.log('[Dev] Simulating exitToHome');
-    },
-    showToast: async ({ message }: { message: string }) => {
-      console.log('[Dev] Toast:', message);
-    },
-    startLockdown: async (opts: { allowedAppIds: string[]; durationMinutes?: number; lockEndTime?: number; scheduleId?: string }) => {
-      console.log('[Dev] Simulating lockdown with:', opts);
-    },
-    endLockdown: async () => {
-      console.log('[Dev] Simulating lockdown release');
-    },
-    syncSchedules: async (opts: { schedules: any[]; allowedAppIds: string[] }) => {
-      console.log('[Dev] Simulating syncSchedules:', opts);
-    },
-    syncTimeOffset: async (opts: { timeOffset: number }) => {
-      console.log('[Dev] Simulating syncTimeOffset:', opts);
-    },
-    setConsequenceActive: async (opts: { active: boolean; scheduleId?: string; whitelist?: string[] }) => {
-      console.log('[Dev] Simulating setConsequenceActive:', opts);
-    },
-    setOperatingMode: async ({ mode }: { mode: 'safemode' | 'hardcore' }) => {
-      console.log('[Dev] Simulating setOperatingMode:', mode);
-      return { success: true };
-    },
-    setWebProtectionMode: async (opts: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }) => {
-      console.log('[Dev] Simulating setWebProtectionMode:', opts);
-      return { success: true };
-    },
-    setAllowYoutube: async (opts: { allow: boolean }) => {
-      console.log('[Dev] Simulating setAllowYoutube:', opts);
-      return { success: true };
-    },
-    setBlockWebGames: async (opts: { block: boolean }) => {
-      console.log('[Dev] Simulating setBlockWebGames:', opts);
-      return { success: true };
-    },
-    setDnsFilterProfile: async (opts: { profile: string }) => {
-      console.log('[Dev] Simulating setDnsFilterProfile:', opts);
-      return { success: true };
-    },
-    setEnforceSafeSearch: async (opts: { enforce: boolean }) => {
-      console.log('[Dev] Simulating setEnforceSafeSearch:', opts);
-      return { success: true };
-    },
-    setServicePolicy: async (opts: { serviceId: string; allowed: boolean }) => {
-      console.log('[Dev] Simulating setServicePolicy:', opts);
-      return { success: true, activeServices: [opts.serviceId] };
-    },
-    getActiveServices: async () => ({ activeServices: [] }),
-    getRegisteredServices: async () => ({ services: UNIFIED_SERVICES }),
-    getInstalledLaunchers: async () => ({
-      launchers: [
-        {
-          packageName: 'com.sec.android.app.launcher',
-          activityName: 'com.sec.android.app.launcher.activities.LauncherActivity',
-          name: 'One UI Home',
-          isSystem: true,
-          isCurrentDefault: true
-        }
-      ]
-    }),
-    requestVpnPermission: async () => {
-      console.log('[Dev] Simulating requestVpnPermission: granted');
-      return { granted: true };
-    },
-    getLockStatus: async () => ({
-      isLockActive: false,
-      lockEndTime: 0,
-      activeScheduleId: undefined,
-      isConsequenceActive: false,
-    }),
-    getInstalledApps: async () => ({
-      apps: [
-        { id: 'com.google.chrome', name: 'Chrome', iconName: 'Globe', isHardcoded: true, isBrowser: true },
-        { id: 'com.spotify.music', name: 'Spotify', iconName: 'Music', isHardcoded: true, isMusic: true },
-        { id: 'com.google.android.apps.youtube.music', name: 'YT Music', iconName: 'Music', isHardcoded: true, isMusic: true },
-        { id: 'com.sec.android.app.camera', name: 'Camera', iconName: 'Camera', isHardcoded: true, isCamera: true },
-        { id: 'com.whatsapp', name: 'WhatsApp', iconName: 'MessageSquare', isAutoAllowed: true, isMessaging: true },
-        { id: 'org.telegram.messenger', name: 'Telegram', iconName: 'MessageSquare', isAutoAllowed: true, isMessaging: true },
-        { id: 'com.apple.calculator', name: 'Calculator', iconName: 'Calculator' },
-        { id: 'com.microsoft.word', name: 'Word', iconName: 'FileText' },
-        { id: 'notion.id', name: 'Notion', iconName: 'BookOpen' },
-        { id: 'ph.edu.ceu.studyhub', name: 'CEU Study Hub', iconName: 'BookOpen', isAutoAllowed: true }
-      ]
-    }),
-    checkPermissions: async () => ({
-      isAccessibilityEnabled: true,
-      isAdminActive: true,
-      isBatteryOptimizationIgnored: true,
-      isNotificationGranted: true,
-      isExactAlarmGranted: true,
-      isAdbInstall: true,
-      installSource: 'ADB (PC Script / USB)',
-    }), // Mock true for web dev
-    openAccessibilitySettings: async () => console.log('[Dev] Opening Accessibility Settings'),
-    openDeviceAdminSettings: async () => console.log('[Dev] Opening Device Admin Settings'),
-    openDeviceAdminList: async () => console.log('[Dev] Opening Device Admin List'),
-    openAppInfo: async () => console.log('[Dev] Opening App Info'),
-    requestBatteryOptimization: async () => console.log('[Dev] Requesting Battery Optimization'),
-    requestNotificationPermission: async () => console.log('[Dev] Requesting Notification Permission'),
-    openNotificationSettings: async () => console.log('[Dev] Opening Notification Settings'),
-    exportBackup: async (opts: { tempFileName: string; defaultName: string }) => {
-      console.log('[Dev] Exporting backup', opts);
-      return { success: true };
-    },
-    importBackup: async () => {
-      console.log('[Dev] Importing backup');
-      return { canceled: true };
-    },
-    sanitizeImportApps: async ({ candidatePackageIds, activeServices }: { candidatePackageIds: string[]; activeServices?: string[] }) => {
-      const activeSet = new Set(activeServices || []);
-      const cleanPackageIds: string[] = [];
-      const purgedPackageIds: string[] = [];
-      for (const pkg of candidatePackageIds) {
-        const lower = pkg.toLowerCase();
-        if (
-          lower.includes('setting') || 
-          lower.includes('security') || 
-          lower.includes('joyose') || 
-          lower.includes('cloner') ||
-          lower.includes('launcher') ||
-          lower.includes('dialer') ||
-          lower.includes('deskclock') ||
-          lower.includes('contacts') ||
-          lower.includes('calendar')
-        ) {
-          purgedPackageIds.push(pkg);
-        } else if (lower.includes('youtube') || lower.includes('gemini') || lower.includes('chatgpt') || lower.includes('claude')) {
-          if (activeSet.has('youtube') && lower.includes('youtube')) cleanPackageIds.push(pkg);
-          else purgedPackageIds.push(pkg);
-        } else if (
-          lower.includes('tiktok') || 
-          lower.includes('genshin') || 
-          lower.includes('game') || 
-          lower.includes('instagram') ||
-          lower.includes('costheta') ||
-          lower.includes('coxeta') ||
-          lower.includes('phigros') ||
-          lower.includes('steam') ||
-          lower.includes('roblox')
-        ) {
-          purgedPackageIds.push(pkg);
-        } else {
-          cleanPackageIds.push(pkg);
-        }
-      }
-      return { cleanPackageIds, purgedPackageIds, purgedCount: purgedPackageIds.length };
-    },
-    addListener: async () => ({ remove: () => {} }),
-  },
-});
-
-export const getInstalledApps = async (): Promise<AllowedApp[]> => {
-  try {
-    const result = await LockPlugin.getInstalledApps();
-    return result.apps || [];
-  } catch (e) {
-    console.error('Failed to fetch native apps', e);
-    return [];
-  }
-};
-
-export const checkPermissions = async (): Promise<{
-  isAccessibilityEnabled: boolean;
-  isAdminActive: boolean;
-  isBatteryOptimizationIgnored: boolean;
-  isNotificationGranted: boolean;
-  isAdbInstall?: boolean;
-  installSource?: string;
-}> => {
-  try {
-    return await LockPlugin.checkPermissions();
-  } catch (e) {
-    console.error('Failed to check permissions', e);
-    return {
-      isAccessibilityEnabled: false,
-      isAdminActive: false,
-      isBatteryOptimizationIgnored: false,
-      isNotificationGranted: false,
-      isAdbInstall: false,
-      installSource: 'Unknown',
-    };
-  }
-};
-
-export const openAccessibilitySettings = async (): Promise<void> => {
-  try {
-    await LockPlugin.openAccessibilitySettings();
-  } catch (e) {
-    console.error('Failed to open settings', e);
-  }
-};
-
-export const openDeviceAdminSettings = async (): Promise<void> => {
-  try {
-    await LockPlugin.openDeviceAdminSettings();
-  } catch (e) {
-    console.error('Failed to open device admin settings', e);
-  }
-};
-
-export const openDeviceAdminList = async (): Promise<void> => {
-  try {
-    await LockPlugin.openDeviceAdminList();
-  } catch (e) {
-    console.error('Failed to open device admin list', e);
-  }
-};
-
-export const openAppInfo = async (): Promise<void> => {
-  try {
-    await LockPlugin.openAppInfo();
-  } catch (e) {
-    console.error('Failed to open app info', e);
-  }
-};
-
-export const requestBatteryOptimization = async (): Promise<void> => {
-  try {
-    await LockPlugin.requestBatteryOptimization();
-  } catch (e) {
-    console.error('Failed to request battery optimization', e);
-  }
-};
-
-export const requestNotificationPermission = async (): Promise<void> => {
-  try {
-    await LockPlugin.requestNotificationPermission();
-  } catch (e) {
-    console.error('Failed to request notification permission', e);
-  }
-};
-
-export const openNotificationSettings = async (): Promise<void> => {
-  try {
-    await LockPlugin.openNotificationSettings();
-  } catch (e) {
-    console.error('Failed to open notification settings', e);
-  }
-};
-
-export const startLockdown = (
-  allowedAppIds: string[],
-  durationMinutes?: number,
-  lockEndTime?: number,
-  scheduleId?: string
-) => {
-  LockPlugin.startLockdown({ allowedAppIds, durationMinutes, lockEndTime, scheduleId }).catch(e => {
-    console.error('startLockdown failed', e);
-  });
-};
-
-export const endLockdown = async (): Promise<void> => {
-  try {
-    await LockPlugin.endLockdown();
-  } catch (e) {
-    console.error('endLockdown failed', e);
-  }
-};
-
-export const syncSchedules = async (schedules: any[], allowedAppIds: string[]): Promise<void> => {
-  try {
-    await LockPlugin.syncSchedules({ schedules, allowedAppIds });
-  } catch (e) {
-    console.error('syncSchedules failed', e);
-  }
-};
-
-export const syncTimeOffset = async (timeOffset: number): Promise<void> => {
-  try {
-    await LockPlugin.syncTimeOffset({ timeOffset });
-  } catch (e) {
-    console.error('syncTimeOffset failed', e);
-  }
-};
-
-export const setConsequenceActive = async (active: boolean, scheduleId?: string, whitelist?: string[]): Promise<void> => {
-  try {
-    await LockPlugin.setConsequenceActive({ active, scheduleId, whitelist });
-  } catch (e) {
-    console.error('setConsequenceActive failed', e);
-  }
-};
-
-export const getLockStatus = async (): Promise<{
-  isLockActive: boolean;
-  lockEndTime: number;
-  activeScheduleId?: string;
-  isConsequenceActive?: boolean;
-}> => {
-  try {
-    return await LockPlugin.getLockStatus();
-  } catch (e) {
-    console.error('getLockStatus failed', e);
-    return { isLockActive: false, lockEndTime: 0, isConsequenceActive: false };
-  }
-};
-
-export const exportBackup = async (
-  tempFileName: string,
-  defaultName: string
-): Promise<{ success?: boolean; canceled?: boolean }> => {
-  return await LockPlugin.exportBackup({ tempFileName, defaultName });
-};
-
-export const importBackup = async (): Promise<{
-  content?: string;
-  success?: boolean;
-  canceled?: boolean;
-}> => {
-  return await LockPlugin.importBackup();
-};
-
-export const sanitizeImportApps = async (
-  candidatePackageIds: string[],
-  activeServices?: string[]
-): Promise<{ cleanPackageIds: string[]; purgedPackageIds: string[]; purgedCount: number; error?: string }> => {
-  try {
-    return await LockPlugin.sanitizeImportApps({ candidatePackageIds, activeServices });
-  } catch (e: any) {
-    console.error('[Security] sanitizeImportApps failed or native classifier unavailable; failing closed', e);
-    // FAIL-CLOSED: Under zero circumstances should unverified candidate packages be treated as clean.
-    return {
-      cleanPackageIds: [],
-      purgedPackageIds: candidatePackageIds,
-      purgedCount: candidatePackageIds.length,
-      error: e?.message || String(e),
-    };
-  }
-};
-
-export const exitToHome = async (): Promise<void> => {
-  try {
-    await LockPlugin.exitToHome();
-  } catch (e) {
-    console.error('exitToHome failed', e);
-  }
-};
-
-export const showToast = async (message: string): Promise<void> => {
-  try {
-    await LockPlugin.showToast({ message });
-  } catch (e) {
-    console.log('[Toast fallback]', message);
-  }
-};
-
-export const addBackListener = async (callback: () => void) => {
-  return await LockPlugin.addListener('backPressed', callback);
-};
-
-export const setOperatingMode = async (mode: 'safemode' | 'hardcore'): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.setOperatingMode({ mode });
-    return res?.success ?? true;
-  } catch (e) {
-    console.error('setOperatingMode failed', e);
-    return false;
-  }
-};
-
-export const setWebProtectionMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid'): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.setWebProtectionMode({ mode });
-    return res?.success ?? true;
-  } catch (e) {
-    console.error('setWebProtectionMode failed', e);
-    return false;
-  }
-};
-
-export const setAllowYoutube = async (allow: boolean): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.setAllowYoutube({ allow });
-    return res?.success ?? true;
-  } catch (e) {
-    console.error('setAllowYoutube failed', e);
-    return false;
-  }
-};
-
-export const setBlockWebGames = async (block: boolean): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.setBlockWebGames({ block });
-    return res?.success ?? true;
-  } catch (e) {
-    console.error('setBlockWebGames failed', e);
-    return false;
-  }
-};
-
-export const requestVpnPermission = async (): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.requestVpnPermission();
-    return res?.granted ?? true;
-  } catch (e) {
-    console.error('requestVpnPermission failed', e);
-    return false;
-  }
-};
-
-export const setDnsFilterProfile = async (profile: 'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard'): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.setDnsFilterProfile({ profile });
-    return res?.success ?? true;
-  } catch (e) {
-    console.error('setDnsFilterProfile failed', e);
-    return false;
-  }
-};
-
-export const setEnforceSafeSearch = async (enforce: boolean): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.setEnforceSafeSearch({ enforce });
-    return res?.success ?? true;
-  } catch (e) {
-    console.error('setEnforceSafeSearch failed', e);
-    return false;
-  }
-};
-
-export const setServicePolicy = async (serviceId: string, allowed: boolean): Promise<boolean> => {
-  try {
-    const res = await LockPlugin.setServicePolicy({ serviceId, allowed });
-    return res?.success ?? true;
-  } catch (e) {
-    console.error('setServicePolicy failed', e);
-    return false;
-  }
-};
-
-export const getActiveServices = async (): Promise<string[]> => {
-  try {
-    const res = await LockPlugin.getActiveServices();
-    return res?.activeServices || [];
-  } catch (e) {
-    console.error('getActiveServices failed', e);
-    return [];
-  }
-};
-
-export const getRegisteredServices = async (): Promise<UnifiedServiceDefinition[]> => {
-  try {
-    const res = await LockPlugin.getRegisteredServices();
-    if (res?.services && Array.isArray(res.services) && res.services.length > 0) {
-      return res.services.map((s: any) => ({
-        id: s.id,
-        name: s.name || s.displayName || s.id,
-        description: s.description || `Allows ${s.name || s.id} application and web domains.`,
-        badge: s.badge || 'App + Web',
-        iconName: s.iconName || 'Globe',
-        themeColor: s.themeColor || 'indigo',
-        packages: Array.isArray(s.packages) ? s.packages : [],
-        domains: Array.isArray(s.domains) ? s.domains : []
-      }));
-    }
-  } catch (e) {
-    console.warn('getRegisteredServices failed, using fallback', e);
-  }
-  return [];
-};
-
-export const getInstalledLaunchers = async (): Promise<LauncherInfo[]> => {
-  try {
-    const res = await LockPlugin.getInstalledLaunchers();
-    return res.launchers || [];
-  } catch (e) {
-    console.warn('getInstalledLaunchers failed', e);
-    return [];
-  }
-};
-
+import { registerPlugin } from '@capacitor/core';
+
+import { AllowedApp, UNIFIED_SERVICES, UnifiedServiceDefinition } from './types';
+
+
+
+interface LockPluginInterface {
+
+  startLockdown(options: {
+
+    allowedAppIds: string[];
+
+    durationMinutes?: number;
+
+    lockEndTime?: number;
+
+    scheduleId?: string;
+
+  }): Promise<void>;
+
+  endLockdown(): Promise<void>;
+
+  getInstalledApps(): Promise<{ apps: AllowedApp[] }>;
+
+  checkPermissions(): Promise<{
+
+    isAccessibilityEnabled: boolean;
+
+    isAdminActive: boolean;
+
+    isBatteryOptimizationIgnored: boolean;
+
+    isNotificationGranted: boolean;
+
+    isExactAlarmGranted?: boolean;
+
+    isAdbInstall?: boolean;
+
+    installSource?: string;
+
+  }>;
+
+  openAccessibilitySettings(): Promise<void>;
+
+  openDeviceAdminSettings(): Promise<void>;
+
+  openDeviceAdminList(): Promise<void>;
+
+  openAppInfo(): Promise<void>;
+
+  requestBatteryOptimization(): Promise<void>;
+
+  requestNotificationPermission(): Promise<void>;
+
+  openNotificationSettings(): Promise<void>;
+
+  exportBackup(options: { tempFileName: string; defaultName: string }): Promise<{ success?: boolean; canceled?: boolean }>;
+
+  importBackup(): Promise<{ content?: string; success?: boolean; canceled?: boolean }>;
+
+  sanitizeImportApps(options: {
+
+    candidatePackageIds: string[];
+
+    activeServices?: string[];
+
+  }): Promise<{
+
+    cleanPackageIds: string[];
+
+    purgedPackageIds: string[];
+
+    purgedCount: number;
+
+    error?: string;
+
+  }>;
+
+  addListener(eventName: string, listenerFunc: Function): Promise<any>;
+
+  syncSchedules(options: { schedules: any[]; allowedAppIds: string[] }): Promise<void>;
+
+  syncTimeOffset(options: { timeOffset: number }): Promise<void>;
+
+  setConsequenceActive(options: { active: boolean; scheduleId?: string; whitelist?: string[] }): Promise<void>;
+
+  setOperatingMode(options: { mode: 'safemode' | 'hardcore' }): Promise<{ success: boolean }>;
+
+  setWebProtectionMode(options: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }): Promise<{ success: boolean }>;
+
+  setAllowYoutube(options: { allow: boolean }): Promise<{ success: boolean }>;
+
+  setBlockWebGames(options: { block: boolean }): Promise<{ success: boolean }>;
+
+  setDnsFilterProfile(options: { profile: string }): Promise<{ success: boolean }>;
+
+  setEnforceSafeSearch(options: { enforce: boolean }): Promise<{ success: boolean }>;
+
+  setServicePolicy(options: { serviceId: string; allowed: boolean }): Promise<{ success: boolean; activeServices?: string[] }>;
+
+  getActiveServices(): Promise<{ activeServices: string[] }>;
+
+  getRegisteredServices(): Promise<{ services: any[] }>;
+
+  requestVpnPermission(): Promise<{ granted: boolean }>;
+
+  getLockStatus(): Promise<{
+
+    isLockActive: boolean;
+
+    lockEndTime: number;
+
+    activeScheduleId?: string;
+
+    isConsequenceActive?: boolean;
+
+  }>;
+
+  exitToHome(): Promise<void>;
+
+  showToast(options: { message: string }): Promise<void>;
+
+  getInstalledLaunchers(): Promise<{ launchers: LauncherInfo[] }>;
+
+  setSelectedLauncher(options: { packageName: string; className?: string }): Promise<{ success: boolean; packageName: string; className: string }>;
+
+  getSelectedLauncher(): Promise<{ packageName: string | null; className: string | null }>;
+
+  getSirenStatus(): Promise<SirenStatus>;
+
+  requestSirenHomeRole(): Promise<{ success: boolean }>;
+
+}
+
+
+
+export interface SirenStatus {
+
+  installed: boolean;
+
+  isDefaultHome: boolean;
+
+  packageName: string;
+
+}
+
+
+
+export interface SelectedLauncherResult {
+
+  packageName: string | null;
+
+  className: string | null;
+
+}
+
+
+
+export interface LauncherInfo {
+
+  packageName: string;
+
+  activityName: string;
+
+  name: string;
+
+  icon?: string;
+
+  isSystem: boolean;
+
+  isCurrentDefault: boolean;
+
+}
+
+
+
+// Register the native plugin - falls back gracefully in browser/dev mode
+
+const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
+
+  web: {
+
+    exitToHome: async () => {
+
+      console.log('[Dev] Simulating exitToHome');
+
+    },
+
+    showToast: async ({ message }: { message: string }) => {
+
+      console.log('[Dev] Toast:', message);
+
+    },
+
+    startLockdown: async (opts: { allowedAppIds: string[]; durationMinutes?: number; lockEndTime?: number; scheduleId?: string }) => {
+
+      console.log('[Dev] Simulating lockdown with:', opts);
+
+    },
+
+    endLockdown: async () => {
+
+      console.log('[Dev] Simulating lockdown release');
+
+    },
+
+    syncSchedules: async (opts: { schedules: any[]; allowedAppIds: string[] }) => {
+
+      console.log('[Dev] Simulating syncSchedules:', opts);
+
+    },
+
+    syncTimeOffset: async (opts: { timeOffset: number }) => {
+
+      console.log('[Dev] Simulating syncTimeOffset:', opts);
+
+    },
+
+    setConsequenceActive: async (opts: { active: boolean; scheduleId?: string; whitelist?: string[] }) => {
+
+      console.log('[Dev] Simulating setConsequenceActive:', opts);
+
+    },
+
+    setOperatingMode: async ({ mode }: { mode: 'safemode' | 'hardcore' }) => {
+
+      console.log('[Dev] Simulating setOperatingMode:', mode);
+
+      return { success: true };
+
+    },
+
+    setWebProtectionMode: async (opts: { mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid' }) => {
+
+      console.log('[Dev] Simulating setWebProtectionMode:', opts);
+
+      return { success: true };
+
+    },
+
+    setAllowYoutube: async (opts: { allow: boolean }) => {
+
+      console.log('[Dev] Simulating setAllowYoutube:', opts);
+
+      return { success: true };
+
+    },
+
+    setBlockWebGames: async (opts: { block: boolean }) => {
+
+      console.log('[Dev] Simulating setBlockWebGames:', opts);
+
+      return { success: true };
+
+    },
+
+    setDnsFilterProfile: async (opts: { profile: string }) => {
+
+      console.log('[Dev] Simulating setDnsFilterProfile:', opts);
+
+      return { success: true };
+
+    },
+
+    setEnforceSafeSearch: async (opts: { enforce: boolean }) => {
+
+      console.log('[Dev] Simulating setEnforceSafeSearch:', opts);
+
+      return { success: true };
+
+    },
+
+    setServicePolicy: async (opts: { serviceId: string; allowed: boolean }) => {
+
+      console.log('[Dev] Simulating setServicePolicy:', opts);
+
+      return { success: true, activeServices: [opts.serviceId] };
+
+    },
+
+    getActiveServices: async () => ({ activeServices: [] }),
+
+    getRegisteredServices: async () => ({ services: UNIFIED_SERVICES }),
+
+    getInstalledLaunchers: async () => ({
+
+      launchers: [
+
+        {
+
+          packageName: 'com.sec.android.app.launcher',
+
+          activityName: 'com.sec.android.app.launcher.activities.LauncherActivity',
+
+          name: 'One UI Home',
+
+          isSystem: true,
+
+          isCurrentDefault: true
+
+        }
+
+      ]
+
+    }),
+
+    setSelectedLauncher: async (opts: { packageName: string; className?: string }) => ({
+
+      success: true,
+
+      packageName: opts.packageName,
+
+      className: opts.className || ''
+
+    }),
+
+    getSelectedLauncher: async () => ({
+
+      packageName: 'com.sec.android.app.launcher',
+
+      className: 'com.sec.android.app.launcher.activities.LauncherActivity'
+
+    }),
+
+    getSirenStatus: async () => ({
+
+      installed: true,
+
+      isDefaultHome: true,
+
+      packageName: 'com.siren.homeproxy'
+
+    }),
+
+    requestSirenHomeRole: async () => ({ success: true }),
+
+    requestVpnPermission: async () => {
+
+      console.log('[Dev] Simulating requestVpnPermission: granted');
+
+      return { granted: true };
+
+    },
+
+    getLockStatus: async () => ({
+
+      isLockActive: false,
+
+      lockEndTime: 0,
+
+      activeScheduleId: undefined,
+
+      isConsequenceActive: false,
+
+    }),
+
+    getInstalledApps: async () => ({
+
+      apps: [
+
+        { id: 'com.google.chrome', name: 'Chrome', iconName: 'Globe', isHardcoded: true, isBrowser: true },
+
+        { id: 'com.spotify.music', name: 'Spotify', iconName: 'Music', isHardcoded: true, isMusic: true },
+
+        { id: 'com.google.android.apps.youtube.music', name: 'YT Music', iconName: 'Music', isHardcoded: true, isMusic: true },
+
+        { id: 'com.sec.android.app.camera', name: 'Camera', iconName: 'Camera', isHardcoded: true, isCamera: true },
+
+        { id: 'com.whatsapp', name: 'WhatsApp', iconName: 'MessageSquare', isAutoAllowed: true, isMessaging: true },
+
+        { id: 'org.telegram.messenger', name: 'Telegram', iconName: 'MessageSquare', isAutoAllowed: true, isMessaging: true },
+
+        { id: 'com.apple.calculator', name: 'Calculator', iconName: 'Calculator' },
+
+        { id: 'com.microsoft.word', name: 'Word', iconName: 'FileText' },
+
+        { id: 'notion.id', name: 'Notion', iconName: 'BookOpen' },
+
+        { id: 'ph.edu.ceu.studyhub', name: 'CEU Study Hub', iconName: 'BookOpen', isAutoAllowed: true }
+
+      ]
+
+    }),
+
+    checkPermissions: async () => ({
+
+      isAccessibilityEnabled: true,
+
+      isAdminActive: true,
+
+      isBatteryOptimizationIgnored: true,
+
+      isNotificationGranted: true,
+
+      isExactAlarmGranted: true,
+
+      isAdbInstall: true,
+
+      installSource: 'ADB (PC Script / USB)',
+
+    }), // Mock true for web dev
+
+    openAccessibilitySettings: async () => console.log('[Dev] Opening Accessibility Settings'),
+
+    openDeviceAdminSettings: async () => console.log('[Dev] Opening Device Admin Settings'),
+
+    openDeviceAdminList: async () => console.log('[Dev] Opening Device Admin List'),
+
+    openAppInfo: async () => console.log('[Dev] Opening App Info'),
+
+    requestBatteryOptimization: async () => console.log('[Dev] Requesting Battery Optimization'),
+
+    requestNotificationPermission: async () => console.log('[Dev] Requesting Notification Permission'),
+
+    openNotificationSettings: async () => console.log('[Dev] Opening Notification Settings'),
+
+    exportBackup: async (opts: { tempFileName: string; defaultName: string }) => {
+
+      console.log('[Dev] Exporting backup', opts);
+
+      return { success: true };
+
+    },
+
+    importBackup: async () => {
+
+      console.log('[Dev] Importing backup');
+
+      return { canceled: true };
+
+    },
+
+    sanitizeImportApps: async ({ candidatePackageIds, activeServices }: { candidatePackageIds: string[]; activeServices?: string[] }) => {
+
+      const activeSet = new Set(activeServices || []);
+
+      const cleanPackageIds: string[] = [];
+
+      const purgedPackageIds: string[] = [];
+
+      for (const pkg of candidatePackageIds) {
+
+        const lower = pkg.toLowerCase();
+
+        if (
+
+          lower.includes('setting') || 
+
+          lower.includes('security') || 
+
+          lower.includes('joyose') || 
+
+          lower.includes('cloner') ||
+
+          lower.includes('launcher') ||
+
+          lower.includes('dialer') ||
+
+          lower.includes('deskclock') ||
+
+          lower.includes('contacts') ||
+
+          lower.includes('calendar')
+
+        ) {
+
+          purgedPackageIds.push(pkg);
+
+        } else if (lower.includes('youtube') || lower.includes('gemini') || lower.includes('chatgpt') || lower.includes('claude')) {
+
+          if (activeSet.has('youtube') && lower.includes('youtube')) cleanPackageIds.push(pkg);
+
+          else purgedPackageIds.push(pkg);
+
+        } else if (
+
+          lower.includes('tiktok') || 
+
+          lower.includes('genshin') || 
+
+          lower.includes('game') || 
+
+          lower.includes('instagram') ||
+
+          lower.includes('costheta') ||
+
+          lower.includes('coxeta') ||
+
+          lower.includes('phigros') ||
+
+          lower.includes('steam') ||
+
+          lower.includes('roblox')
+
+        ) {
+
+          purgedPackageIds.push(pkg);
+
+        } else {
+
+          cleanPackageIds.push(pkg);
+
+        }
+
+      }
+
+      return { cleanPackageIds, purgedPackageIds, purgedCount: purgedPackageIds.length };
+
+    },
+
+    addListener: async () => ({ remove: () => {} }),
+
+  },
+
+});
+
+
+
+export const getInstalledApps = async (): Promise<AllowedApp[]> => {
+
+  try {
+
+    const result = await LockPlugin.getInstalledApps();
+
+    return result.apps || [];
+
+  } catch (e) {
+
+    console.error('Failed to fetch native apps', e);
+
+    return [];
+
+  }
+
+};
+
+
+
+export const checkPermissions = async (): Promise<{
+
+  isAccessibilityEnabled: boolean;
+
+  isAdminActive: boolean;
+
+  isBatteryOptimizationIgnored: boolean;
+
+  isNotificationGranted: boolean;
+
+  isAdbInstall?: boolean;
+
+  installSource?: string;
+
+}> => {
+
+  try {
+
+    return await LockPlugin.checkPermissions();
+
+  } catch (e) {
+
+    console.error('Failed to check permissions', e);
+
+    return {
+
+      isAccessibilityEnabled: false,
+
+      isAdminActive: false,
+
+      isBatteryOptimizationIgnored: false,
+
+      isNotificationGranted: false,
+
+      isAdbInstall: false,
+
+      installSource: 'Unknown',
+
+    };
+
+  }
+
+};
+
+
+
+export const openAccessibilitySettings = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.openAccessibilitySettings();
+
+  } catch (e) {
+
+    console.error('Failed to open settings', e);
+
+  }
+
+};
+
+
+
+export const openDeviceAdminSettings = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.openDeviceAdminSettings();
+
+  } catch (e) {
+
+    console.error('Failed to open device admin settings', e);
+
+  }
+
+};
+
+
+
+export const openDeviceAdminList = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.openDeviceAdminList();
+
+  } catch (e) {
+
+    console.error('Failed to open device admin list', e);
+
+  }
+
+};
+
+
+
+export const openAppInfo = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.openAppInfo();
+
+  } catch (e) {
+
+    console.error('Failed to open app info', e);
+
+  }
+
+};
+
+
+
+export const requestBatteryOptimization = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.requestBatteryOptimization();
+
+  } catch (e) {
+
+    console.error('Failed to request battery optimization', e);
+
+  }
+
+};
+
+
+
+export const requestNotificationPermission = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.requestNotificationPermission();
+
+  } catch (e) {
+
+    console.error('Failed to request notification permission', e);
+
+  }
+
+};
+
+
+
+export const openNotificationSettings = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.openNotificationSettings();
+
+  } catch (e) {
+
+    console.error('Failed to open notification settings', e);
+
+  }
+
+};
+
+
+
+export const startLockdown = (
+
+  allowedAppIds: string[],
+
+  durationMinutes?: number,
+
+  lockEndTime?: number,
+
+  scheduleId?: string
+
+) => {
+
+  LockPlugin.startLockdown({ allowedAppIds, durationMinutes, lockEndTime, scheduleId }).catch(e => {
+
+    console.error('startLockdown failed', e);
+
+  });
+
+};
+
+
+
+export const endLockdown = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.endLockdown();
+
+  } catch (e) {
+
+    console.error('endLockdown failed', e);
+
+  }
+
+};
+
+
+
+export const syncSchedules = async (schedules: any[], allowedAppIds: string[]): Promise<void> => {
+
+  try {
+
+    await LockPlugin.syncSchedules({ schedules, allowedAppIds });
+
+  } catch (e) {
+
+    console.error('syncSchedules failed', e);
+
+  }
+
+};
+
+
+
+export const syncTimeOffset = async (timeOffset: number): Promise<void> => {
+
+  try {
+
+    await LockPlugin.syncTimeOffset({ timeOffset });
+
+  } catch (e) {
+
+    console.error('syncTimeOffset failed', e);
+
+  }
+
+};
+
+
+
+export const setConsequenceActive = async (active: boolean, scheduleId?: string, whitelist?: string[]): Promise<void> => {
+
+  try {
+
+    await LockPlugin.setConsequenceActive({ active, scheduleId, whitelist });
+
+  } catch (e) {
+
+    console.error('setConsequenceActive failed', e);
+
+  }
+
+};
+
+
+
+export const getLockStatus = async (): Promise<{
+
+  isLockActive: boolean;
+
+  lockEndTime: number;
+
+  activeScheduleId?: string;
+
+  isConsequenceActive?: boolean;
+
+}> => {
+
+  try {
+
+    return await LockPlugin.getLockStatus();
+
+  } catch (e) {
+
+    console.error('getLockStatus failed', e);
+
+    return { isLockActive: false, lockEndTime: 0, isConsequenceActive: false };
+
+  }
+
+};
+
+
+
+export const exportBackup = async (
+
+  tempFileName: string,
+
+  defaultName: string
+
+): Promise<{ success?: boolean; canceled?: boolean }> => {
+
+  return await LockPlugin.exportBackup({ tempFileName, defaultName });
+
+};
+
+
+
+export const importBackup = async (): Promise<{
+
+  content?: string;
+
+  success?: boolean;
+
+  canceled?: boolean;
+
+}> => {
+
+  return await LockPlugin.importBackup();
+
+};
+
+
+
+export const sanitizeImportApps = async (
+
+  candidatePackageIds: string[],
+
+  activeServices?: string[]
+
+): Promise<{ cleanPackageIds: string[]; purgedPackageIds: string[]; purgedCount: number; error?: string }> => {
+
+  try {
+
+    return await LockPlugin.sanitizeImportApps({ candidatePackageIds, activeServices });
+
+  } catch (e: any) {
+
+    console.error('[Security] sanitizeImportApps failed or native classifier unavailable; failing closed', e);
+
+    // FAIL-CLOSED: Under zero circumstances should unverified candidate packages be treated as clean.
+
+    return {
+
+      cleanPackageIds: [],
+
+      purgedPackageIds: candidatePackageIds,
+
+      purgedCount: candidatePackageIds.length,
+
+      error: e?.message || String(e),
+
+    };
+
+  }
+
+};
+
+
+
+export const exitToHome = async (): Promise<void> => {
+
+  try {
+
+    await LockPlugin.exitToHome();
+
+  } catch (e) {
+
+    console.error('exitToHome failed', e);
+
+  }
+
+};
+
+
+
+export const showToast = async (message: string): Promise<void> => {
+
+  try {
+
+    await LockPlugin.showToast({ message });
+
+  } catch (e) {
+
+    console.log('[Toast fallback]', message);
+
+  }
+
+};
+
+
+
+export const addBackListener = async (callback: () => void) => {
+
+  return await LockPlugin.addListener('backPressed', callback);
+
+};
+
+
+
+export const setOperatingMode = async (mode: 'safemode' | 'hardcore'): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setOperatingMode({ mode });
+
+    return res?.success ?? true;
+
+  } catch (e) {
+
+    console.error('setOperatingMode failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const setWebProtectionMode = async (mode: 'accessibility' | 'dns_vpn' | 'dual_hybrid'): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setWebProtectionMode({ mode });
+
+    return res?.success ?? true;
+
+  } catch (e) {
+
+    console.error('setWebProtectionMode failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const setAllowYoutube = async (allow: boolean): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setAllowYoutube({ allow });
+
+    return res?.success ?? true;
+
+  } catch (e) {
+
+    console.error('setAllowYoutube failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const setBlockWebGames = async (block: boolean): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setBlockWebGames({ block });
+
+    return res?.success ?? true;
+
+  } catch (e) {
+
+    console.error('setBlockWebGames failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const requestVpnPermission = async (): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.requestVpnPermission();
+
+    return res?.granted ?? true;
+
+  } catch (e) {
+
+    console.error('requestVpnPermission failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const setDnsFilterProfile = async (profile: 'cleanbrowsing' | 'cloudflare_family' | 'adguard_family' | 'standard'): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setDnsFilterProfile({ profile });
+
+    return res?.success ?? true;
+
+  } catch (e) {
+
+    console.error('setDnsFilterProfile failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const setEnforceSafeSearch = async (enforce: boolean): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setEnforceSafeSearch({ enforce });
+
+    return res?.success ?? true;
+
+  } catch (e) {
+
+    console.error('setEnforceSafeSearch failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const setServicePolicy = async (serviceId: string, allowed: boolean): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setServicePolicy({ serviceId, allowed });
+
+    return res?.success ?? true;
+
+  } catch (e) {
+
+    console.error('setServicePolicy failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const getActiveServices = async (): Promise<string[]> => {
+
+  try {
+
+    const res = await LockPlugin.getActiveServices();
+
+    return res?.activeServices || [];
+
+  } catch (e) {
+
+    console.error('getActiveServices failed', e);
+
+    return [];
+
+  }
+
+};
+
+
+
+export const getRegisteredServices = async (): Promise<UnifiedServiceDefinition[]> => {
+
+  try {
+
+    const res = await LockPlugin.getRegisteredServices();
+
+    if (res?.services && Array.isArray(res.services) && res.services.length > 0) {
+
+      return res.services.map((s: any) => ({
+
+        id: s.id,
+
+        name: s.name || s.displayName || s.id,
+
+        description: s.description || `Allows ${s.name || s.id} application and web domains.`,
+
+        badge: s.badge || 'App + Web',
+
+        iconName: s.iconName || 'Globe',
+
+        themeColor: s.themeColor || 'indigo',
+
+        packages: Array.isArray(s.packages) ? s.packages : [],
+
+        domains: Array.isArray(s.domains) ? s.domains : []
+
+      }));
+
+    }
+
+  } catch (e) {
+
+    console.warn('getRegisteredServices failed, using fallback', e);
+
+  }
+
+  return [];
+
+};
+
+
+
+export const getInstalledLaunchers = async (): Promise<LauncherInfo[]> => {
+
+  try {
+
+    const res = await LockPlugin.getInstalledLaunchers();
+
+    return res.launchers || [];
+
+  } catch (e) {
+
+    console.warn('getInstalledLaunchers failed', e);
+
+    return [];
+
+  }
+
+};
+
+
+
+export const setSelectedLauncher = async (packageName: string, className?: string): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.setSelectedLauncher({ packageName, className });
+
+    return res?.success ?? false;
+
+  } catch (e) {
+
+    console.warn('setSelectedLauncher failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+
+export const getSelectedLauncher = async (): Promise<SelectedLauncherResult> => {
+
+  try {
+
+    const res = await LockPlugin.getSelectedLauncher();
+
+    return {
+
+      packageName: res?.packageName ?? null,
+
+      className: res?.className ?? null,
+
+    };
+
+  } catch (e) {
+
+    console.warn('getSelectedLauncher failed', e);
+
+    return { packageName: null, className: null };
+
+  }
+
+};
+
+
+
+export const getSirenStatus = async (): Promise<SirenStatus> => {
+
+  try {
+
+    return await LockPlugin.getSirenStatus();
+
+  } catch (e) {
+
+    console.warn('getSirenStatus failed', e);
+
+    return { installed: false, isDefaultHome: false, packageName: 'com.siren.homeproxy' };
+
+  }
+
+};
+
+
+
+export const requestSirenHomeRole = async (): Promise<boolean> => {
+
+  try {
+
+    const res = await LockPlugin.requestSirenHomeRole();
+
+    return res?.success ?? false;
+
+  } catch (e) {
+
+    console.warn('requestSirenHomeRole failed', e);
+
+    return false;
+
+  }
+
+};
+
+
+

@@ -51,6 +51,7 @@ public class LockAccessibilityService extends AccessibilityService {
      * the home screen.
      */
     private static final Set<String> KNOWN_LAUNCHERS = new HashSet<>(Arrays.asList(
+        "com.siren.homeproxy",
         "com.google.android.apps.nexuslauncher",
         "com.android.launcher",
         "com.android.launcher2",
@@ -64,7 +65,24 @@ public class LockAccessibilityService extends AccessibilityService {
         "com.realme.launcher",
         "com.transsion.launcher",
         "com.bbk.launcher2",
-        "com.vivo.launcher"
+        "com.vivo.launcher",
+        // Popular third-party and custom launchers
+        "ch.deletescape.lawnchair",
+        "app.lawnchair",
+        "app.lawnchair.playstore",
+        "com.teslacoilsw.launcher",
+        "com.teslacoilsw.launcher.prime",
+        "com.microsoft.launcher",
+        "bitpit.launcher",
+        "ginlemon.flowerfree",
+        "ginlemon.flowerpro",
+        "com.mi.android.globallauncher",
+        "com.actionlauncher.playstore",
+        "com.hyperion.launcher",
+        "app.olauncher",
+        "fr.neamar.kiss",
+        "com.indistractable.launcher",
+        "com.simplemobiletools.launcher"
     ));
 
     /**
@@ -361,10 +379,18 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkg == null) return false;
         if (context != null && pkg.equals(context.getPackageName())) return false;
         if (AppClassifier.isStage1Vetoed(pkg, null)) return false;
+        if ("com.siren.homeproxy".equals(pkg)) return true;
         if (KNOWN_LAUNCHERS.contains(pkg) || dynamicLauncherPackages.contains(pkg)) return true;
-        if (context != null) {
+
+        Context ctx = context != null ? context : instance;
+        if (ctx != null) {
             try {
-                PackageManager pm = context.getPackageManager();
+                android.content.ComponentName selected = LauncherStateManager.getSelectedLauncher(ctx);
+                if (selected != null && pkg.equals(selected.getPackageName())) {
+                    dynamicLauncherPackages.add(pkg);
+                    return true;
+                }
+                PackageManager pm = ctx.getPackageManager();
                 if (pm != null) {
                     Intent homeIntent = new Intent(Intent.ACTION_MAIN);
                     homeIntent.addCategory(Intent.CATEGORY_HOME);
@@ -372,7 +398,7 @@ public class LockAccessibilityService extends AccessibilityService {
                     List<ResolveInfo> list = pm.queryIntentActivities(homeIntent, 0);
                     if (list != null && !list.isEmpty()) {
                         for (ResolveInfo info : list) {
-                            if (InstalledLauncherDetector.isRealLauncher(info, context.getPackageName())) {
+                            if (InstalledLauncherDetector.isRealLauncher(info, ctx.getPackageName())) {
                                 dynamicLauncherPackages.add(pkg);
                                 return true;
                             }
@@ -1127,6 +1153,9 @@ public class LockAccessibilityService extends AccessibilityService {
         if (pkg == null) return false;
         if (pkg.contains("permissioncontroller")) {
             return false;
+        }
+        if ("com.siren.homeproxy".equals(pkg)) {
+            return true;
         }
         if (pkg.equals("com.google.android.googlequicksearchbox") && isGeminiActive(pkg, lastBrowserEventClass, null)) {
             if (!isGeminiAllowed()) {
@@ -2673,7 +2702,7 @@ public class LockAccessibilityService extends AccessibilityService {
             }
 
             // Third party launchers prompting to set default launcher
-            if (effectivePkg.toLowerCase(Locale.US).contains("launcher") && !KNOWN_LAUNCHERS.contains(effectivePkg)) {
+            if (effectivePkg.toLowerCase(Locale.US).contains("launcher") && !isLauncherApp(this, effectivePkg)) {
                 List<AccessibilityNodeInfo> defaultHomeNodes = root.findAccessibilityNodeInfosByText("Default");
                 if (defaultHomeNodes != null && !defaultHomeNodes.isEmpty()) {
                     List<AccessibilityNodeInfo> launcherNodes = root.findAccessibilityNodeInfosByText("Launcher");
