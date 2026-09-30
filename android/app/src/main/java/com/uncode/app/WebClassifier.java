@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Invariants:
  * - Single Gate: Raw search queries, typing in address bars, and search results (Google/Bing/DDG) are NEVER blocked.
- * - Tier 1 Academic Safe-List: Google Docs, Classroom, Wikipedia, Desmos, .edu are 100% immune.
+ * - Academic Safe-List: Google Docs, Classroom, Wikipedia, Desmos, .edu are 100% immune.
  */
 public final class WebClassifier {
 

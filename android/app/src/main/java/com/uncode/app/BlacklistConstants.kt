@@ -23,7 +23,7 @@ object BlacklistConstants {
         "com.huawei.systemmanager",
         "com.google.android.apps.wellbeing",
 
-        // Stage 1 Hardware Bloatware & Game Boosters (UAD-NG Ground Truth)
+        // Stage 1 Hardware Bloatware & Game Boosters
         "com.xiaomi.joyose",
         "com.miui.gamebooster",
         "com.samsung.android.game.gamehome",

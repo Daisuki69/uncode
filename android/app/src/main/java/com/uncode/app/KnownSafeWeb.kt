@@ -111,7 +111,7 @@ object KnownSafeWeb {
         if (urlOrDomain == null || urlOrDomain.trim().isEmpty()) return false
         val clean = urlOrDomain.trim().lowercase(Locale.US)
 
-        // 1. Tier 1 Academic & Institutional Immunity
+        // 1. Academic & Institutional Immunity
         if (isAcademicExempt(clean)) {
             return true
         }

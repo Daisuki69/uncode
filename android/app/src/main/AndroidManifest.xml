@@ -43,6 +43,17 @@
     <!-- Overlay: display lock screen over other apps and background launches (Android 10+) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+        <queries>
+        <package android:name="com.siren.homeproxy" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="com.siren.homeproxy.ACTION_REQUEST_HOME" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -67,29 +78,27 @@
 
         </activity>
 
-        <!-- Icon 1: QIEZKA Home Handler & Role Activity -->
-        <activity
-            android:name=".QiezkaHomeHandlerActivity"
-            android:label="@string/title_activity_home"
-            android:theme="@style/AppTheme.NoActionBar"
-            android:launchMode="singleInstance"
-            android:excludeFromRecents="true"
+        <!-- ===== SIREN Silent IPC ContentProvider ===== -->
+        <!-- Serves target home launcher to SIRENHomeProxy (com.siren.homeproxy) in < 1ms without waking UI -->
+        <provider
+            android:name=".SirenContentProvider"
+            android:authorities="com.uncode.app.provider"
+            android:exported="true" />
+
+        <!-- ===== SIREN Watchdog Revival Receiver ===== -->
+        <!-- Silently revives QIEZKA Headless Core on device boot or watchdog ping without opening UI -->
+        <receiver
+            android:name=".SirenReviveReceiver"
             android:exported="true">
-
-            <!-- System Default Home Role Filter -->
-            <intent-filter android:priority="1">
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.HOME" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-
-            <!-- App Drawer Secondary Launcher Icon -->
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="com.uncode.app.ACTION_REVIVE" />
             </intent-filter>
+        </receiver>
 
-        </activity>
+        <!-- ===== Headless Enforcement Core Daemon ===== -->
+        <service
+            android:name=".EnforcementCoreService"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

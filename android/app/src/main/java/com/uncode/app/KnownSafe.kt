@@ -136,13 +136,18 @@ object KnownSafe {
         // 2. Active Input Method Editors (Keyboards: Gboard, SwiftKey)
         if (context != null && LockAccessibilityService.isKeyboardPackage(context, pkg)) return true
 
-        // 3. Baseline Verified Study Packages
+        // 3. Home Launchers & SIREN Home Proxy (all launchers allowed except what Master Veto restricts)
+        if (pkg == "com.siren.homeproxy") return true
+        if (LockAccessibilityService.isLauncherApp(context, pkg)) return true
+        if (LockAccessibilityService.isLauncherApp(null, pkg)) return true
+
+        // 4. Baseline Verified Study Packages
         if (BASELINE_SAFE_PACKAGES.contains(pkg)) return true
 
-        // 4. Active Unified Services (YouTube / AI toggled on by user)
+        // 5. Active Unified Services (YouTube / AI toggled on by user)
         if (UnifiedPolicyRegistry.isPackageAllowedByService(pkg, activeServices)) return true
 
-        // 5. User-Configured Allowed Apps Whitelist
+        // 6. User-Configured Allowed Apps Whitelist
         // Strict Invariant: If in userWhitelist, it MUST NOT be a known distraction (unless authorized by Unified Policy above)
         if (userWhitelist != null && userWhitelist.contains(pkg)) {
             if (!KnownDistracting.isKnownDistracting(pkg)) {

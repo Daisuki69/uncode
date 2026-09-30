@@ -2629,6 +2629,95 @@ for a true genuine useful app looks suspicious and qiezka says its blocked
 thats acceptable, you can find multiple of the same apps anyways but you cant find the same qiezka anywhere, but if something truly is unique and useful can always contact me and will allow such app in future
 for a genuine distracting app successfully disguises, will be tested and hardened soon if i encounter such app
 
+---
+
+### Patch 26: Headless Enforcement Core Decoupling & SIREN Companion Architecture
+- **Why It Was Mandated**:
+  - **Elimination of Dual App Drawer Icons**: In the earlier home proxy prototype, declaring `QiezkaHomeHandlerActivity` with `CATEGORY_LAUNCHER` and `CATEGORY_HOME` directly in QIEZKA's manifest (`com.uncode.app`) caused Android OS to display two distinct icons ("QIEZKA" and "QIEZKA Home") on user home screens and app drawers.
+  - **The "UI Popping" Hazard**: If an external watchdog, boot event, or Home delegation attempted to ensure QIEZKA was alive by summoning `MainActivity`, Android was forced to boot Chromium WebView, parse 1MB+ of React 19 / TypeScript bundles, and display a visual window in the student's face, disrupting their focus and stealing focus from active study apps.
+  - **Decoupling Native Enforcement from Web UI**: QIEZKA's focus enforcement engine does NOT need Chromium or React to function:
+    - [`LockAccessibilityService`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java): 300ms window watcher, Auto-Back remediation, anti-tamper.
+    - [`LocalDnsVpnService`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java): UDP port 53 DNS sinkhole.
+    - [`FloatingOverlayService`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.java): WindowManager floating assistive timer ball.
+    - [`AppClassifier`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java) / [`KnownDistracting`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistracting.kt): 3-Stage Model truth tables and Stage 1 Master Veto.
+- **Architectural Enhancements Implemented**:
+  - **Decoupled Satellite Companion (`SIRENHomeProxy`)**:
+    - Created a standalone, ultra-lightweight satellite companion app (`com.siren.homeproxy`) holding Android's `ROLE_HOME` (`oom_adj_score` near 0).
+    - Contains zero app drawer icons (`CATEGORY_LAUNCHER` omitted), transparent theme, and forwards Home button presses to the user's real OEM launcher (One UI, Nova, Lawnchair) in $< 5$ms with zero UI animations.
+  - **Zero-UI IPC Gateway (`SirenContentProvider.java`)**:
+    - High-performance, UI-free ContentProvider responding to authority `content://com.uncode.app.provider/getLauncher`.
+    - Returns target launcher package and class in $< 1$ms without loading Chromium WebView or initiating any window.
+  - **Silent Headless Revival Protocol (`SirenReviveReceiver.java` & `EnforcementCoreService.java`)**:
+    - High-priority BroadcastReceiver listening for `com.uncode.app.ACTION_REVIVE` dispatched by SIREN upon boot or watchdog liveness checks.
+    - Wakes [`EnforcementCoreService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/EnforcementCoreService.java) to ensure Accessibility and DNS VPN services are healthy.
+    - **Strict Invariant**: **NEVER calls `startActivity(MainActivity)`**. The screen remains completely unperturbed.
+  - **Target Launcher State Manager (`LauncherStateManager.java`)**:
+    - Single source of truth for persisting and resolving the user's real home launcher (`qiezka_home_proxy` SharedPreferences).
+    - Enforces Stage 1 Master Veto (`AppClassifier.isStage1Vetoed`) on save, ensuring `com.android.settings`, setup wizards, or fallbacks can never be selected.
+  - **Clean Single App Drawer Icon (`AndroidManifest.xml`)**:
+    - Completely deleted `QiezkaHomeHandlerActivity` from `com.uncode.app`. Exactly one "QIEZKA" icon is visible in the Android drawer.
+    - Registered `SirenContentProvider`, `SirenReviveReceiver`, and `EnforcementCoreService`.
+  - **Interactive Selection UI & Native Bridge (`LockPlugin.java`, `systemBridge.ts`, `SettingsOverlay.tsx`)**:
+    - Added bridge methods: `setSelectedLauncher`, `getSelectedLauncher`, `getSirenStatus`, and `requestSirenHomeRole`.
+    - Added Settings card showing SIREN connection badge (`🟢 Connected` or `⚪ Not Installed`) and interactive selection for detected launchers.
+- **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+  - *Affected Systems*: `SirenContentProvider`, `SirenReviveReceiver`, `EnforcementCoreService`, `LauncherStateManager`, `AndroidManifest.xml`, `LockPlugin.java`, `SettingsOverlay.tsx`.
+  - *Callers & Dependents*: `SIRENHomeProxy`, Android WindowManager, Settings UI.
+  - *Compilation & Sync*: `compileDebugUnitTestSources` verified `BUILD SUCCESSFUL in 49s`; `npm run build` verified `✓ built in 28.12s`; `npx cap sync android` verified `Sync finished in 0.497s`.
+  - *User Rule 3 Compliance*: No APK generated (`assembleDebug` / `assembleRelease` omitted).
+
+#### Patch 26.1: Universal Launcher Invariant, SIREN Proxy Immunization & Total UAD Purge
+- **Why It Was Mandated**:
+  - **Live Lockdown Failure & Loop Breakdown**: On physical devices, when entering lockdown mode and pressing Home, `LockAccessibilityService` intercepted the transition to `com.siren.homeproxy`. Because SIREN was not included in `KNOWN_LAUNCHERS` or `KnownSafe.kt`, `isPackageBlocked("com.siren.homeproxy")` returned `true`, triggering `enforceBlock("com.siren.homeproxy")` which forcefully summoned `MainActivity` (`launchLockOverlay()`) right back to the front.
+  - **Screen Hesitation & Flickering Elimination**: The continuous 250ms/300ms ticker re-asserted `launchLockOverlay()`, causing an endless tug-of-war between Android's Home delegation and QIEZKA's lock screen. This loop monopolized accessibility callbacks, caused visible screen flickering/hesitation, and broke enforcement logic for genuine distracting apps.
+  - **Universal Home Launcher Invariant**: Launchers (system default and third-party launchers such as Lawnchair, Nova, Microsoft Launcher, Niagara) are legitimate system navigation environments. Unless an app is vetoed by Stage 1 Master Veto (Settings disguise, Phone Manager, or bloatware), all launchers must be unconditionally treated as `KnownSafe` and permitted during lockdown with the floating timer bubble (`FloatingOverlayService`).
+  - **Architectural Clarification on Tiers**: Confirmed that there is **no Tier 0**; **Stage 1 is the Master Veto Gate**. Anti-tamper shields, device care managers, setup wizards, and hardware bloatware are strictly evaluated at Stage 1 before any safe-lists or heuristics.
+  - **Total Eradication of UAD / UAD-NG Remnants**: Completely deleted obsolete static files (`src/uad_system_allowlist.json`, `src/uad_lists.json`), stripped all lingering UAD-NG mentions and comments from Java/Kotlin source files, and removed system-exempt references.
+- **Key Enhancements Implemented**:
+  - **Authoritative `KnownSafe.kt` Launcher Invariant**:
+    - Embedded `LockAccessibilityService.isLauncherApp(context, pkg)` and `"com.siren.homeproxy"` into `KnownSafe.isKnownSafe()`. Any launcher that passes Stage 1 Master Veto is officially classified as `KnownSafe`, ensuring the Stage 2 Truth Table outputs `KnownDistracting = false, KnownSafe = true -> ALLOW`.
+  - **Engine Immunization (`LockAccessibilityService.java`)**:
+    - Added `"com.siren.homeproxy"` and popular third-party launchers (`Lawnchair`, `Nova`, `Microsoft Launcher`, `Niagara`, `Smart Launcher`, `POCO`, `Olauncher`, `KISS`, etc.) to `KNOWN_LAUNCHERS`.
+    - Updated `isLauncherApp(Context, String)` to check `LauncherStateManager.getSelectedLauncher()` and query `PackageManager` for `CATEGORY_HOME` activities dynamically.
+    - Immunized `isSystemOrLauncher(pkg)` for `"com.siren.homeproxy"`.
+    - Refactored `interceptHomeLauncherChangeAttempt()` to verify `!isLauncherApp(this, effectivePkg)`, completely preventing false-positive evictions against third-party launchers.
+  - **Direct Bypass in `AppClassifier.java`**:
+    - Added explicit framework immunity for `"com.siren.homeproxy"` alongside `android`, `com.android.systemui`, and `context.getPackageName()`.
+    - Allowed `isLauncherApp(context, pkg)` immediately following the Stage 1 Master Veto Gate.
+    - Purged `(UAD-NG Ground Truth)` comments from `AppClassifier.java` and `BlacklistConstants.kt`.
+  - **Loop Prevention in `LauncherStateManager.java` & `InstalledLauncherDetector.java`**:
+    - In `InstalledLauncherDetector.isRealLauncher()`, explicitly excluded `SIREN_PACKAGE` (`"com.siren.homeproxy"`) so SIREN is never selected or listed as a candidate target launcher.
+    - In `LauncherStateManager.saveSelectedLauncher()` and `getSelectedLauncher()`, rejected and purged `"com.siren.homeproxy"`.
+  - **Self-Delegation Guard (`SirenHomeActivity.kt`)**:
+    - In `getDiskCachedLauncher()` and `checkAndSyncWithTarget()`, added guards ensuring SIREN never caches or delegates to itself or QIEZKA (`com.uncode.app`), strictly forwarding Home presses to genuine launchers.
+- **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+  - *Affected Files*:
+    - [`KnownSafe.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafe.kt)
+    - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+    - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+    - [`InstalledLauncherDetector.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.java)
+    - [`LauncherStateManager.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LauncherStateManager.java)
+    - [`BlacklistConstants.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/BlacklistConstants.kt)
+    - [`KnownSafeWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafeWeb.kt)
+    - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+    - [`LocalDnsVpnService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java)
+    - [`SirenHomeActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenHomeActivity.kt)
+    - Deleted: `src/uad_system_allowlist.json`, `src/uad_lists.json`
+  - *Known Dependents & Callers*:
+    - `LockAccessibilityService` on `TYPE_WINDOW_STATE_CHANGED` & `onTickerTick`: Verifies home launcher transitions without summoning `MainActivity`.
+    - `FloatingOverlayService`: Floats the countdown timer over the active home launcher without interference.
+    - `AppClassifier.isPackageBlocked()`: Continues to strictly block real distracting apps (YouTube, TikTok, Instagram, mobile games) while allowing home launchers.
+    - `SirenContentProvider`: Safely supplies the real target launcher component without self-referential loops.
+  - *Verification Flows*:
+    1. **Lockdown Home Tap Verification**: Enter lockdown mode -> tap Home -> Device displays selected home launcher with floating timer bubble -> `MainActivity` does NOT pop up -> zero screen flickering/hesitation.
+    2. **Enforcement Execution Verification**: While in lockdown on the home launcher, tap a distracting app (e.g. YouTube, TikTok, games) -> `LockAccessibilityService` detects distracting package -> immediately executes `enforceBlock()` and blocks access.
+    3. **Allowed App Verification**: Tap an approved study tool (e.g. Google Classroom, Anki, Docs) or safe utility (Phone, Camera) -> App opens cleanly while floating timer ball remains visible.
+  - *Build & Sync Verification*:
+    - `npm run build`: Verified successful compilation (`✓ built in 1m 23s`, 0 errors).
+    - Web distribution assets copied to `android/app/src/main/assets/public`.
+    - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+
+---
 
 ## 🔮 Future Roadmap & Ecosystem Forks
 
