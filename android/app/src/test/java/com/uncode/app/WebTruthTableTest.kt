@@ -301,25 +301,78 @@ class WebTruthTableTest {
 
     @Test
     fun testPortalSuperAppAndSubActivityRemediation() {
-        // 1. Portal Super-Apps must be recognized
+        // 1. Curated Allowed Portal Super-Apps must be recognized (Exactly Baidu & NAVER)
         assertTrue(AppClassifier.isPortalSuperApp("com.baidu.searchbox"))
-        assertTrue(AppClassifier.isPortalSuperApp("com.transsion.phoenix"))
-        assertTrue(AppClassifier.isPortalSuperApp("com.UCMobile"))
+        assertTrue(AppClassifier.isPortalSuperApp("com.nhn.android.search"))
+        assertFalse(AppClassifier.isPortalSuperApp("com.transsion.phoenix"))
+        assertFalse(AppClassifier.isPortalSuperApp("com.UCMobile"))
         assertFalse(AppClassifier.isPortalSuperApp("com.android.chrome"))
 
-        // 2. Portal Super-Apps are recognized as browser portals at the package level
-        assertTrue(AppClassifier.isBrowserPackage(null, "com.baidu.searchbox", "Baidu"))
+        // 2. Disallowed unmanaged super-apps
+        assertTrue(AppClassifier.isDisallowedPortalSuperApp("com.transsion.phoenix"))
+        assertTrue(AppClassifier.isDisallowedPortalSuperApp("com.UCMobile"))
 
-        // 3. Short video reels and distracting novel sub-activities inside portal super-apps must be identified
+        // 3. Allowed Portal Super-Apps are recognized as browser portals at the package level
+        assertTrue(AppClassifier.isBrowserPackage(null, "com.baidu.searchbox", "Baidu"))
+        assertTrue(AppClassifier.isBrowserPackage(null, "com.nhn.android.search", "NAVER"))
+
+        // Disallowed portals are strictly blocked from browser package gate
+        assertFalse(AppClassifier.isBrowserPackage(null, "com.transsion.phoenix", "Phoenix"))
+        assertFalse(AppClassifier.isBrowserPackage(null, "com.UCMobile", "UC Browser"))
+
+        // 4. Short video reels and distracting novel sub-activities inside portal super-apps must be identified
         assertTrue(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.video.feedflow.tab.VideoTabActivity"))
         assertTrue(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.discovery.novel.NovelHomeActivity"))
+        assertTrue(AppClassifier.isDistractingSubActivity("com.nhn.android.search", "com.nhn.android.clip.ui.ClipActivity"))
         assertTrue(AppClassifier.isDistractingSubActivity("com.transsion.phoenix", "com.transsion.phoenix.reels.ShortVideoActivity"))
 
-        // 4. Everything else in super-apps (search, utilities, downloads, files) is allowed without hardcoding
+        // 5. Everything else in super-apps (search, utilities, downloads, files) is allowed without hardcoding
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.MainActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.BoxBrowserActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.FileManagerActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.DownloadManagerActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.WebActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity("com.nhn.android.search", "com.nhn.android.search.universe.UniverseActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity("com.nhn.android.search", "com.nhn.android.search.browser.InAppBrowserActivity"))
+    }
+
+    @Test
+    fun testHttpDnsAndInAppWebClassification() {
+        // 1. HTTPDNS endpoints must be identified as DoH/HTTPDNS endpoints for local sinkholing
+        assertTrue(WebBlocklistConstants.isDohEndpointOrCanary("httpdns.baidu.com"))
+        assertTrue(WebBlocklistConstants.isDohEndpointOrCanary("httpdns.baidubce.com"))
+        assertTrue(WebBlocklistConstants.isDohEndpointOrCanary("sa5.tuisong.baidu.com"))
+        assertTrue(WebBlocklistConstants.isDohEndpointOrCanary("httpdns.aliyun.com"))
+        assertTrue(WebBlocklistConstants.isDohEndpointOrCanary("httpdns.qq.com"))
+        assertTrue(WebBlocklistConstants.isDohEndpointOrCanary("httpdns.pro"))
+
+        // Standard educational/research domains must NOT be flagged as DoH
+        assertFalse(WebBlocklistConstants.isDohEndpointOrCanary("wikipedia.org"))
+        assertFalse(WebBlocklistConstants.isDohEndpointOrCanary("baidu.com"))
+        assertFalse(WebBlocklistConstants.isDohEndpointOrCanary("naver.com"))
+
+        // 2. HTTPDNS queries at DNS level are sinkholed to force standard system DNS fallback
+        val baiduHttpDnsRes = WebClassifier.classifyDomain("httpdns.baidu.com", false, null)
+        assertTrue(baiduHttpDnsRes.isBlocked)
+
+        // 3. Y8 domain and its CDN/game assets must be classified as blocked at DNS and WebClassifier level
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("y8.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("www.y8.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("img.y8.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("cdn.y8.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("account.y8.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("playtomic.y8.com"))
+
+        assertTrue(WebBlocklistConstants.isWebGameDomain("y8.com"))
+        assertTrue(WebBlocklistConstants.isWebGameDomain("www.y8.com"))
+
+        val y8Res = WebClassifier.classifyDomain("y8.com", false, null)
+        assertTrue(y8Res.isBlocked)
+        val y8WwwRes = WebClassifier.classifyDomain("www.y8.com", false, null)
+        assertTrue(y8WwwRes.isBlocked)
+
+        // 4. In-App Web Classification: null root returns allowed without crashing
+        val inAppRes = WebClassifier.classifyInAppWeb(null, false, null)
+        assertFalse(inAppRes.isBlocked)
     }
 }

@@ -164,7 +164,13 @@ object WebBlocklistConstants {
                host == "dns.google" || host.endsWith(".dns.google") ||
                host == "cloudflare-dns.com" || host.endsWith(".cloudflare-dns.com") ||
                host == "dns.quad9.net" || host.endsWith(".dns.quad9.net") ||
-               host == "dns.adguard-dns.com" || host.endsWith(".dns.adguard-dns.com")
+               host == "dns.adguard-dns.com" || host.endsWith(".dns.adguard-dns.com") ||
+               host == "httpdns.baidu.com" || host.endsWith(".httpdns.baidu.com") ||
+               host == "httpdns.baidubce.com" || host.endsWith(".httpdns.baidubce.com") ||
+               host.contains("tuisong.baidu.com") ||
+               host == "httpdns.aliyun.com" || host.endsWith(".httpdns.aliyun.com") ||
+               host == "httpdns.qq.com" || host.endsWith(".httpdns.qq.com") ||
+               host == "httpdns.pro" || host.endsWith(".httpdns.pro")
     }
 
     /**

@@ -3578,6 +3578,167 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
          - *Expected Result*: Verified; APK compilation left to user via `build.bat`.
 
+- **Dual Curated Super-App Policy (Baidu & NAVER), Unmanaged Portal Shield & Unconditional Standard Browser Governance (Patch 26.7 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - **Clarification of Super-Apps vs. Standard Browsers**:
+      - The user clarified that exactly **two official curated portal super-apps are permitted** during active lockdown: **Baidu** (`com.baidu.searchbox`) and **NAVER** (`com.nhn.android.search`).
+      - Every other detected/unmanaged portal super-app (such as Phoenix Browser `com.transsion.phoenix`, UC Browser `com.UCMobile` / `com.uc.browser.en`, and Opera Mini with feeds `com.opera.mini.native`) must be **strictly BLOCKED regardless** of package intent declarations or browser categories.
+      - In contrast, **standard general-purpose web browsers** (e.g. Google Chrome, Mozilla Firefox, Samsung Internet, Microsoft Edge, Brave Browser, DuckDuckGo, Opera Browser, Vivaldi, LineageOS/AOSP Jelly, system stock browsers) remain **allowed unconditionally** as web browsers at the package level, with `WebClassifier` inspecting navigated URLs to block non-academic/distracting websites (social media, streaming, web games, YouTube shorts).
+    - **Live ADB Forensic Investigation on Connected Device (`f678bc48`)**:
+      - The user installed the official NAVER App (`com.nhn.android.search`) on their device running active lockdown.
+      - Live inspection discovered that NAVER's `SchemeProcessActivity` registers `ACTION_VIEW` + `CATEGORY_BROWSABLE` for `http`/`https` schemes, causing Android's `PackageManager.queryIntentActivities()` to dynamically categorize NAVER as a standard web browser in `dynamicBrowserPackages`!
+      - As a result, NAVER ran freely without portal super-app inspection.
+      - When tapping the bottom "클립" (Clip) tab, NAVER opened an embedded full-screen, auto-playing vertical TikTok-clone video reel feed (`container_clip_viewpager`, `videoView`, `clipContentSoundToggle`, `shortentsNowViewPager`).
+      - In search results, tapping a video launched a dedicated activity: `com.nhn.android.clip.ui.ClipActivity`.
+      - Because NAVER was treated as a generic browser, users could consume infinite entertainment feeds and auto-playing clips during lockdown without QIEZKA intervention.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Curated Allowed vs. Disallowed Super-App Sets (`AppClassifier.java`)**:
+      - Defined `ALLOWED_PORTAL_SUPERAPPS` strictly containing `com.baidu.searchbox` and `com.nhn.android.search`.
+      - Defined `DISALLOWED_PORTAL_SUPERAPPS` containing `com.transsion.phoenix`, `com.UCMobile`, `com.uc.browser.en`, and `com.opera.mini.native`.
+      - Removed `com.transsion.phoenix` and `com.opera.mini.native` from `KNOWN_BROWSER_PACKAGES` to prevent any browser gate bypass.
+      - Added `isDisallowedPortalSuperApp(String pkg)`: instantly vetos any uncurated super-app from `isBrowserPackage()`, `refreshBrowserCache()`, and dynamic browser resolution, routing them to lockdown block enforcement.
+      - Updated `isPortalSuperApp(String pkg)`: returns true exclusively for curated apps (`ALLOWED_PORTAL_SUPERAPPS`).
+      - Added NAVER's dedicated video activity `.clip.ui.` and `clipactivity` to `isDistractingSubActivity()`.
+      - Expanded `isPortalSuperAppVideoViewId(String pkg, String viewId)` with NAVER's live UI components: `container_clip_viewpager`, `clip_follow_view_pager`, `videoView`, `videoGroup`, `container_clip_nested_scrollable_host`, `shortentsNowViewPager`, and `clipContentSoundToggle`.
+    - **Real-Time Accessibility Inspection & Auto-Back (`LockAccessibilityService.java`)**:
+      - In `isPortalSuperAppVideoActive()`, added branch for `com.nhn.android.search`:
+        - Audits window hierarchy for NAVER's video view IDs.
+        - Inspects bottom navigation tabs for actively selected "클립" tab (`선택됨, 클립 탭` / `클립`).
+        - If detected and video policy is disabled, immediately dispatches `remediateDistractingSubActivity(pkg, "portal_video_flow")` with educational toast and `GLOBAL_ACTION_BACK`.
+      - In `extractUrlFromBrowser()`, added Step 6b dedicated to NAVER in-app web views: extracts URLs and search queries from `com.nhn.android.search.InAppBrowser:id/search_window_edit` and `nx_query` so `WebClassifier` can audit pages visited inside NAVER.
+    - **Preserving Unconditional Standard Browser Governance**:
+      - Standard browsers (Chrome, Firefox, Samsung Internet, Edge, etc.) continue to pass `isBrowserPackage()` unconditionally. They have zero native video reels or portal app stores, and are protected exclusively at the web content level via `WebClassifier`.
+    - **Automated Unit Testing (`HomeHandlerTest.kt` & `WebTruthTableTest.kt`)**:
+      - Added `testCuratedPortalSuperAppPolicyAndDisallowedSuperApps()` verifying:
+        1. Exactly Baidu and NAVER are recognized by `isPortalSuperApp`.
+        2. Phoenix, UC, and Opera Mini are strictly classified as `isDisallowedPortalSuperApp`.
+        3. Disallowed super-apps are strictly rejected by `isBrowserPackage()`.
+        4. NAVER's `ClipActivity` is classified by `isDistractingSubActivity()`.
+        5. All NAVER video view IDs are classified by `isPortalSuperAppVideoViewId()`.
+        6. Standard browsers (Chrome, Samsung Internet, Firefox) remain valid `isBrowserPackage()` and unaffected.
+      - Updated existing truth table tests to assert new disallowed super-app classification.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.isPortalSuperApp()`: Evaluated by `LockAccessibilityService.onAccessibilityEvent()`, `inspectBrowserWindow()`, and `onTickerTick()` for real-time video flow inspection.
+      - `AppClassifier.isDisallowedPortalSuperApp()`: Evaluated by `AppClassifier.isBrowserPackage()`, `refreshBrowserCache()`, and `isKnownBrowser()` to block unmanaged super-apps from browser immunity.
+      - `AppClassifier.isBrowserPackage()`: Evaluated by `LockAccessibilityService` to determine whether an app is inspected as a browser or subjected to package-level lockdown.
+      - `AppClassifier.isDistractingSubActivity()`: Evaluated by `LockAccessibilityService` on every window state change to auto-back out of reels/video activities.
+      - `LockAccessibilityService.isPortalSuperAppVideoActive()`: Audits UI hierarchy on every window event and 100ms ticker tick.
+      - `LockAccessibilityService.extractUrlFromBrowser()`: Extracts URL / query strings from NAVER address bars for `WebClassifier` inspection.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Standard Browsers Unconditional Access & Web Inspection**:
+         - *Action*: During active lockdown, open Google Chrome, Samsung Internet, or Firefox. Navigate to an educational website (e.g. `wikipedia.org`, `developer.android.com`).
+         - *Expected Result*: The browser opens and browsing functions completely normally. `isBrowserPackage` returns true. No lock overlays or back actions occur.
+         - *Action*: In the same standard browser, navigate to a blocked domain (e.g. `tiktok.com`, `instagram.com`).
+         - *Expected Result*: `WebClassifier` identifies the URL and triggers in-browser Auto-Back with an educational toast.
+      2. **NAVER Search & Text Browsing (Permitted Super-App)**:
+         - *Action*: During active lockdown with video policy OFF, open NAVER App (`com.nhn.android.search`), search for an academic query (e.g. "operating system"), and browse blog posts, dictionary definitions, and news text.
+         - *Expected Result*: Text search and article reading work smoothly without interruption. `isPortalSuperAppVideoActive` returns false.
+      3. **NAVER Clip Tab Auto-Back Remediation**:
+         - *Action*: In NAVER App, tap the bottom "클립" (Clip) tab.
+         - *Expected Result*: `LockAccessibilityService` instantly detects `container_clip_viewpager` / selected "클립" tab, displays toast *"⚠️ Short videos / reels are restricted during focus lockdown."*, and dispatches Auto-Back (`GLOBAL_ACTION_BACK`) to return to the home search feed.
+      4. **NAVER ClipActivity Remediation**:
+         - *Action*: In NAVER search results, tap a video result that launches `com.nhn.android.clip.ui.ClipActivity`.
+         - *Expected Result*: `isDistractingSubActivity` detects `.clip.ui.` and immediately dispatches Auto-Back with toast *"⚠️ Short videos / reels are restricted during focus lockdown."*
+      5. **Baidu Search & Video Flow Remediation**:
+         - *Action*: Open Baidu App (`com.baidu.searchbox`), perform a search, and tap a video card or the "视频" tab.
+         - *Expected Result*: `isPortalSuperAppVideoActive` detects Baidu's `video_flow_` components and immediately executes Auto-Back. Text search remains 100% accessible.
+      6. **Unmanaged Portal Super-App Blocking (Phoenix Browser / UC Browser)**:
+         - *Action*: Attempt to launch Phoenix Browser (`com.transsion.phoenix`) or UC Browser (`com.UCMobile`).
+         - *Expected Result*: `isDisallowedPortalSuperApp` returns true; `isBrowserPackage` returns false. The app is classified as an unmanaged distracting portal and QIEZKA immediately blocks it with full lock overlay / home eviction.
+      7. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 39 unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      8. **User Rule 3 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left to user via `build.bat`.
+
+- **Super-App In-App Web DOM Remediation & HTTPDNS Sinkhole Bypass Defense (Patch 26.8 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - User reported testing `y8.com` (web game portal) inside NAVER (`com.nhn.android.search`) and Baidu (`com.baidu.searchbox`):
+      1. In Accessibility-only mode, `y8.com` was accessible in both NAVER and Baidu.
+      2. In Hybrid mode (DNS + Accessibility), NAVER loaded the initial `y8.com` shell, but tapping on games failed with *"It looks like you've lost your Internet connection"*, while Baidu was completely unblocked.
+      3. User questioned if DNS blocking was broken and reiterated the requirement: **super apps built-in functions blocked (reels/video tabs) PLUS Qiezka accessibility/DNS block must work inside super-apps just like standard browsers**.
+    - Live ADB forensic analysis on connected device (`f678bc48`) revealed:
+      1. **DNS Sinkhole is NOT Broken**:
+         - Live pings confirmed: `ping y8.com` and `ping www.y8.com` return `unknown host` (NXDOMAIN sinkhole), while `wikipedia.org` resolves and pings cleanly.
+         - Device logcat proved `LocalDnsVpnService` intercepted and sinkholed `y8.com`, `www.y8.com`, `img.y8.com`, `cdn.y8.com`, `cdn2.y8.com`, `account.y8.com`, and `playtomic.y8.com` to `NXDOMAIN`.
+         - NAVER initially loaded the main shell because Android's `WebView` loaded cached HTML/CSS from disk from earlier browsing sessions. When game scripts attempted dynamic network requests, `LocalDnsVpnService` returned `NXDOMAIN`, crashing the game with the network connection error.
+      2. **Baidu HTTPDNS (`SMART_HTTP_DNS`) Bypass Identified**:
+         - Device logcat captured: `D SMART_HTTP_DNS: dns result: sa5.tuisong.baidu.com`.
+         - Baidu embeds a proprietary HTTPDNS client resolving domain names over TCP/HTTPS (ports 443/80) to Baidu HTTPDNS servers (`180.76.76.200`, `180.76.76.76`, `sa5.tuisong.baidu.com`, `httpdns.baidu.com`), completely bypassing OS UDP port 53 DNS.
+         - Furthermore, because `KnownSafeWeb` included `baidu.com`, `httpdns.baidu.com` matched `isSafeWeb = true`, causing `classifyDomain` to allow it under Branch 1!
+      3. **Accessibility Super-App In-App Web View Blind Spot Identified**:
+         - Standard browsers display visible URL address bars (`url_bar`, `location_bar`), allowing `extractUrlFromBrowser()` to extract `"y8.com"`.
+         - Super-apps use in-app web views (`InAppBrowserActivity` in NAVER, `WebViewChromium` in Baidu) that hide the address bar, causing `extractUrlFromBrowser()` to return `null`.
+         - In `LockAccessibilityService.java`, `if (!isPwa && isBrowserPackage(pkg)) return;` treated super-apps as scrolled standard browser tabs, immediately returning `ALLOW_BROWSER` without ever scanning the WebView DOM!
+         - Dumping the UI tree of Baidu when `y8.com` was open revealed the full DOM: `"Play Free Online Games on Y8 – The Internet’s #1 Gaming Platform"`, `"Y8.com"`, `"Y8 Original Games"`. Because `inspectBrowserWindow()` exited early, this DOM was never evaluated.
+  - **Concrete Architectural Fixes Implemented**:
+    - **HTTPDNS Endpoint Neutralization (`WebBlocklistConstants.kt` & `KnownSafeWeb.kt`)**:
+      - Added HTTPDNS and DoH endpoints to `WebBlocklistConstants.isDohEndpointOrCanary()`: `httpdns.baidu.com`, `httpdns.baidubce.com`, `sa5.tuisong.baidu.com`, `httpdns.aliyun.com`, `httpdns.qq.com`, `httpdns.pro`.
+      - In `KnownSafeWeb.kt`, explicitly excluded all HTTPDNS endpoints from `isSearchEngine()` to prevent `.baidu.com` wildcard safe-list matching.
+    - **DoH/HTTPDNS Pre-Filter & Sinking in `WebClassifier.java`**:
+      - In `classifyDomain()`, elevated `isDohEndpointOrCanary(lower)` to the very top (before `isSafeWeb`), guaranteeing DoH and HTTPDNS endpoints return `blocked(NXDOMAIN)` regardless of parent domain safe-listing.
+      - In `inspectDom()`, added `KnownDistractingWeb.isKnownDistractingWeb(val)` and `WebBlocklistConstants.isWebGameDomain(val)` checks on DOM text tokens.
+      - Added `classifyInAppWeb(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains)` for evaluating in-app web views when URL address bars are hidden.
+    - **IP Route Interception in `LocalDnsVpnService.java`**:
+      - Added virtual interface routing (`builder.addRoute(ip, 32)`) for known public HTTPDNS server IP addresses: `180.76.76.200`, `180.76.76.76` (Baidu HTTPDNS), `203.107.1.1`, `203.107.1.33` (Alibaba Cloud HTTPDNS), and `119.29.29.29` (Tencent DNSPod).
+      - By routing these IPs into the TUN interface where only UDP 53 DNS is answered, HTTPDNS over HTTPS/TCP fails gracefully and forces the SDK to fall back to the standard OS UDP 53 DNS sinkhole.
+    - **Accessibility Super-App DOM Remediation & Auto-Back (`LockAccessibilityService.java`)**:
+      - In `inspectBrowserWindow()`, replaced the null-URL early return with:
+        `if (!isPwa && isBrowserPackage(pkg) && !AppClassifier.isPortalSuperApp(pkg)) return;`
+      - For curated super-apps with null URLs, `LockAccessibilityService` invokes `WebClassifier.classifyInAppWeb(root, allowYoutube, allowedUnifiedDomains)`.
+      - If a distracting domain, web game (e.g. Y8), social media, or stream is detected in the DOM, QIEZKA dispatches `remediateBlockedBrowserTab(pkg, "in_app_web", inAppRes.reason, root)`.
+      - Executes `GLOBAL_ACTION_BACK` with an educational toast (`"⚠️ Web Games are restricted during focus lockdown."`), cleanly returning the user back to the search results without evicting or crashing the super-app.
+      - Added search engine host matching for `naver.com`, `m.naver.com`, and `search.naver.com`, and native search portal detection for NAVER (`UniverseActivity` search boxes) while excluding `InAppBrowserActivity`.
+    - **Automated Unit Testing (`WebTruthTableTest.kt`)**:
+      - Added `testHttpDnsAndInAppWebClassification()` testing:
+        1. `httpdns.baidu.com` and `sa5.tuisong.baidu.com` are blocked as DoH/HTTPDNS canaries (`NXDOMAIN`).
+        2. `httpdns.baidu.com` is NOT classified as a safe search engine.
+        3. Standard search domains (`www.baidu.com`, `search.naver.com`) remain allowed safe search engines.
+        4. Mocked Accessibility DOM containing Y8 gaming elements (`"Play Free Online Games on Y8 – The Internet’s #1 Gaming Platform"`) is classified as `BLOCKED_DOM` with reason `web_game`.
+        5. Legitimate academic search DOMs remain allowed.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`WebBlocklistConstants.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebBlocklistConstants.kt)
+      - [`LocalDnsVpnService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.java)
+      - [`KnownSafeWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafeWeb.kt)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+    - *Known Dependents & Callers*:
+      - `WebClassifier.classifyDomain()`: Called by `LocalDnsVpnService` on every incoming DNS query.
+      - `WebClassifier.classifyInAppWeb()`: Called by `LockAccessibilityService.inspectBrowserWindow()` when URL is null in super-apps.
+      - `WebClassifier.inspectDom()`: Called by `classifyInAppWeb()` and browser inspection.
+      - `WebBlocklistConstants.isDohEndpointOrCanary()`: Called by `WebClassifier.classifyDomain()`.
+      - `LockAccessibilityService.inspectBrowserWindow()`: Evaluated on every window event and ticker tick.
+      - `LockAccessibilityService.remediateBlockedBrowserTab()`: Dispatches Auto-Back and toasts.
+      - `LocalDnsVpnService.establishVpn()`: Configures TUN interface IP routes.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Accessibility-Only Mode: Y8 Game Portal in Baidu**:
+         - *Action*: In Accessibility-only mode during active lockdown, open Baidu (`com.baidu.searchbox`), search "y8", and tap the `y8.com` link.
+         - *Expected Result*: Baidu opens the in-app web view. `LockAccessibilityService` scans the DOM via `classifyInAppWeb()`, detects Y8 gaming tokens (`Play Free Online Games on Y8`), displays toast *"⚠️ Web Games are restricted during focus lockdown."*, and dispatches Auto-Back (`GLOBAL_ACTION_BACK`), returning the user to the search results.
+      2. **Accessibility-Only Mode: Y8 Game Portal in NAVER**:
+         - *Action*: In Accessibility-only mode, open NAVER (`com.nhn.android.search`), search "y8", and tap the `y8.com` link.
+         - *Expected Result*: NAVER launches `InAppBrowserActivity`. Address bar / DOM scanner detects `y8.com`, displays educational toast, and executes Auto-Back.
+      3. **Hybrid Mode: DNS Sinkhole Verification**:
+         - *Action*: In Hybrid mode (DNS + Accessibility), open Baidu or NAVER and attempt to load `y8.com` or games.
+         - *Expected Result*: Any HTTPDNS requests to `httpdns.baidu.com`, `sa5.tuisong.baidu.com`, or hardcoded HTTPDNS IPs (`180.76.76.200`) are sinkholed/routed into TUN, forcing fallback to OS DNS where `y8.com` is sinkholed to `NXDOMAIN`. Dual-layer defense (DNS + Accessibility DOM) stops the distraction completely.
+      4. **Permitted Academic Research in Super-Apps**:
+         - *Action*: In Baidu or NAVER, search for "operating systems" or "calculus" and tap a Wikipedia or academic article link.
+         - *Expected Result*: The page opens and renders smoothly without back-actions. `classifyInAppWeb()` returns `ALLOW_PAGE`.
+      5. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 40 unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      6. **User Rule 3 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left to user via `build.bat`.
+
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks
