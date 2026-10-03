@@ -271,7 +271,8 @@ object KnownDistractingWeb {
         "thepiratebay.org", "piratebay.org", "1337x.to", "1337x.is", "yts.mx", "torrentgalaxy.to", "eztv.re",
         "fitgirl-repacks.site", "dodi-repacks.site", "steamrip.com", "oceanofgames.com",
         "skidrowreloaded.com", "rutracker.org", "nyaa.si", "limetorrents.lol", "limetorrents.pro",
-        "magnetdl.com", "rarbg.to", "torrentday.com", "iptorrents.com"
+        "magnetdl.com", "rarbg.to", "torrentday.com", "iptorrents.com",
+        "v.baidu.com", "video.baidu.com", "haokan.baidu.com"
     )
 
     // ── 8. Dating & Random Cam Chat ──
@@ -381,7 +382,8 @@ object KnownDistractingWeb {
         "fbox.to", "aniwatch", "kaido.to", "miruro", "allanime", "mangafreak", "mangahub",
         "mangapill", "mangago", "novelupdates", "lightnovelpub", "wuxiaworld", "attacker.tv",
         "divxcrave", "swatchseries", "cmovies", "rarbg", "torrentday", "iptorrents",
-        "sereal.plus", "flexitv", "meloshort", "shotshort", "stardust.tv", "playlet"
+        "sereal.plus", "flexitv", "meloshort", "shotshort", "stardust.tv", "playlet",
+        "baidu.com/video", "m.baidu.com/video"
     )
 
     private val DATING_SIGNATURES: Array<String> = arrayOf(

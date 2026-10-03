@@ -271,13 +271,32 @@ class WebTruthTableTest {
         assertTrue(KnownSafeWeb.isKnownSafeWeb("baidu.com", null))
         assertTrue(KnownSafeWeb.isKnownSafeWeb("m.baidu.com", null))
 
-        // 3. Baidu SERP Search Queries and Video Search Pages are research pages, NOT destination websites
+        // 3. Baidu SERP Search Queries and Homepages are research pages, NOT destination websites
         assertFalse(WebClassifier.isDestinationUrl("https://m.baidu.com/s?wd=operating+system"))
         assertFalse(WebClassifier.isDestinationUrl("https://baidu.com/s?wd=calculus"))
         assertFalse(WebClassifier.isDestinationUrl("https://www.baidu.com/s?wd=ai"))
-        assertFalse(WebClassifier.isDestinationUrl("https://v.baidu.com/v?word=linear+algebra"))
-        assertFalse(WebClassifier.isDestinationUrl("https://video.baidu.com/v?word=physics"))
-        assertFalse(WebClassifier.isDestinationUrl("https://haokan.baidu.com/v?pd=wisenatural"))
+        assertFalse(WebClassifier.isDestinationUrl("https://m.baidu.com"))
+        assertFalse(WebClassifier.isDestinationUrl("https://baidu.com"))
+        assertFalse(WebClassifier.isDestinationUrl("https://www.baidu.com"))
+
+        // 4. Baidu Video destinations ARE destination websites governed by Unified Policy Videos
+        assertTrue(WebClassifier.isDestinationUrl("https://v.baidu.com/v?word=linear+algebra"))
+        assertTrue(WebClassifier.isDestinationUrl("https://video.baidu.com/v?word=physics"))
+        assertTrue(WebClassifier.isDestinationUrl("https://haokan.baidu.com/v?pd=wisenatural"))
+        assertTrue(WebClassifier.isDestinationUrl("https://m.baidu.com/video"))
+        assertTrue(WebClassifier.isDestinationUrl("https://baidu.com/video"))
+
+        // When Videos service is disabled, Baidu video is blocked
+        val blockedVid = WebClassifier.classify("https://v.baidu.com/v?word=calculus", null, false)
+        assertTrue(blockedVid.isBlocked)
+        val blockedPath = WebClassifier.classify("https://m.baidu.com/video", null, false)
+        assertTrue(blockedPath.isBlocked)
+
+        // When Videos service is enabled, Baidu video is allowed
+        val allowedVid = WebClassifier.classify("https://v.baidu.com/v?word=calculus", null, true)
+        assertFalse(allowedVid.isBlocked)
+        val allowedPath = WebClassifier.classify("https://m.baidu.com/video", null, true)
+        assertFalse(allowedPath.isBlocked)
     }
 
     @Test
@@ -291,21 +310,16 @@ class WebTruthTableTest {
         // 2. Portal Super-Apps are recognized as browser portals at the package level
         assertTrue(AppClassifier.isBrowserPackage(null, "com.baidu.searchbox", "Baidu"))
 
-        // 3. Short video reels and distracting sub-activities inside portal super-apps must be identified
+        // 3. Short video reels and distracting novel sub-activities inside portal super-apps must be identified
         assertTrue(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.video.feedflow.tab.VideoTabActivity"))
         assertTrue(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.discovery.novel.NovelHomeActivity"))
         assertTrue(AppClassifier.isDistractingSubActivity("com.transsion.phoenix", "com.transsion.phoenix.reels.ShortVideoActivity"))
 
-        // 4. Primary search and browsing activities must NOT be flagged as distracting sub-activities
+        // 4. Everything else in super-apps (search, utilities, downloads, files) is allowed without hardcoding
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.MainActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.BoxBrowserActivity"))
-
-        // 5. Super-app utility activities (FileManager, DownloadManager, WebActivity, etc.) must be recognized
-        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.FileManagerActivity"))
-        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.DownloadManagerActivity"))
-        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.BoxBrowserActivity"))
-        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.WebActivity"))
-        assertFalse(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.video.feedflow.tab.VideoTabActivity"))
-        assertFalse(AppClassifier.isSuperAppUtilityActivity("com.android.chrome", "com.google.android.apps.chrome.Main"))
+        assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.FileManagerActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.DownloadManagerActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.WebActivity"))
     }
 }

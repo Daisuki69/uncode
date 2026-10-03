@@ -490,6 +490,123 @@ class HomeHandlerTest {
             LockAccessibilityService.setCachedIsSirenDefaultForTesting(null)
         }
     }
+
+    @Test
+    fun testStage3SystemAllowSecondaryAppClassifierOptionB() {
+        val sysApp = android.content.pm.ApplicationInfo().apply {
+            flags = android.content.pm.ApplicationInfo.FLAG_SYSTEM
+        }
+        val userApp = android.content.pm.ApplicationInfo().apply {
+            flags = 0
+        }
+
+        // 1. Clean system utility / OS dialog passes Stage 3 SYSALLOW
+        assertTrue(AppClassifier.isPassedStage3SystemAllow(sysApp, "android", "Android System"))
+        assertTrue(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.internal.app.ResolverActivity", "ResolverActivity"))
+        assertTrue(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.documentsui", "Files"))
+
+        // 2. Pre-installed system game is REJECTED by Stage 3 (Detected Distracting comes first in Option B)
+        assertFalse(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.oem.systemgame", "Space Shooter 3D Game"))
+
+        // 3. System web browser is NOT marked as invisible SYSALLOW utility (routed to WebClassifier)
+        assertFalse(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.chrome", "Chrome"))
+
+        // 4. Anti-tamper settings and OEM bloatware on system partition are strictly vetoed
+        assertFalse(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.settings", "Settings"))
+        assertFalse(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.xiaomi.joyose", "Joyose"))
+
+        // 5. Third-party downloaded apps (non-system) never pass Stage 3 SYSALLOW
+        assertFalse(AppClassifier.isPassedStage3SystemAllow(userApp, "com.example.unknownapp", "Generic App"))
+    }
+
+    @Test
+    fun testSystemSettingsDialogActivityPickerUnblocked() {
+        val sysApp = android.content.pm.ApplicationInfo().apply {
+            flags = android.content.pm.ApplicationInfo.FLAG_SYSTEM
+        }
+
+        // 1. AppClassifier.isSystemSettingsDialog matches ActivityPicker and standard system dialogs
+        assertTrue(AppClassifier.isSystemSettingsDialog("com.android.settings.ActivityPicker"))
+        assertTrue(AppClassifier.isSystemSettingsDialog(".ActivityPicker"))
+        assertTrue(AppClassifier.isSystemSettingsDialog("ActivityPicker"))
+        assertTrue(AppClassifier.isSystemSettingsDialog("Choose activity"))
+        assertTrue(AppClassifier.isSystemSettingsDialog("choose activity"))
+        assertTrue(AppClassifier.isSystemSettingsDialog("Activity Picker"))
+        assertTrue(AppClassifier.isSystemSettingsDialog("com.android.settings.bluetooth.BluetoothPairingDialog"))
+        assertTrue(AppClassifier.isSystemSettingsDialog("com.android.settings.wifi.WifiDialogActivity"))
+
+        // 2. Dangerous anti-tamper Settings activities are NOT system settings dialogs
+        assertFalse(AppClassifier.isSystemSettingsDialog("com.android.settings.Settings"))
+        assertFalse(AppClassifier.isSystemSettingsDialog("com.android.settings.SubSettings"))
+        assertFalse(AppClassifier.isSystemSettingsDialog("com.android.settings.applications.InstalledAppDetails"))
+        assertFalse(AppClassifier.isSystemSettingsDialog("com.android.settings.applications.ManageApplications"))
+        assertFalse(AppClassifier.isSystemSettingsDialog("com.android.settings.DevelopmentSettings"))
+        assertFalse(AppClassifier.isSystemSettingsDialog(null))
+        assertFalse(AppClassifier.isSystemSettingsDialog(""))
+
+        // 3. isSettingsOrDeviceManager exempts ActivityPicker / Choose activity but strictly blocks actual Settings
+        assertFalse(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "com.android.settings.ActivityPicker"))
+        assertFalse(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "Choose activity"))
+        assertFalse(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", ".ActivityPicker"))
+        assertTrue(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "com.android.settings.Settings"))
+        assertTrue(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "com.android.settings.SubSettings"))
+        assertTrue(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", null))
+
+        // 4. isStage1Vetoed respects the activity-level exemption
+        assertFalse(AppClassifier.isStage1Vetoed("com.android.settings", "Settings", "com.android.settings.ActivityPicker"))
+        assertFalse(AppClassifier.isStage1Vetoed("com.android.settings", "Settings", "Choose activity"))
+        assertTrue(AppClassifier.isStage1Vetoed("com.android.settings", "Settings", "com.android.settings.Settings"))
+        assertTrue(AppClassifier.isStage1Vetoed("com.android.settings", "Settings", null))
+
+        // 5. Stage 3 SYSALLOW allows ActivityPicker dialog hosted inside Settings.apk
+        assertTrue(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.settings", "Settings", "com.android.settings.ActivityPicker"))
+        assertTrue(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.settings", "Settings", "Choose activity"))
+        assertFalse(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.settings", "Settings", "com.android.settings.Settings"))
+        assertFalse(AppClassifier.isPassedStage3SystemAllow(sysApp, "com.android.settings", "Settings", null))
+    }
+
+    @Test
+    fun testPortalSuperAppVideoViewIdClassification() {
+        val baiduPkg = "com.baidu.searchbox"
+
+        // 1. Portal super-app recognition
+        assertTrue(AppClassifier.isPortalSuperApp(baiduPkg))
+        assertTrue(AppClassifier.isPortalSuperApp("com.transsion.phoenix"))
+        assertTrue(AppClassifier.isPortalSuperApp("com.UCMobile"))
+        assertTrue(AppClassifier.isPortalSuperApp("com.uc.browser.en"))
+        assertFalse(AppClassifier.isPortalSuperApp("com.android.chrome"))
+        assertFalse(AppClassifier.isPortalSuperApp("com.sec.android.app.sbrowser"))
+
+        // 2. Baidu native video flow and reels component view IDs
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_cmp_player"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_tab_component"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_item_portrait_root"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/first_init_video_item_container"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_cmp_list"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_next_big_card"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_cmp_seek_bar"))
+
+        // 3. Baidu legitimate search UI view IDs must NOT be classified as video view IDs
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/search_box_content"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/landing_page_box_tv"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/bdframeview_id"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/main_fragment_content"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, null))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, ""))
+
+        // 4. Phoenix and UC Browser video view IDs
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.transsion.phoenix", "com.transsion.phoenix:id/video_player"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.transsion.phoenix", "com.transsion.phoenix:id/short_video_flow"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.transsion.phoenix", "com.transsion.phoenix:id/feed_video_player"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.UCMobile", "com.UCMobile:id/video_player"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.UCMobile", "com.UCMobile:id/reels_container"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.uc.browser.en", "com.uc.browser.en:id/video_feed_root"))
+
+        // 5. Standard general-purpose browsers never trigger portal video view IDs
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId("com.android.chrome", "com.android.chrome:id/video_player"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId("com.sec.android.app.sbrowser", "com.sec.android.app.sbrowser:id/video_flow_cmp_player"))
+    }
 }
+
 
 

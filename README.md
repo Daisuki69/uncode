@@ -3325,6 +3325,259 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
          - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
 
+- **Stage 3 Universal System Gateway Elevation, Natural Super-App Governance & Smooth Auto-Back State Machine (Patch 26.6 Update)**:
+  - **Why It Was Mandated (Root Cause Analysis & Specification Realignment)**:
+    - *Elimination of Ad-Hoc Hardcoded Whitelists & Inverted Flow*:
+      - In Patch 26.5, `ResolverActivity` (package `"android"`) and super-app utilities (such as `FileManagerActivity`, `DownloadManagerActivity`) were handled via hardcoded exceptions (`isSuperAppUtilityActivity`, `"android"` string checks).
+      - The user rightly challenged this deviation from the core architectural invariant:
+        *"wait in BResolver activity... why? isnt it a system? shouldnt it be not codded since its on stage 3 sysallow? at the same time why was it blocked in the first place even tho its a system not part of stage 1? why did you hardcode exemption reverse and identify the problem instead cuz the flow must exactly match the intended flow. isnt is this the flow: explicitly says Stage 1 blocks unwanted system things but on stage 3 anything survived after stage 1 and stage 2 that is a system IS ALWAYS ALLOWED... also i dont know what you did but it should be unless it is a short form video or a novel those are blocked, video(depending on unifiedpolicy) everything else is allowed (no hardcode need)"*
+      - *Root Cause Analysis*:
+        1. In `AppClassifier.java`, Stage 3 (SYSALLOW) was previously positioned at line 934, *after* Layer 4a heuristics and category lookups. System components with undefined application categories or unusual metadata were caught by Layer 4 heuristics before reaching SYSALLOW.
+        2. In `LockAccessibilityService.java`, `inspectBrowserWindow` assumed any window with `url == null` in a browser package was an unclassified standalone PWA and called `classifyStandalonePwa()` $\rightarrow$ `enforceBlock()`.
+        3. In super-apps (`com.baidu.searchbox`, `com.transsion.phoenix`, `com.UCMobile`), an ad-hoc whitelist of activity names was created instead of enforcing the natural rule: *all features are allowed except short-form reels and serialized novels, with long-form video governed by Unified Policy*.
+        4. In `remediateDistractingSubActivity`, `lastActiveActivityClass` was sticky. When `VideoTabActivity` was backed out, child layout events (`FrameLayout`, `SlidingPaneLayout`) in `MainActivity` evaluated the stale `VideoTabActivity` class, re-triggering Auto-Back 3-4 times in rapid succession and causing perceptible stutter and delay.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Elevated Stage 3 Universal System Gateway (SYSALLOW) (`AppClassifier.java`)**:
+      - Moved Stage 3 (SYSALLOW) to the top of `evaluatePackage()`, immediately following Stage 1 (anti-tamper/bloatware) and Stage 2 (browsers/launchers/truth table).
+      - Any package possessing `ApplicationInfo.FLAG_SYSTEM` or `FLAG_UPDATED_SYSTEM_APP` that survives Stage 1 and Stage 2 is unconditionally allowed without hardcoding package names like `"android"`.
+      - Removed `isSuperAppUtilityActivity()` completely.
+    - **Natural Super-App Governance (`LockAccessibilityService.java`, `AppClassifier.java`)**:
+      - Super-apps are browsers at package level. `isDistractingSubActivity()` specifically targets short-form reels (`VideoTabActivity`, `reels`, `feedflow`) and web novels (`novelhomeactivity`, `novelreaderactivity`).
+      - All other internal activities (search results, file managers, download centers, settings, web activities) are naturally allowed without any hardcoded activity catalog.
+      - Removed the `isSuperAppUtilityActivity` check from `inspectBrowserWindow()`; standard browser tabs and super-app utilities with null URL are naturally allowed (`return;`).
+    - **Non-Sticky Auto-Back State Machine & Debounce (`LockAccessibilityService.java`)**:
+      - In `remediateDistractingSubActivity()`, immediately reset `lastActiveActivityClass = null` upon executing `GLOBAL_ACTION_BACK`.
+      - Enforced a package-level 500ms debounce (`now - lastSubActivityRemediationTime < 500L`) to absorb in-flight activity transition events and prevent re-triggering.
+      - In `onAccessibilityEvent()`, ensured `isPortalSuperApp` sub-activity remediation only evaluates real Activity classes on `TYPE_WINDOW_STATE_CHANGED`, ignoring intermediate widget layout events.
+    - **Baidu Video Web Classification & Policy-Aware Decision Caching (`WebClassifier.java`, `KnownDistractingWeb.kt`, `KnownSafeWeb.kt`, `UnifiedPolicyRegistry.kt`)**:
+      - Categorized `v.baidu.com`, `video.baidu.com`, `haokan.baidu.com`, `m.baidu.com/video`, and `baidu.com/video` as destination video websites governed by the Unified Policy "Videos" toggle.
+      - When "Videos" is disabled: video web portals are blocked.
+      - When "Videos" is enabled: video web portals are allowed.
+      - General Baidu web search (`m.baidu.com/s`, `baidu.com`, search queries) remains 100% immune research.
+      - Made `WebClassifier`'s decision cache key policy-aware (`cleanUrl@yt:[0|1]@dom:[hash]`), preventing cross-policy cache collisions.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`KnownDistractingWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistractingWeb.kt)
+      - [`KnownSafeWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafeWeb.kt)
+      - [`UnifiedPolicyRegistry.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/UnifiedPolicyRegistry.kt)
+      - [`WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.isPackageBlocked()` & `evaluatePackage()`: Evaluates all apps across the Android OS during lockdown.
+      - `LockAccessibilityService.isSystemOrLauncher()` & `isPackageBlocked()`: Evaluates foreground windows and task switching.
+      - `LockAccessibilityService.remediateDistractingSubActivity()`: Handles sub-activity Auto-Back in portal super-apps.
+      - `WebClassifier.classify()` & `isDestinationUrl()`: Evaluates browser address bar URLs.
+      - `UnifiedPolicyRegistry`: Governs synchronous Native App + Web Domain permissions.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **System Intent Resolver Dialog ("Choose Activity")**:
+         - *Action*: During active lockdown, perform a search in Chrome or Baidu -> tap a link triggering the system "Choose activity" / Resolver dialog (e.g. choose Chrome or Baidu).
+         - *Expected Result*: `ResolverActivity` (`android`) appears smoothly without being blocked or redirected to QIEZKA Lock. Verified via Stage 3 SYSALLOW without any hardcoded exemptions.
+      2. **Baidu Reels Auto-Back (No Delay, No Stutter)**:
+         - *Action*: Open Baidu app (`com.baidu.searchbox`) during active lockdown -> tap the bottom "视频" (Video) reels tab.
+         - *Expected Result*: `VideoTabActivity` is immediately detected and Auto-Back executes with zero stutter. Because `lastActiveActivityClass` is cleared and debounced, the search interface (`MainActivity`) remains stable without double-triggering or backing out of the app.
+      3. **Natural Super-App Utility Permissiveness**:
+         - *Action*: In Baidu app, download a file, open the download manager, view history, or open settings.
+         - *Expected Result*: All legitimate utilities open and function naturally without being evicted as unknown PWAs. No hardcoded activity whitelist required.
+      4. **Baidu Video Web vs. Search Engine Results**:
+         - *Action*:
+           - When "Videos" toggle is OFF in QIEZKA Settings: visit `https://m.baidu.com/video` or `https://v.baidu.com` -> web page is blocked (Auto-Backs). Visit `https://www.baidu.com` or search a query -> search works 100% uninterrupted.
+           - When "Videos" toggle is ON in QIEZKA Settings: visit `https://m.baidu.com/video` or `https://v.baidu.com` -> educational videos are accessible.
+      5. **Automated Unit Testing & Linter Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 36 test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      6. **User Rule 3 Compliance Check**:
+         - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
+
+- **Secondary App Classifier Flow Alignment: Option B Heuristic Gatekeeper (Patch 26.6 Follow-Up)**:
+  - **Why It Was Mandated (Architectural Integrity & Zero-Leak Assurance)**:
+    - The user observed that elevating Stage 3 SYSALLOW to the very top of `evaluatePackage()` (Option A) meant system applications were allowed before evaluating negative distraction signals or application categories (`CATEGORY_GAME`, `CATEGORY_SOCIAL`, `CATEGORY_VIDEO`, `CATEGORY_NEWS`, remote desktop tools).
+    - If an OEM bundled demo games, addictive video feeds, or unlisted entertainment apps directly onto the `/system` or `/vendor` partition, they could potentially bypass heuristic scrutiny.
+    - The user requested Option B (the original flowchart architecture):
+      - **Step 1**: Distracting Checks First (`hasNegativeDistractionSignals`, `CATEGORY_GAME`, `CATEGORY_SOCIAL`, `CATEGORY_VIDEO`, `CATEGORY_NEWS`, `isRemoteDesktopOrScreenShare`). Any match is immediately BLOCKED.
+      - **Step 2**: Positive Academic & Essential Productivity Checks (`hasPositiveAcademicSignals`, safe categories, Camera, SIM/Carrier, Home Launcher). Any match is ALLOWED.
+      - **Step 3**: Undefined Gate. For unclassified applications that survived both distraction and academic filters, check system partition status:
+        - If system app (`FLAG_SYSTEM` or `FLAG_UPDATED_SYSTEM_APP`) $\rightarrow$ **Stage 3 Universal System Gateway (`SYSALLOW`)** allows it (enabling clean OS dialogs like `ResolverActivity`, `DocumentsUI`, `Telecom`, `PackageInstaller`).
+        - If third-party app $\rightarrow$ **Layer 5 Conservative Fallback** blocks it (`return true`).
+    - In-memory `decisionCache` caches verdicts after the very first lookup, ensuring microsecond O(1) performance across long lockdown sessions without compromising security.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Relocated Stage 3 SYSALLOW to Undefined Gate (`AppClassifier.java`)**:
+      - Removed the premature `FLAG_SYSTEM` check from the head of `evaluatePackage()`.
+      - Positioned the `isSystemApp` check directly at the `CATEGORY_UNDEFINED` gate immediately after `KnownSafe.isLauncherApp()` and before Layer 5 Conservative Fallback.
+    - **Unit Test Coverage (`HomeHandlerTest.kt`)**:
+      - Added `testStage3SystemAllowSecondaryAppClassifierOptionB()` verifying:
+        1. Clean system dialogs (`android`, `ResolverActivity`, `DocumentsUI`) pass Stage 3 SYSALLOW.
+        2. Pre-installed system games with distraction signals are strictly rejected.
+        3. System browsers are not treated as invisible SYSALLOW utilities.
+        4. Anti-tamper settings and OEM bloatware are vetoed.
+        5. Third-party unclassified apps never pass Stage 3 SYSALLOW.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.evaluatePackage()`: Heuristic engine invoked when an app is not in static known sets or Stage 1/2 gates.
+      - `AppClassifier.isPackageBlocked()`: Core security API queried by `LockAccessibilityService` on every window state change.
+      - `AppClassifier.isPassedStage3SystemAllow()`: Used by `LockPlugin.java` to filter invisible OS utilities from user app picker.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **System Dialogs (ResolverActivity / DocumentsUI)**:
+         - *Action*: During active lockdown, tap a link in Chrome that opens the system "Choose activity" / Resolver dialog or open the file picker (`DocumentsUI`).
+         - *Expected Result*: The dialog opens smoothly. In logcat: `Allowed by Stage 3 Universal System Gateway (SYSALLOW): android`.
+      2. **Pre-Installed System Bloatware / Game Isolation**:
+         - *Action*: Attempt to launch any OEM system game or bloatware on the device.
+         - *Expected Result*: In logcat: `Blocked by CATEGORY_GAME` or `Blocked by negative distraction heuristics`. The app is blocked and user is routed Home; SYSALLOW never fires for distracting packages.
+      3. **Third-Party Undefined App Fallback**:
+         - *Action*: Install an obscure sideloaded utility with no category and no academic keywords.
+         - *Expected Result*: In logcat: `Blocked by conservative fallback (unknown user app)`. The third-party app is blocked because it does not have `FLAG_SYSTEM`.
+      4. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 37 unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      5. **User Rule 3 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left to user via `build.bat`.
+
+- **ActivityPicker ("Choose activity") Live ADB Investigation & Anti-Tamper Security Decoupling (Patch 26.6 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - During testing on the user's device (`f678bc48`), triggering an intent chooser in Chrome (e.g. "Choose activity" between `Chrome` and `Baidu`) caused QIEZKA to immediately evict the user to the LockScreen.
+    - Live ADB forensic inspection (`dumpsys window windows`, `dumpsys activity activities`) revealed:
+      - `topResumedActivity=ActivityRecord{191896138 u0 com.android.settings/.ActivityPicker t2122}`
+      - `Intent { act=android.intent.action.PICK_ACTIVITY cmp=com.android.settings/.ActivityPicker }`
+      - Active window: `u0 com.android.settings/com.android.settings.ActivityPicker`, Title: `"Choose activity"`.
+      - View hierarchy: `android:id/alertTitle = "Choose activity"`, List items: `"Chrome"`, `"Baidu"`.
+    - **Root Cause**: On AOSP / Evolution X ROMs, `Intent.ACTION_PICK_ACTIVITY` is handled by `com.android.settings/.ActivityPicker`, an `AlertActivity` hosted inside `Settings.apk`. Because `com.android.settings` was classified as Stage 1 Master Veto (Anti-Tamper Device Manager), QIEZKA evaluated only the package name `com.android.settings` at the package level, immediately triggering `enforceBlock("com.android.settings")`.
+    - **Security Isolation**: `com.android.settings.ActivityPicker` is purely an OS intent selection dialog (extending `AlertActivity`) that returns the chosen activity component via `setResult(RESULT_OK, intent); finish();`. It provides zero access to Android settings, app management, force-stop, storage clearing, developer options, or permissions. Actual Android settings activities (`com.android.settings.Settings`, `SubSettings`, `InstalledAppDetails`, etc.) must remain strictly blocked by Stage 1 Master Veto.
+  - **Concrete Architectural Fixes Implemented**:
+    - **System Settings Dialog Identifier (`AppClassifier.java`)**:
+      - Added `isSystemSettingsDialog(String activityOrTitle)` matching `.ActivityPicker`, `ActivityPicker`, `"Choose activity"`, `"Activity Picker"`, `.BluetoothPairingDialog`, and `.WifiDialogActivity`.
+      - Overloaded `isSettingsOrDeviceManager(pkg, appLabel, activityCls)`: exempts `pkg == "com.android.settings"` if `isSystemSettingsDialog(activityCls)` returns true.
+      - Overloaded `isStage1Vetoed(pkg, appLabel, activityCls)` and `isPassedStage3SystemAllow(appInfo, pkg, appLabel, activityCls)` to evaluate the activity class level.
+    - **Activity Class Resolution & Dialog Immunity (`LockAccessibilityService.java`)**:
+      - Added `isLikelyActivityClass(cls)`: prevents non-activity View/Widget events (`android.widget.*`, `android.view.*`, `android.app.Dialog`, `android.app.AlertDialog`, `androidx.*`) from corrupting `lastActiveActivityClass`.
+      - Added `resolveCandidateClass(pkg, candidateCls, root)`: on `com.android.settings`, dynamically recovers dialog titles (`android:id/alertTitle`, e.g. `"Choose activity"`) directly from the accessibility node hierarchy if the window title or activity class was not yet dispatched.
+      - Overloaded `isSystemOrLauncher(pkg, activityCls)`: returns `true` if `isSystemSettingsDialog(activityCls)` is true.
+      - Overloaded `isPackageBlocked(pkg, activityCls)`: exempts `isSystemOrLauncher(pkg, activityCls)` and passes `activityCls` into `isStage1Vetoed`.
+      - Updated `onAccessibilityEvent()`: resolves `activeCls = isLikelyActivityClass(eventCls) ? eventCls : lastActiveActivityClass` and checks `resolveCandidateClass(pkgStr, activeCls, event.getSource())`.
+      - Updated `onTickerTick()`: uses `resolveCandidateClass(rootPkg, lastActiveActivityClass, activeRoot)` before evaluating Stage 1 anti-tamper veto.
+      - Updated `detectCurrentForegroundPackage()`: audits application windows and root windows using `resolveCandidateClass`, ensuring `ActivityPicker` is recognized as an exempted system dialog across all Z-order passes.
+    - **Automated Unit Testing (`HomeHandlerTest.kt`)**:
+      - Added `testSystemSettingsDialogActivityPickerUnblocked()`:
+        1. Verifies `isSystemSettingsDialog` matches `com.android.settings.ActivityPicker`, `.ActivityPicker`, and `"Choose activity"`.
+        2. Verifies `isSystemSettingsDialog` strictly rejects `com.android.settings.Settings`, `SubSettings`, and `InstalledAppDetails`.
+        3. Verifies `isSettingsOrDeviceManager` and `isStage1Vetoed` exempt `ActivityPicker` while strictly vetoing real settings activities.
+        4. Verifies `isPassedStage3SystemAllow` permits `ActivityPicker` through Stage 3 SYSALLOW.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.isSettingsOrDeviceManager()`: Core anti-tamper security method invoked by `LockAccessibilityService` on every event, window change, and ticker tick.
+      - `AppClassifier.isStage1Vetoed()`: Stage 1 Master Veto gatekeeper for all foreground activities and launchers.
+      - `LockAccessibilityService.isSystemOrLauncher()`: Universal system and launcher gatekeeper queried by `detectCurrentForegroundPackage()` and `isPackageBlocked()`.
+      - `LockAccessibilityService.detectCurrentForegroundPackage()`: Window audit engine running on ticker ticks and schedule triggers.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Choose Activity Dialog Unblocking**:
+         - *Action*: During active lockdown, perform an action in Chrome that opens the "Choose activity" dialog (e.g. choose between `Chrome` and `Baidu` / `Intent.ACTION_PICK_ACTIVITY`).
+         - *Expected Result*: The "Choose activity" dialog appears cleanly without eviction. The user can select an app or tap Cancel without being blocked. In logcat: `isSystemSettingsDialog` returns true and `enforceBlock("com.android.settings")` is NOT called.
+      2. **Anti-Tamper Settings Protection Preservation**:
+         - *Action*: During active lockdown, attempt to open Android Settings (`com.android.settings.Settings`), App Info (`InstalledAppDetails`), or Developer Options.
+         - *Expected Result*: The activity is instantly blocked, and QIEZKA evicts the user to the LockScreen or Home. In logcat: `Stage 1 Master Veto Gate matched: com.android.settings (Settings, com.android.settings.Settings)`.
+      3. **Browser Routing & Web Inspection Integrity**:
+         - *Action*: In the "Choose activity" dialog, select Chrome.
+         - *Expected Result*: Chrome opens and navigates to the requested URL. WebClassifier inspects the URL; educational URLs remain allowed, while distracting URLs are immediately redirected.
+      4. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 38 unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      5. **User Rule 3 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left to user via `build.bat`.
+
+- **Portal Super-App Live Video Playback & Feed Flow Remediation (Patch 26.6 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - During testing on the user's connected device (`f678bc48`) with video policy turned OFF under active focus lockdown, the student observed:
+      - The main page short-video feed tab (`VideoTabActivity`) was successfully blocked by `AppClassifier.isDistractingSubActivity()`.
+      - However, after searching for "operating system" in Baidu App (`com.baidu.searchbox`), tapping a video or opening the "视频" tab allowed the video to play completely unblocked, and allowed vertical scrolling into infinite short-video reels.
+      - On web `baidu.com`, video playback is blocked properly because `WebClassifier` detects destination video domains (`v.baidu.com`, `video.baidu.com`, `haokan.baidu.com`, `baidu.com/video`) and triggers Auto-Back.
+    - Live ADB forensic analysis (`dumpsys window`, `dumpsys activity`, `uiautomator dump`) revealed:
+      - Active Activity: `topResumedActivity=ActivityRecord{64334846 u0 com.baidu.searchbox/com.baidu.browser.search.LightSearchActivity t2107}`.
+      - Inside Baidu Search, video playback does NOT launch a separate activity. Baidu dynamically inflates its native `video_flow_` component tree right inside `LightSearchActivity`:
+        - `com.baidu.searchbox:id/video_flow_cmp_player` (Active player container)
+        - `com.baidu.searchbox:id/video_flow_tab_component` (Video flow root component)
+        - `com.baidu.searchbox:id/video_item_portrait_root` (Video portrait root)
+        - `com.baidu.searchbox:id/first_init_video_item_container` (First init video container)
+        - `com.baidu.searchbox:id/video_flow_cmp_list` (Vertical reels `RecyclerView`)
+        - `com.baidu.searchbox:id/video_flow_next_big_card` (Next video card in reels)
+        - `com.baidu.searchbox:id/video_flow_cmp_seek_bar` (Video player seek bar)
+    - **Reels vs. Standard YouTube-like Format Invariant**:
+      - Baidu delivers both long-form educational lectures (e.g. 19-minute operating systems courses) and viral short videos through the identical `video_flow` engine.
+      - Long videos feature horizontal 16:9 controls (`00:41 / 19:30`, seek bar, `全屏观看` / full-screen watch).
+      - However, in portrait mode, Baidu attaches social actions (赞 like, 抢首评 comment, 收藏 favorite, 分享 share) and vertical swipe gestures (`video_flow_next_big_card`), seamlessly transitioning the user into viral short-video reels (captured in live dumps with "杰哥爆笑视频" and student viral skits).
+    - **Root Cause**:
+      1. `AppClassifier.isDistractingSubActivity()` evaluated only activity class names. Because the activity was `LightSearchActivity` (the search results activity), it returned `false`.
+      2. `LockAccessibilityService.extractUrlFromBrowser()` looked for browser address bars (`url_bar`, `location_bar`). Because `LightSearchActivity` is native UI with a search input (`landing_page_box_tv`), `url` was `null`.
+      3. In `inspectBrowserWindow()`, `if (!isPwa && isBrowserPackage(pkg)) return;` immediately returned `ALLOW_BROWSER`, erroneously treating full-screen video playback as a regular scrolled browser tab!
+  - **Concrete Architectural Fixes Implemented**:
+    - **Portal Super-App Video View Identifier (`AppClassifier.java`)**:
+      - Added `isPortalSuperAppVideoViewId(String pkg, String viewId)`:
+        - Matches `video_flow_cmp_player`, `video_flow_tab_component`, `video_item_portrait_root`, `first_init_video_item_container`, `video_flow_cmp_list`, `video_flow_next_big_card`, and `video_flow_cmp_seek_bar` for `com.baidu.searchbox`.
+        - Matches Phoenix Browser video player IDs (`video_player`, `short_video_flow`, `feed_video_player`).
+        - Matches UC Browser video player IDs (`video_player`, `video_feed_root`, `reels_container`).
+        - Rejects legitimate search UI nodes (`search_box_content`, `landing_page_box_tv`, `bdframeview_id`).
+    - **Real-Time View Tree Video Inspection & Auto-Back (`LockAccessibilityService.java`)**:
+      - Added `isVideoPolicyAllowed()`: evaluates `allow_youtube` boolean preference and checks if `youtube` is present in `active_unified_services`.
+      - Added `isPortalSuperAppVideoActive(AccessibilityNodeInfo root, String pkg)`: queries the active window node cache via `findAccessibilityNodeInfosByViewId` for portal video components and confirms visibility.
+      - Updated `onAccessibilityEvent()`: if `isPortalSuperApp(pkg)` and `!isVideoPolicyAllowed()`, audits the root hierarchy for active video flow components; if detected, immediately dispatches `remediateDistractingSubActivity(pkg, "portal_video_flow")`.
+      - Updated `inspectBrowserWindow()`: executes `isPortalSuperAppVideoActive()` before search immunity or null-URL early returns, ensuring native video feeds cannot escape browser inspection.
+      - Updated `onTickerTick()`: adds direct fast-path checking `isPortalSuperAppVideoActive(activeRoot, rootPkg)` during periodic 100ms ticker audits.
+      - Updated `remediateDistractingSubActivity()`: displays contextual educational toast `"⚠️ Videos are restricted during focus lockdown."` when video policy is disabled or `"⚠️ Short videos / reels are restricted during focus lockdown."` for reels tabs, then executes `GLOBAL_ACTION_BACK` to cleanly dismiss the video and return the student to text search results.
+    - **Automated Unit Testing (`HomeHandlerTest.kt`)**:
+      - Added `testPortalSuperAppVideoViewIdClassification()`:
+        1. Verifies portal super-app package recognition (`com.baidu.searchbox`, `com.transsion.phoenix`, `com.UCMobile`, `com.uc.browser.en`).
+        2. Verifies all 7 Baidu `video_flow_` component IDs are classified as video views.
+        3. Verifies legitimate search UI nodes are strictly not classified as video views.
+        4. Verifies Phoenix and UC video view IDs.
+        5. Verifies general-purpose browsers (Chrome, Samsung Internet) do not trigger false positives.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.onAccessibilityEvent()`: Direct caller for window state changes and user interactions.
+      - `LockAccessibilityService.inspectBrowserWindow()`: Direct caller for browser tab and portal app inspection.
+      - `LockAccessibilityService.onTickerTick()`: Direct caller on 100ms periodic safety ticks.
+      - `LockAccessibilityService.remediateDistractingSubActivity()`: Dispatches Auto-Back, manages debounce, and displays educational toasts.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Baidu Search Text Results (Legitimate Academic Research)**:
+         - *Action*: During active lockdown with video policy OFF, open Baidu App, search for "operating system", and scroll through "综合" (General) tab articles, Baike entries, and definitions.
+         - *Expected Result*: Browsing remains 100% uninterrupted. `isPortalSuperAppVideoActive` returns `false`. No back keys are dispatched.
+      2. **Search Video Tapping & Auto-Back Remediation**:
+         - *Action*: In search results, tap any video thumbnail or tap the "视频" search tab.
+         - *Expected Result*: `isPortalSuperAppVideoActive` immediately detects `video_flow_cmp_player` / `video_flow_tab_component`. QIEZKA dispatches Auto-Back (`GLOBAL_ACTION_BACK`) within milliseconds. Toast shows: *"⚠️ Videos are restricted during focus lockdown."* App smoothly returns to search results.
+      3. **Baidu Vertical Reels Remediation**:
+         - *Action*: If the user attempts to enter vertical reels, swipe into next video card (`video_flow_next_big_card`).
+         - *Expected Result*: Auto-Back immediately executes. If student persists (> 3 rapid attempts), QIEZKA asserts full lock overlay.
+      4. **Main Page Video Tab Remediation**:
+         - *Action*: On Baidu app home screen, tap the bottom "Video" tab.
+         - *Expected Result*: Matches `VideoTabActivity` in `isDistractingSubActivity()`. Instantly Auto-Backs to home search feed with toast *"⚠️ Short videos / reels are restricted during focus lockdown."*
+      5. **Web Baidu Video Protection**:
+         - *Action*: In Chrome or Samsung Internet, navigate to `v.baidu.com` or `baidu.com/video` while video policy is OFF.
+         - *Expected Result*: `WebClassifier` detects destination video portal and executes in-browser Auto-Back.
+      6. **Video Policy Allowed Mode (When Enabled by User)**:
+         - *Action*: Enable "Videos (YouTube & Baidu Video)" in settings, then play an educational video.
+         - *Expected Result*: `isVideoPolicyAllowed()` returns `true`. Long video playback in search is allowed. Main page reels tab remains blocked by `VideoTabActivity` invariant.
+      7. **Settings Anti-Tamper & ActivityPicker Immunity**:
+         - *Action*: Open "Choose activity" dialog in Chrome; attempt to open Android Settings.
+         - *Expected Result*: "Choose activity" dialog opens without eviction. Actual Android Settings is immediately vetoed by Stage 1.
+      8. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 39 unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      9. **User Rule 3 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left to user via `build.bat`.
+
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks

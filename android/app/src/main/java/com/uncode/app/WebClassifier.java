@@ -263,12 +263,22 @@ public final class WebClassifier {
             // Standard search results (e.g. google.com/search?q=...) -> NOT a destination website
             return false;
         }
+        // Video and media portals on Baidu are destination websites!
+        if (withoutScheme.startsWith("v.baidu.com") ||
+            withoutScheme.startsWith("video.baidu.com") ||
+            withoutScheme.startsWith("haokan.baidu.com") ||
+            withoutScheme.startsWith("m.baidu.com/video") ||
+            withoutScheme.startsWith("baidu.com/video") ||
+            withoutScheme.startsWith("www.baidu.com/video") ||
+            withoutScheme.startsWith("tieba.baidu.com")) {
+            return true;
+        }
+
         if (withoutScheme.startsWith("www.bing.com/search") || withoutScheme.startsWith("bing.com/search") ||
             withoutScheme.startsWith("duckduckgo.com") || withoutScheme.startsWith("search.yahoo.com") ||
             withoutScheme.startsWith("ecosia.org/search") || withoutScheme.startsWith("qwant.com") ||
             withoutScheme.startsWith("baidu.com") || withoutScheme.startsWith("www.baidu.com") ||
-            withoutScheme.startsWith("m.baidu.com") || withoutScheme.startsWith("v.baidu.com") ||
-            withoutScheme.startsWith("video.baidu.com") || withoutScheme.startsWith("haokan.baidu.com") ||
+            withoutScheme.startsWith("m.baidu.com") ||
             withoutScheme.startsWith("yandex.com/search") ||
             withoutScheme.startsWith("startpage.com")) {
             return false;
@@ -393,8 +403,9 @@ public final class WebClassifier {
             return ClassificationResult.allowed();
         }
 
-        // Fast cache check
-        ClassificationResult cached = decisionCache.get(cleanUrl);
+        // Fast cache check incorporating active policy fingerprint
+        String cacheKey = cleanUrl + "@yt:" + (allowYoutube ? "1" : "0") + "@dom:" + (allowedDomains != null ? allowedDomains.hashCode() : 0);
+        ClassificationResult cached = decisionCache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
@@ -419,6 +430,8 @@ public final class WebClassifier {
             effectiveAllowed.add("v.baidu.com");
             effectiveAllowed.add("video.baidu.com");
             effectiveAllowed.add("haokan.baidu.com");
+            effectiveAllowed.add("m.baidu.com/video");
+            effectiveAllowed.add("baidu.com/video");
         }
 
         // ── STAGE 2 — INITIAL WEB POLICY EVALUATION (Truth Table) ──
@@ -430,14 +443,14 @@ public final class WebClassifier {
         // Branch 1: YES KnownDistractingWeb, YES KnownSafeWeb -> WEB_ALLOW_BROWSER (e.g. Whitelisted YouTube / Gemini)
         if (isDistractingWeb && isSafeWeb) {
             ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy");
-            decisionCache.put(cleanUrl, res);
+            decisionCache.put(cacheKey, res);
             return res;
         }
 
         // Branch 2: NO KnownDistractingWeb, YES KnownSafeWeb -> WEB_ALLOW_BROWSER (e.g. Wikipedia, Docs, Claude)
         if (!isDistractingWeb && isSafeWeb) {
             ClassificationResult res = ClassificationResult.allowed();
-            decisionCache.put(cleanUrl, res);
+            decisionCache.put(cacheKey, res);
             return res;
         }
 
@@ -445,7 +458,7 @@ public final class WebClassifier {
         if (isDistractingWeb && !isSafeWeb) {
             String reason = KnownDistractingWeb.getDistractionReason(cleanUrl);
             ClassificationResult res = ClassificationResult.blocked(reason);
-            decisionCache.put(cleanUrl, res);
+            decisionCache.put(cacheKey, res);
             return res;
         }
 
@@ -457,14 +470,14 @@ public final class WebClassifier {
 
             // Branch 4B: Detected as Distracting Web Category (Games, Video, Social Feeds, Media Players)
             if (domRes.isBlocked) {
-                decisionCache.put(cleanUrl, domRes);
+                decisionCache.put(cacheKey, domRes);
                 return domRes;
             }
 
             // Branch 4A: Detected Academic & Productivity
             if (stats.academicScore > 0 || isWindowTitleAcademic) {
                 ClassificationResult res = ClassificationResult.allowed("Detected Academic & Productivity");
-                decisionCache.put(cleanUrl, res);
+                decisionCache.put(cacheKey, res);
                 return res;
             }
         }
@@ -473,7 +486,7 @@ public final class WebClassifier {
         ClassificationResult fallbackRes = ClassificationResult.blocked(
             "Layer 5 Fallback: Unknown unclassified web content is restricted during focus lockdown"
         );
-        decisionCache.put(cleanUrl, fallbackRes);
+        decisionCache.put(cacheKey, fallbackRes);
         return fallbackRes;
     }
 
@@ -491,8 +504,9 @@ public final class WebClassifier {
         }
         String lower = domain.trim().toLowerCase(Locale.US);
 
-        // Fast cache check
-        ClassificationResult cached = decisionCache.get(lower);
+        // Fast cache check incorporating active policy fingerprint
+        String cacheKey = lower + "@yt:" + (allowYoutube ? "1" : "0") + "@dom:" + (allowedDomains != null ? allowedDomains.hashCode() : 0);
+        ClassificationResult cached = decisionCache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
@@ -513,14 +527,14 @@ public final class WebClassifier {
         // Branch 1: YES KnownDistractingWeb, YES KnownSafeWeb -> ALLOW (e.g. YouTube / Gemini toggled by policy)
         if (isDistractingWeb && isSafeWeb) {
             ClassificationResult res = ClassificationResult.allowed("Allowed by Unified Policy");
-            decisionCache.put(lower, res);
+            decisionCache.put(cacheKey, res);
             return res;
         }
 
         // Branch 2: NO KnownDistractingWeb, YES KnownSafeWeb -> ALLOW (e.g. Wikipedia, Docs, Claude)
         if (!isDistractingWeb && isSafeWeb) {
             ClassificationResult res = ClassificationResult.allowed();
-            decisionCache.put(lower, res);
+            decisionCache.put(cacheKey, res);
             return res;
         }
 
@@ -530,14 +544,14 @@ public final class WebClassifier {
                 ? "DoH endpoint sinkholed to enforce local DNS filtering"
                 : KnownDistractingWeb.getDistractionReason(lower);
             ClassificationResult res = ClassificationResult.blocked(reason);
-            decisionCache.put(lower, res);
+            decisionCache.put(cacheKey, res);
             return res;
         }
 
         // Branch 4: Unclassified domain at DNS level -> Forward to upstream resolver so browser can fetch
         // and Accessibility Service can inspect DOM view tree in real-time.
         ClassificationResult allowedRes = ClassificationResult.allowed();
-        decisionCache.put(lower, allowedRes);
+        decisionCache.put(cacheKey, allowedRes);
         return allowedRes;
     }
 
