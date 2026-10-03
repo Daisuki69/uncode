@@ -266,7 +266,9 @@ public final class WebClassifier {
         if (withoutScheme.startsWith("www.bing.com/search") || withoutScheme.startsWith("bing.com/search") ||
             withoutScheme.startsWith("duckduckgo.com") || withoutScheme.startsWith("search.yahoo.com") ||
             withoutScheme.startsWith("ecosia.org/search") || withoutScheme.startsWith("qwant.com") ||
-            withoutScheme.startsWith("baidu.com/s") || withoutScheme.startsWith("yandex.com/search")) {
+            withoutScheme.startsWith("baidu.com") || withoutScheme.startsWith("www.baidu.com") ||
+            withoutScheme.startsWith("m.baidu.com") || withoutScheme.startsWith("yandex.com/search") ||
+            withoutScheme.startsWith("startpage.com")) {
             return false;
         }
 

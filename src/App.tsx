@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react';
-import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp } from './types';
+import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp, CompletedHomework } from './types';
 import { Dashboard } from './components/Dashboard';
 import { LockScreen } from './components/LockScreen';
 import { EvaluationResult } from './components/EvaluationResult';
@@ -322,9 +322,24 @@ export default function App() {
         setServicePolicy(s.id, allowed).catch(() => {});
       }
       setBlockWebGames(true);
-      setResources(loadedResources);
-      setLogs(loadedLogs);
-      setCompletedHomeworks(loadedCompletedHomeworks);
+      // Enforce mutual exclusivity invariant on boot:
+      // A homework can only have 1 unique identifier and cannot exist as an active schedule at the same time as a failed homework.
+      const activeScheduleIds = new Set<string>(
+        (loadedSettings.schedules || []).filter((s: ScheduleData) => s.isActive).map((s: ScheduleData) => s.id)
+      );
+      // Remove any failed homework from completedHomeworks if it currently exists as an active schedule
+      const sanitizedCompletedHomeworks = loadedCompletedHomeworks.filter(
+        (h: CompletedHomework) => h.passed || !activeScheduleIds.has(h.id)
+      );
+      // Ensure failed homework IDs do not exist as active schedules
+      const failedHomeworkIds = new Set<string>(
+        sanitizedCompletedHomeworks.filter((h: CompletedHomework) => !h.passed).map((h: CompletedHomework) => h.id)
+      );
+      loadedSettings.schedules = (loadedSettings.schedules || []).filter(
+        (s: ScheduleData) => !s.isActive || !failedHomeworkIds.has(s.id)
+      );
+
+      setCompletedHomeworks(sanitizedCompletedHomeworks);
       setTimeOffset(loadedTimeOffset);
 
       // Check native lock status immediately upon loading
@@ -332,7 +347,7 @@ export default function App() {
         const lockStatus = await getLockStatus();
         const isConsequenceNativelyOrInSettings = (lockStatus && lockStatus.isConsequenceActive) || loadedSettings.consequenceActive;
         if (isConsequenceNativelyOrInSettings) {
-          const hasFailedHomework = loadedCompletedHomeworks.some(h => !h.passed);
+          const hasFailedHomework = sanitizedCompletedHomeworks.some(h => !h.passed);
           if (!hasFailedHomework && !loadedSettings.consequenceScheduleId) {
             // Orphaned consequence state (e.g. from blank backup import or cleared homeworks)
             // Auto-heal by clearing native consequence and resetting setting
@@ -648,20 +663,21 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
     const activeSchedule = (settings.schedules || []).find(s => s.id === activeScheduleId) ||
                            (settings.schedules || []).find(s => s.isActive) ||
                            (settings.schedules && settings.schedules.length > 0 ? settings.schedules[0] : null);
-    const targetScheduleId = activeSchedule ? activeSchedule.id : activeScheduleId;
+    const targetScheduleId = activeSchedule ? activeSchedule.id : (activeScheduleId || crypto.randomUUID());
 
     if (activeSchedule) {
       setCompletedHomeworks(prev => {
-        // Prevent duplicate logs within 15 seconds for the same schedule
+        // Prevent duplicate logs for the same schedule
         const isDuplicate = prev.some(item => 
-          item.title === (activeSchedule.title || 'Untitled Session') &&
-          !item.passed &&
-          Math.abs(Date.now() - item.timestamp) < 15000
+          item.id === targetScheduleId ||
+          (item.title === (activeSchedule.title || 'Untitled Session') &&
+           !item.passed &&
+           Math.abs(Date.now() - item.timestamp) < 15000)
         );
         if (isDuplicate) return prev;
 
         return [{
-          id: crypto.randomUUID(),
+          id: targetScheduleId,
           title: activeSchedule.title || 'Untitled Session',
           homeworkContent: activeSchedule.homeworkContent || '',
           rubricContent: activeSchedule.rubricContent || '',
@@ -672,7 +688,7 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
           durationMinutes: activeSchedule.durationMinutes,
           selectedResourceIds: activeSchedule.selectedResourceIds,
           activationTime: activeSchedule.activationTime,
-        }, ...prev];
+        }, ...prev.filter(item => item.id !== targetScheduleId)];
       });
     }
 
@@ -688,10 +704,9 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
       notifyUser('Lock skipped (Test mode). Device access restored.');
     } else {
       // Legitimate timeout: Activate Consequence Mode!
-      // Do NOT call endLockdown; retain app restrictions during operating hours (7 PM - 3 AM or 24/7 in Hardcore) until rescheduled & passed
-      const updatedSchedules = (settings.schedules || []).map(s => 
-        s.id === targetScheduleId ? { ...s, isActive: false } : s
-      );
+      // A homework can only exist in either active schedule or failed homework, but not both.
+      // Remove it from active schedules so it exists strictly as a failed homework.
+      const updatedSchedules = (settings.schedules || []).filter(s => s.id !== targetScheduleId);
 
       setSettings(prev => ({
         ...prev,
@@ -771,14 +786,26 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
       ...schedule,
       durationMinutes: Math.min(90, Math.max(1, schedule.durationMinutes || 25))
     };
+
+    // A homework can only exist in either active schedule or failed homework, but not both!
+    // If the saved schedule is active, remove it from failed homeworks
+    if (safeSchedule.isActive) {
+      setCompletedHomeworks(prev => prev.filter(h => h.id !== safeSchedule.id));
+    }
+
     setSettings(prev => {
       const schedules = prev.schedules || [];
       const isExisting = schedules.some(s => s.id === safeSchedule.id);
+      const updated = isExisting 
+        ? schedules.map(s => s.id === safeSchedule.id ? safeSchedule : s)
+        : [...schedules, safeSchedule];
+
+      const safeAllowedApps = (prev.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
+      syncSchedules(updated, safeAllowedApps.map(a => a.id));
+
       return {
         ...prev,
-        schedules: isExisting 
-          ? schedules.map(s => s.id === safeSchedule.id ? safeSchedule : s)
-          : [...schedules, safeSchedule]
+        schedules: updated
       };
     });
     navigate('dashboard', 'backward');
@@ -844,19 +871,23 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
       });
 
       setEvaluationResult(data);
-      setCompletedHomeworks(prev => [{
-        id: crypto.randomUUID(),
-        title: activeSchedule?.title || 'Untitled Schedule',
-        homeworkContent: activeSchedule?.homeworkContent || '',
-        rubricContent: activeSchedule?.rubricContent || '',
-        transcribedText: data.transcribedText || '',
-        feedback: data.feedback || '',
-        passed: data.passed || false,
-        timestamp: Date.now(),
-        durationMinutes: activeSchedule?.durationMinutes,
-        selectedResourceIds: activeSchedule?.selectedResourceIds,
-        activationTime: activeSchedule?.activationTime,
-      }, ...prev]);
+      const targetHomeworkId = scheduleId || activeSchedule?.id || crypto.randomUUID();
+      setCompletedHomeworks(prev => {
+        const filtered = prev.filter(item => item.id !== targetHomeworkId);
+        return [{
+          id: targetHomeworkId,
+          title: activeSchedule?.title || 'Untitled Schedule',
+          homeworkContent: activeSchedule?.homeworkContent || '',
+          rubricContent: activeSchedule?.rubricContent || '',
+          transcribedText: data.transcribedText || '',
+          feedback: data.feedback || '',
+          passed: data.passed || false,
+          timestamp: Date.now(),
+          durationMinutes: activeSchedule?.durationMinutes,
+          selectedResourceIds: activeSchedule?.selectedResourceIds,
+          activationTime: activeSchedule?.activationTime,
+        }, ...filtered];
+      });
 
       if (data.passed) {
         // Auto-Harvesting Logic
@@ -892,10 +923,8 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
           }
         }
 
-        // Deactivate the completed schedule immediately so neither React nor native background re-locks it
-        const updatedSchedules = (settings.schedules || []).map(s => 
-          s.id === scheduleId ? { ...s, isActive: false } : s
-        );
+        // Remove the completed schedule so neither React nor native background re-locks it
+        const updatedSchedules = (settings.schedules || []).filter(s => s.id !== targetHomeworkId);
         setSettings(prev => ({
           ...prev,
           schedules: updatedSchedules,
@@ -920,13 +949,18 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
         navigate('result');
       } else {
         // Failed evaluation: Maintain consequence mode!
+        // The homework is now a failed homework in completedHomeworks.
+        // It cannot exist as an active schedule at the same time: remove it from schedules.
+        const updatedSchedules = (settings.schedules || []).filter(s => s.id !== targetHomeworkId);
         const safeAllowedApps = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
         setSettings(prev => ({
           ...prev,
+          schedules: updatedSchedules,
           consequenceActive: true,
-          consequenceScheduleId: scheduleId,
+          consequenceScheduleId: targetHomeworkId,
         }));
-        setConsequenceActive(true, scheduleId, safeAllowedApps.map(a => a.id));
+        syncSchedules(updatedSchedules, safeAllowedApps.map(a => a.id));
+        setConsequenceActive(true, targetHomeworkId, safeAllowedApps.map(a => a.id));
         navigate('result');
       }
     } catch (error: any) {
@@ -1146,18 +1180,47 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
                   operatingMode={settings.operatingMode}
                   onBack={() => navigate('dashboard', 'backward')}
                   onClear={() => setCompletedHomeworks([])}
-                  onReschedule={(updatedSchedules) => {
+                  onReschedule={(updatedSchedules, rescheduledHomeworkId) => {
+                    const targetId = rescheduledHomeworkId || updatedSchedules[0]?.id;
+
+                    // 1. Remove the failed homework from completedHomeworks
+                    if (targetId) {
+                      setCompletedHomeworks(prev => prev.filter(h => h.id !== targetId));
+                    }
+
+                    // 2. Add to active schedules and sync with native
                     setSettings(prev => {
-                      const inactive = (prev.schedules || []).filter(s => !s.isActive);
-                      const all = [...updatedSchedules, ...inactive];
+                      // Filter out any existing schedule with targetId or in updatedSchedules
+                      const otherSchedules = (prev.schedules || []).filter(s => 
+                        s.id !== targetId && !updatedSchedules.some(u => u.id === s.id)
+                      );
+                      const all = [...updatedSchedules, ...otherSchedules.filter(s => !s.isActive)];
                       const safeAllowedApps = (prev.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
                       syncSchedules(all, safeAllowedApps.map(a => a.id));
+
+                      // Check remaining failed homeworks
+                      const remainingFailed = completedHomeworksRef.current.filter(h => !h.passed && h.id !== targetId);
+                      const isStillConsequence = remainingFailed.length > 0;
+
                       return {
                         ...prev,
-                        schedules: all
+                        schedules: all,
+                        consequenceActive: isStillConsequence ? prev.consequenceActive : false,
+                        consequenceScheduleId: isStillConsequence 
+                          ? (prev.consequenceScheduleId === targetId ? remainingFailed[0].id : prev.consequenceScheduleId)
+                          : undefined
                       };
                     });
-                    addLog('Emergency Reschedule', `Cascaded ${updatedSchedules.length} active schedules`);
+
+                    // 3. Clear consequence in native if no failed homeworks remain
+                    const remainingFailed = completedHomeworksRef.current.filter(h => !h.passed && h.id !== targetId);
+                    if (remainingFailed.length === 0) {
+                      setConsequenceActive(false);
+                    } else if (settings.consequenceScheduleId === targetId) {
+                      setConsequenceActive(true, remainingFailed[0].id);
+                    }
+
+                    addLog('Emergency Reschedule', `Rescheduled failed homework ${targetId} and cascaded ${updatedSchedules.length} active schedules`);
                   }}
                 />
               </Suspense>

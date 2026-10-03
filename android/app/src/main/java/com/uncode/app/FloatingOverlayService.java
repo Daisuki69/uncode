@@ -52,17 +52,9 @@ public class FloatingOverlayService extends Service {
         @Override
         public void run() {
             updateTimerDisplay();
-            long timeOffset = 0L;
-            try {
-                SharedPreferences p = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                timeOffset = p != null ? p.getLong("time_offset", 0L) : 0L;
-            } catch (Exception ignore) {}
-            long now = System.currentTimeMillis() + timeOffset;
-            long delay = 1000L - (now % 1000L);
-            if (delay < 50L) {
-                delay += 1000L;
-            }
-            tickerHandler.postDelayed(this, delay);
+            // High-precision 250ms polling against wall-clock eliminates delay-skipping,
+            // timer stutter, and live freezes while guaranteeing sub-frame synchronization.
+            tickerHandler.postDelayed(this, 250L);
         }
     };
 

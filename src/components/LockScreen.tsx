@@ -190,19 +190,24 @@ export function LockScreen({ schedule, settings, resources, lockEndTime, onSubmi
         return;
       }
 
-      // Synchronize directly with the system whole-second rollover to match FloatingOverlayService
-      let delay = 1000 - (now % 1000);
-      if (delay < 50) {
-        delay += 1000;
-      }
-      timer = setTimeout(tick, delay);
+      // High-precision 250ms cadence eliminates delay-skipping, live freezes,
+      // and stutter while matching FloatingOverlayService exactly
+      timer = setTimeout(tick, 250);
     };
 
     tick();
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !isCancelled) {
+        tick(); // Instantly update the countdown the exact millisecond screen resumes
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       isCancelled = true;
       if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [lockEndTime, onTimeout, getCurrentTime, schedule.id, schedule.durationMinutes]);
 

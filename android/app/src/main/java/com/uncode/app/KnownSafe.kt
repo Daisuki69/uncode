@@ -1,7 +1,12 @@
 package com.uncode.app
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
+import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import java.util.Locale
 
 /**
@@ -223,7 +228,7 @@ object KnownSafe {
         val lowerLabel = appLabel?.lowercase(Locale.ROOT) ?: ""
 
         // 1. Web Browsers (governed by WebClassifier, exempt from package eviction)
-        if (lowerPkg.contains("browser") || lowerPkg.contains("chrome") || lowerPkg.contains("firefox") || lowerPkg.contains("opera") || lowerPkg.contains("brave")) return true
+        if (AppClassifier.isBrowserPackage(pkg)) return true
 
         // 3. Safe Music & Audio Players
         if (lowerPkg.contains("spotify") || lowerPkg.contains("tidal") || lowerPkg.contains("deezer") || lowerPkg.contains("soundcloud") || lowerPkg.contains("music")) return true
@@ -240,6 +245,93 @@ object KnownSafe {
         // 7. Core Classroom & Drive
         if (lowerPkg == "com.google.android.apps.classroom" || lowerPkg == "com.google.android.apps.docs") return true
 
+        return false
+    }
+
+    @JvmField
+    val dynamicLauncherPackages: MutableSet<String> = hashSetOf()
+
+    @JvmField
+    val dynamicLauncherLabels: MutableSet<String> = hashSetOf()
+
+    /**
+     * Authoritatively verifies whether a package represents a genuine Home Launcher
+     * (OEM stock launcher, third-party launcher, or SIREN HomeProxy companion).
+     */
+    @JvmStatic
+    fun isLauncherApp(context: Context?, pkg: String?): Boolean {
+        if (pkg.isNullOrBlank()) return false
+        if (pkg == "com.siren.homeproxy") return true
+        if (context != null && pkg == context.packageName) return false
+        if (AppClassifier.isStage1Vetoed(pkg, null)) return false
+        if (dynamicLauncherPackages.contains(pkg)) return true
+        if (context != null) {
+            try {
+                // If explicitly saved in preferences, honor it immediately
+                val saved = LauncherStateManager.getSelectedLauncher(context)
+                if (saved != null && pkg == saved.packageName) {
+                    dynamicLauncherPackages.add(pkg)
+                    return true
+                }
+
+                val pm = context.packageManager
+                if (pm != null) {
+                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        setPackage(pkg)
+                    }
+                    val list = pm.queryIntentActivities(homeIntent, 0)
+                    if (!list.isNullOrEmpty()) {
+                        for (info in list) {
+                            if (InstalledLauncherDetector.isRealLauncher(info, context.packageName)) {
+                                dynamicLauncherPackages.add(pkg)
+                                val lbl = info.loadLabel(pm).toString().trim().lowercase(Locale.ROOT)
+                                if (lbl.isNotEmpty()) {
+                                    dynamicLauncherLabels.add(lbl)
+                                }
+                                return true
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return false
+    }
+
+    /**
+     * Identifies legitimate Input Method Editors (Keyboards: Gboard, Samsung Honeyboard, SwiftKey, etc.)
+     * via keyword heuristics, active system default IME, and registered InputMethodManager IMEs.
+     */
+    @JvmStatic
+    fun isKeyboardPackage(context: Context?, pkg: String?): Boolean {
+        if (pkg.isNullOrBlank()) return false
+        val lower = pkg.lowercase(Locale.ROOT)
+        if (lower.contains("inputmethod") ||
+            lower.contains("honeyboard") ||
+            lower.contains("keyboard") ||
+            lower.contains("gboard") ||
+            lower.contains("swiftkey") ||
+            lower.contains(".ime")) {
+            return true
+        }
+        if (context != null) {
+            try {
+                // 1. Query active default IME from Settings
+                val defaultIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+                if (defaultIme != null && defaultIme.startsWith("$pkg/")) {
+                    return true
+                }
+                // 2. Query all registered system IMEs
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                if (imm != null) {
+                    val imis = imm.inputMethodList
+                    if (imis.any { it.packageName == pkg }) {
+                        return true
+                    }
+                }
+            } catch (_: Exception) {}
+        }
         return false
     }
 
@@ -267,10 +359,10 @@ object KnownSafe {
         if (pkg == "com.siren.homeproxy") return true
 
         // 1c. Home Launchers (system default and genuine third-party launchers) are always KnownSafe
-        if (context != null && LockAccessibilityService.isLauncherApp(context, pkg)) return true
+        if (context != null && isLauncherApp(context, pkg)) return true
 
         // 2. Active Input Method Editors (Keyboards: Gboard, SwiftKey)
-        if (context != null && LockAccessibilityService.isKeyboardPackage(context, pkg)) return true
+        if (isKeyboardPackage(context, pkg)) return true
 
         // 2b. Verified Camera Tools & GCam Ports (Essential for Homework Photography)
         if (isCameraApp(context, pkg, null)) return true

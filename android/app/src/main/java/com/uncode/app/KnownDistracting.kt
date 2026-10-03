@@ -278,6 +278,12 @@ object KnownDistracting {
             return false
         }
 
+        // Exclude legitimate academic & enterprise VPNs (WireGuard, Tailscale, Cisco AnyConnect, Palo Alto GlobalProtect, OpenVPN)
+        if (lower.contains("tailscale") || lower.contains("wireguard") || lower.contains("cisco") ||
+            lower.contains("globalprotect") || lower.contains("openvpn")) {
+            return false
+        }
+
         return lower.contains(".musically.") ||
                lower.contains(".trill.") ||
                lower.contains(".aweme.") ||
@@ -323,11 +329,30 @@ object KnownDistracting {
                lower.contains(".dynamix.") ||
                lower.contains(".musedash.") ||
                lower.contains(".teamrhythmicals.") ||
-               lower.contains(".rhythm.")
+               lower.contains(".rhythm.") ||
+               // ── Stage 1 Evasion, Proxy & VPN Package Signatures ──
+               lower.contains(".proxy") ||
+               lower.startsWith("proxy.") ||
+               lower.contains(".vpn") ||
+               lower.startsWith("vpn.") ||
+               lower.contains("unblock") ||
+               lower.contains(".tunnel") ||
+               lower.contains(".bypass") ||
+               lower.contains("shadowsocks") ||
+               lower.contains("v2ray") ||
+               lower.contains(".clash.") ||
+               lower.contains("psiphon") ||
+               lower.contains("torproject") ||
+               lower.contains("cloudmosa") ||
+               lower.contains(".aloha.")
     }
 
     private fun hasDistractingLabelSignature(lowerLabel: String): Boolean {
         if (lowerLabel.contains("music") || lowerLabel.contains("audio") || lowerLabel.contains("podcast")) {
+            return false
+        }
+        if (lowerLabel.contains("tailscale") || lowerLabel.contains("wireguard") || lowerLabel.contains("cisco") ||
+            lowerLabel.contains("globalprotect") || lowerLabel.contains("openvpn")) {
             return false
         }
         return lowerLabel.equals("tiktok") ||
@@ -361,6 +386,32 @@ object KnownDistracting {
                lowerLabel.contains("lanota") ||
                lowerLabel.contains("rotaeno") ||
                lowerLabel.contains("muse dash") ||
-               lowerLabel.contains("rhythm game")
+               lowerLabel.contains("rhythm game") ||
+               // ── Stage 1 Multilingual Evasion & Proxy App Labels ──
+               // Russian
+               lowerLabel.contains("прокси") ||
+               lowerLabel.contains("впн") ||
+               lowerLabel.contains("анонимайзер") ||
+               // Chinese
+               lowerLabel.contains("代理") ||
+               lowerLabel.contains("翻墙") ||
+               lowerLabel.contains("梯子") ||
+               lowerLabel.contains("科学上网") ||
+               lowerLabel.contains("加速器") ||
+               // Japanese
+               lowerLabel.contains("プロキシ") ||
+               // Spanish / Portuguese
+               lowerLabel.contains("navegador proxy") ||
+               lowerLabel.contains("desbloquear") ||
+               // Arabic
+               lowerLabel.contains("بروكسي") ||
+               lowerLabel.contains("في بي ان") ||
+               // English
+               lowerLabel.contains("proxy") ||
+               lowerLabel.contains("vpn") ||
+               lowerLabel.contains("unblock") ||
+               lowerLabel.contains("tunnel") ||
+               lowerLabel.contains("tor browser") ||
+               lowerLabel.contains("onion browser")
     }
 }

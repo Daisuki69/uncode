@@ -167,8 +167,6 @@ public class LockPlugin extends Plugin {
                 }
             }
 
-            // Always exempt document pickers and media providers
-            whitelist.addAll(LockAccessibilityService.MEDIA_AND_FILE_EXEMPT);
 
             // Save whitelist and timestamp for AccessibilityService
             prefs.edit()
@@ -830,7 +828,7 @@ public class LockPlugin extends Plugin {
                             continue;
                         }
 
-                        boolean isLauncher = LockAccessibilityService.isLauncherApp(getActivity(), pkg);
+                        boolean isLauncher = KnownSafe.isLauncherApp(getActivity(), pkg);
                         if (isLauncher) {
                             continue; // Home Launchers have their own dedicated section in Settings; do not display in Allowed Apps
                         }
@@ -865,7 +863,7 @@ public class LockPlugin extends Plugin {
                         app.put("id", pkg);
                         app.put("name", appLabel);
 
-                        boolean isSimOrCarrier = LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
+                        boolean isSimOrCarrier = AppClassifier.isSimOrCarrierService(pkg, appLabel);
 
                         String iconName = "LayoutGrid";
                         if (isLauncher) iconName = "Home";
@@ -1565,7 +1563,7 @@ public class LockPlugin extends Plugin {
                     }
 
                     // Check Home Launchers (launchers belong in Always Allowed by System, not custom allowedApps)
-                    if (LockAccessibilityService.isLauncherApp(getContext(), pkg)) {
+                    if (KnownSafe.isLauncherApp(getContext(), pkg)) {
                         purgedPackageIds.put(pkg);
                         continue;
                     }

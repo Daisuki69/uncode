@@ -86,6 +86,35 @@ object KnownSafeWeb {
         "office.com", "onedrive.live.com", "onenote.com", "sharepoint.com"
     )
 
+    /**
+     * Verified Application Stores & Software Repositories.
+     * Permitted so users can download study tools, open-source utilities, and APK updates.
+     * Downloaded packages remain strictly governed at launch by AppClassifier.
+     */
+    @JvmField
+    val SOFTWARE_REPOSITORY_DOMAINS: Set<String> = hashSetOf(
+        "uptodown.com",
+        "apkmirror.com",
+        "f-droid.org",
+        "apkpure.com",
+        "apkcombo.com"
+    )
+
+    /**
+     * Authoritative Search Engine Portals.
+     * Permitted for research and web discovery across languages.
+     */
+    @JvmField
+    val SEARCH_ENGINE_DOMAINS: Set<String> = hashSetOf(
+        "baidu.com",
+        "bing.com",
+        "duckduckgo.com",
+        "ecosia.org",
+        "qwant.com",
+        "startpage.com",
+        "yandex.com"
+    )
+
     private val ACADEMIC_KEYWORDS: Array<String> = arrayOf(
         "wikipedia", "wikimedia", "wiktionary", "wikibooks", "wikiversity", "wikidata",
         "britannica", "worldbook", "merriam-webster", "dictionary.com", "thesaurus.com",
@@ -99,8 +128,28 @@ object KnownSafeWeb {
         "developer.mozilla", "w3schools", "geeksforgeeks", "stackoverflow", "stackexchange",
         "github", "gitlab", "leetcode", "hackerrank", "freecodecamp",
         "docs.oracle", "docs.python", "developer.android", "learn.microsoft",
-        "google.com/search"
+        "google.com/search", "baidu.com", "m.baidu.com"
     )
+
+    @JvmStatic
+    fun isSoftwareRepository(lowerUrl: String?): Boolean {
+        if (lowerUrl == null) return false
+        val clean = lowerUrl.trim().lowercase(Locale.US)
+        for (repo in SOFTWARE_REPOSITORY_DOMAINS) {
+            if (clean.contains(repo)) return true
+        }
+        return false
+    }
+
+    @JvmStatic
+    fun isSearchEngine(lowerUrl: String?): Boolean {
+        if (lowerUrl == null) return false
+        val clean = lowerUrl.trim().lowercase(Locale.US)
+        for (engine in SEARCH_ENGINE_DOMAINS) {
+            if (clean.contains(engine)) return true
+        }
+        return false
+    }
 
     /**
      * Stage 2 Web Gate: Evaluates whether a destination URL or domain is KnownSafe.
@@ -111,8 +160,8 @@ object KnownSafeWeb {
         if (urlOrDomain == null || urlOrDomain.trim().isEmpty()) return false
         val clean = urlOrDomain.trim().lowercase(Locale.US)
 
-        // 1. Tier 1 Academic & Institutional Immunity
-        if (isAcademicExempt(clean)) {
+        // 1. Tier 1 Academic & Institutional Immunity + Verified Software Repositories & Search Portals
+        if (isAcademicExempt(clean) || isSoftwareRepository(clean) || isSearchEngine(clean)) {
             return true
         }
 

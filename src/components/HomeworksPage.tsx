@@ -1,15 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  FileText, 
   X, 
   ChevronRight, 
-  CheckCircle, 
+  CheckCircle,
   XCircle, 
   ArrowLeft, 
   RotateCcw, 
   Clock, 
   AlertTriangle, 
-  ArrowRight, 
   Sparkles,
   Check
 } from 'lucide-react';
@@ -20,7 +18,7 @@ export interface HomeworksPageProps {
   schedules?: ScheduleData[];
   onBack: () => void;
   onClear?: () => void;
-  onReschedule?: (updatedSchedules: ScheduleData[]) => void;
+  onReschedule?: (updatedSchedules: ScheduleData[], rescheduledHomeworkId?: string) => void;
   consequenceActive?: boolean;
   consequenceScheduleId?: string;
   operatingMode?: 'safemode' | 'hardcore';
@@ -70,6 +68,7 @@ export interface CascadeResult {
 export function calculateCascadeSchedules(
   existingActiveSchedules: ScheduleData[],
   emergencyItem: {
+    id?: string;
     title: string;
     homeworkContent: string;
     rubricContent: string;
@@ -88,7 +87,7 @@ export function calculateCascadeSchedules(
   );
 
   const emergencySchedule: ScheduleData = {
-    id: crypto.randomUUID(),
+    id: emergencyItem.id || crypto.randomUUID(),
     title: emergencyItem.title,
     homeworkContent: emergencyItem.homeworkContent,
     rubricMode: 'points',
@@ -324,12 +323,12 @@ export function HomeworksPage({
   const failedHomeworks = useMemo(() => {
     // Filter to only failed/expired homeworks
     const onlyFailed = (homeworks || []).filter(hw => !hw.passed);
-    // Deduplicate entries with same title that occurred within 15 seconds of each other
+    // Deduplicate entries with same ID or same title that occurred within 15 seconds of each other
     const deduped: CompletedHomework[] = [];
     for (const hw of onlyFailed) {
       const isDup = deduped.some(existing => 
-        existing.title === hw.title &&
-        Math.abs(existing.timestamp - hw.timestamp) < 15000
+        existing.id === hw.id ||
+        (existing.title === hw.title && Math.abs(existing.timestamp - hw.timestamp) < 15000)
       );
       if (!isDup) {
         deduped.push(hw);
@@ -347,6 +346,7 @@ export function HomeworksPage({
     return calculateCascadeSchedules(
       activeExistingSchedules,
       {
+        id: rescheduleTarget.id,
         title: rescheduleTitle || rescheduleTarget.title,
         homeworkContent: rescheduleTarget.homeworkContent,
         rubricContent: rescheduleTarget.rubricContent,
@@ -376,9 +376,9 @@ export function HomeworksPage({
   };
 
   const handleConfirmReschedule = () => {
-    if (!cascadeSimulation || !cascadeSimulation.valid || !onReschedule) return;
+    if (!cascadeSimulation || !cascadeSimulation.valid || !onReschedule || !rescheduleTarget) return;
 
-    onReschedule(cascadeSimulation.finalSchedules);
+    onReschedule(cascadeSimulation.finalSchedules, rescheduleTarget.id);
     const targetTitle = rescheduleTitle || rescheduleTarget?.title;
     setRescheduleTarget(null);
     setSuccessToast(`Successfully cascaded ${cascadeSimulation.finalSchedules.length} schedules with "${targetTitle}"`);
