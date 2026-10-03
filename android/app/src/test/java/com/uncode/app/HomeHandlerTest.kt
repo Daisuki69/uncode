@@ -568,16 +568,46 @@ class HomeHandlerTest {
     @Test
     fun testPortalSuperAppVideoViewIdClassification() {
         val baiduPkg = "com.baidu.searchbox"
+        val naverPkg = "com.nhn.android.search"
 
-        // 1. Portal super-app recognition
+        // 1. Curated allowed portal super-app recognition (Exactly 2 allowed)
         assertTrue(AppClassifier.isPortalSuperApp(baiduPkg))
-        assertTrue(AppClassifier.isPortalSuperApp("com.transsion.phoenix"))
-        assertTrue(AppClassifier.isPortalSuperApp("com.UCMobile"))
-        assertTrue(AppClassifier.isPortalSuperApp("com.uc.browser.en"))
+        assertTrue(AppClassifier.isPortalSuperApp(naverPkg))
+        assertFalse(AppClassifier.isPortalSuperApp("com.transsion.phoenix"))
+        assertFalse(AppClassifier.isPortalSuperApp("com.UCMobile"))
+        assertFalse(AppClassifier.isPortalSuperApp("com.uc.browser.en"))
         assertFalse(AppClassifier.isPortalSuperApp("com.android.chrome"))
         assertFalse(AppClassifier.isPortalSuperApp("com.sec.android.app.sbrowser"))
 
-        // 2. Baidu native video flow and reels component view IDs
+        // 2. Disallowed unmanaged super-apps & portal browsers
+        assertTrue(AppClassifier.isDisallowedPortalSuperApp("com.transsion.phoenix"))
+        assertTrue(AppClassifier.isDisallowedPortalSuperApp("com.UCMobile"))
+        assertTrue(AppClassifier.isDisallowedPortalSuperApp("com.uc.browser.en"))
+        assertTrue(AppClassifier.isDisallowedPortalSuperApp("com.opera.mini.native"))
+        assertFalse(AppClassifier.isDisallowedPortalSuperApp(baiduPkg))
+        assertFalse(AppClassifier.isDisallowedPortalSuperApp(naverPkg))
+        assertFalse(AppClassifier.isDisallowedPortalSuperApp("com.android.chrome"))
+
+        // 3. Browser package gate: Standard browsers allowed, curated superapps allowed, unmanaged portals strictly blocked
+        assertTrue(AppClassifier.isBrowserPackage("com.android.chrome"))
+        assertTrue(AppClassifier.isBrowserPackage("com.sec.android.app.sbrowser"))
+        assertTrue(AppClassifier.isBrowserPackage("org.mozilla.firefox"))
+        assertTrue(AppClassifier.isBrowserPackage("com.microsoft.emmx"))
+        assertTrue(AppClassifier.isBrowserPackage("com.brave.browser"))
+        assertTrue(AppClassifier.isBrowserPackage(baiduPkg))
+        assertTrue(AppClassifier.isBrowserPackage(naverPkg))
+        assertFalse(AppClassifier.isBrowserPackage("com.transsion.phoenix"))
+        assertFalse(AppClassifier.isBrowserPackage("com.UCMobile"))
+        assertFalse(AppClassifier.isBrowserPackage("com.uc.browser.en"))
+
+        // 4. Distracting sub-activity detection for Baidu and Naver
+        assertTrue(AppClassifier.isDistractingSubActivity(baiduPkg, "com.baidu.searchbox.video.feedflow.tab.VideoTabActivity"))
+        assertTrue(AppClassifier.isDistractingSubActivity(naverPkg, "com.nhn.android.clip.ui.ClipActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity(baiduPkg, "com.baidu.browser.search.LightSearchActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity(naverPkg, "com.nhn.android.search.universe.UniverseActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity(naverPkg, "com.nhn.android.search.browser.InAppBrowserActivity"))
+
+        // 5. Baidu native video flow and reels component view IDs
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_cmp_player"))
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_tab_component"))
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_item_portrait_root"))
@@ -586,7 +616,7 @@ class HomeHandlerTest {
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_next_big_card"))
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/video_flow_cmp_seek_bar"))
 
-        // 3. Baidu legitimate search UI view IDs must NOT be classified as video view IDs
+        // 6. Baidu legitimate search UI view IDs must NOT be classified as video view IDs
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/search_box_content"))
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/landing_page_box_tv"))
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, "com.baidu.searchbox:id/bdframeview_id"))
@@ -594,15 +624,23 @@ class HomeHandlerTest {
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, null))
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId(baiduPkg, ""))
 
-        // 4. Phoenix and UC Browser video view IDs
-        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.transsion.phoenix", "com.transsion.phoenix:id/video_player"))
-        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.transsion.phoenix", "com.transsion.phoenix:id/short_video_flow"))
-        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.transsion.phoenix", "com.transsion.phoenix:id/feed_video_player"))
-        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.UCMobile", "com.UCMobile:id/video_player"))
-        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.UCMobile", "com.UCMobile:id/reels_container"))
-        assertTrue(AppClassifier.isPortalSuperAppVideoViewId("com.uc.browser.en", "com.uc.browser.en:id/video_feed_root"))
+        // 7. NAVER native Clip and video component view IDs
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/container_clip_viewpager"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/clip_follow_view_pager"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/videoView"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/videoGroup"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/container_clip_nested_scrollable_host"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/shortentsNowViewPager"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/clipContentSoundToggle"))
 
-        // 5. Standard general-purpose browsers never trigger portal video view IDs
+        // 8. NAVER legitimate search UI view IDs must NOT be classified as video view IDs
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search.InAppBrowser:id/search_window_edit"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/inappWebView"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/nx_query"))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, null))
+        assertFalse(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, ""))
+
+        // 9. Standard general-purpose browsers never trigger portal video view IDs
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId("com.android.chrome", "com.android.chrome:id/video_player"))
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId("com.sec.android.app.sbrowser", "com.sec.android.app.sbrowser:id/video_flow_cmp_player"))
     }

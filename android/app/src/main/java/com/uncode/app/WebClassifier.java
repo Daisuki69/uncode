@@ -383,6 +383,49 @@ public final class WebClassifier {
     }
 
     /**
+     * Inspects in-app web views (e.g. NAVER InAppBrowserActivity or Baidu in-app web views)
+     * where the standard native address bar is omitted (url == null).
+     *
+     * Audits the WebView hierarchy for page titles, web links, DOM elements, and distraction tokens.
+     * Unlike standalone PWAs (which block unclassified PWAs), legitimate academic reading, blog
+     * posts, and dictionary lookups are ALLOWED if no distraction signatures are detected.
+     */
+    public static ClassificationResult classifyInAppWeb(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
+        if (root == null) return ClassificationResult.allowed();
+
+        // 1. Check window title (e.g. if WindowManager/AccessibilityWindowInfo exposes the page title)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
+                if (win != null && win.getTitle() != null) {
+                    String title = win.getTitle().toString();
+                    if (KnownSafeWeb.isAcademicExempt(title)) {
+                        return ClassificationResult.allowed();
+                    }
+                    if (KnownDistractingWeb.isKnownDistractingWeb(title)) {
+                        return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(title));
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+
+        // 2. Perform deep DOM inspection across the WebView node hierarchy
+        DomScanStats stats = new DomScanStats();
+        ClassificationResult domRes = inspectDom(root, 0, stats);
+        if (domRes.isBlocked) {
+            return domRes;
+        }
+
+        // If strong gaming title phrases were detected even without full HUD controls (e.g. web game landing page)
+        if (stats.academicScore == 0 && stats.gamingTitleScore >= 1) {
+            return ClassificationResult.blocked("Web-based game detected (Title/Platform): " + (stats.detectedToken != null ? stats.detectedToken : "game"));
+        }
+
+        // 3. Legitimate study / reading content survived distraction checks -> ALLOW
+        return ClassificationResult.allowed();
+    }
+
+    /**
      * Main on-device semantic classification entry point for Accessibility Service.
      * Evaluates destination URLs and DOM content in real-time according to Stage 2 Web Truth Table.
      *
@@ -521,8 +564,15 @@ public final class WebClassifier {
             effectiveAllowed.add("haokan.baidu.com");
         }
 
+        // DoH and HTTPDNS endpoints must ALWAYS be sinkholed to NXDOMAIN to enforce local filtering
+        if (WebBlocklistConstants.isDohEndpointOrCanary(lower)) {
+            ClassificationResult res = ClassificationResult.blocked("DoH/HTTPDNS endpoint sinkholed to enforce local DNS filtering");
+            decisionCache.put(cacheKey, res);
+            return res;
+        }
+
         boolean isSafeWeb = KnownSafeWeb.isKnownSafeWeb(lower, effectiveAllowed);
-        boolean isDistractingWeb = KnownDistractingWeb.isKnownDistractingWeb(lower) || WebBlocklistConstants.isDohEndpointOrCanary(lower);
+        boolean isDistractingWeb = KnownDistractingWeb.isKnownDistractingWeb(lower);
 
         // Branch 1: YES KnownDistractingWeb, YES KnownSafeWeb -> ALLOW (e.g. YouTube / Gemini toggled by policy)
         if (isDistractingWeb && isSafeWeb) {
@@ -688,6 +738,11 @@ public final class WebClassifier {
             if (WebBlocklistConstants.isAcademicExempt(val)) {
                 stats.academicScore++;
                 continue;
+            }
+
+            // Direct known distracting web domain / signature match (e.g. y8.com, tiktok.com, etc.)
+            if (stats.academicScore == 0 && KnownDistractingWeb.isKnownDistractingWeb(val)) {
+                return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(val));
             }
 
             // Direct web game domain match in title/content (only on non-academic pages)

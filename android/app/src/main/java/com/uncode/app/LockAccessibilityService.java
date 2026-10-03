@@ -793,6 +793,53 @@ public class LockAccessibilityService extends AccessibilityService {
                     }
                 } catch (Exception ignore) {}
             }
+        } else if ("com.nhn.android.search".equals(pkg)) {
+            String[] naverVideoIds = {
+                "com.nhn.android.search:id/container_clip_viewpager",
+                "com.nhn.android.search:id/clip_follow_view_pager",
+                "com.nhn.android.search:id/videoView",
+                "com.nhn.android.search:id/videoGroup",
+                "com.nhn.android.search:id/container_clip_nested_scrollable_host",
+                "com.nhn.android.search:id/shortentsNowViewPager",
+                "com.nhn.android.search:id/clipContentSoundToggle"
+            };
+            for (String vidId : naverVideoIds) {
+                try {
+                    List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(vidId);
+                    if (nodes != null && !nodes.isEmpty()) {
+                        for (AccessibilityNodeInfo n : nodes) {
+                            if (n != null) {
+                                try {
+                                    if (n.isVisibleToUser()) return true;
+                                } catch (Exception ignore) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignore) {}
+            }
+            // Check if Clip tab is actively selected on bottom navigation bar
+            try {
+                List<AccessibilityNodeInfo> clipTabNodes = root.findAccessibilityNodeInfosByText("클립");
+                if (clipTabNodes != null && !clipTabNodes.isEmpty()) {
+                    for (AccessibilityNodeInfo n : clipTabNodes) {
+                        if (n != null) {
+                            CharSequence desc = n.getContentDescription();
+                            if (desc != null && desc.toString().contains("선택됨")) {
+                                return true;
+                            }
+                            AccessibilityNodeInfo parent = n.getParent();
+                            if (parent != null) {
+                                CharSequence pDesc = parent.getContentDescription();
+                                if (pDesc != null && pDesc.toString().contains("선택됨")) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
         } else if ("com.transsion.phoenix".equals(pkg)) {
             String[] phoenixIds = {
                 "com.transsion.phoenix:id/video_player",
@@ -973,6 +1020,7 @@ public class LockAccessibilityService extends AccessibilityService {
                host.equals("search.yahoo.com") || host.equals("ecosia.org") || host.equals("www.ecosia.org") ||
                host.equals("qwant.com") || host.equals("www.qwant.com") ||
                host.equals("baidu.com") || host.equals("www.baidu.com") || host.equals("m.baidu.com") || host.endsWith(".baidu.com") ||
+               host.equals("naver.com") || host.equals("www.naver.com") || host.equals("m.naver.com") || host.endsWith(".naver.com") ||
                host.equals("yandex.com") || host.equals("www.yandex.com") ||
                host.equals("startpage.com") || host.equals("www.startpage.com");
     }
@@ -1041,6 +1089,7 @@ public class LockAccessibilityService extends AccessibilityService {
             } else if (lowerUrl.contains("bing.com/search") || lowerUrl.contains("duckduckgo.com") ||
                 lowerUrl.contains("search.yahoo.com") || lowerUrl.contains("ecosia.org/search") ||
                 lowerUrl.contains("qwant.com") || lowerUrl.contains("baidu.com") || lowerUrl.contains("m.baidu.com") ||
+                lowerUrl.contains("naver.com") || lowerUrl.contains("m.naver.com") ||
                 lowerUrl.contains("yandex.com/search") || lowerUrl.contains("startpage.com")) {
                 return true;
             }
@@ -1051,6 +1100,41 @@ public class LockAccessibilityService extends AccessibilityService {
                     return false; // Destination page! E.g. gemini.google.com, chatgpt.com, y8.com, etc.
                 }
             }
+        }
+
+        // 3. Portal Super-App Native Search Home / Results Feed (when url is null)
+        if (root != null) {
+            try {
+                CharSequence rootPkg = root.getPackageName();
+                if (rootPkg != null) {
+                    String pkgStr = rootPkg.toString();
+                    if ("com.nhn.android.search".equals(pkgStr)) {
+                        // Check if in NAVER Search Home / Results rather than InAppBrowserActivity
+                        boolean inInAppBrowser = (lastActiveActivityClass != null && lastActiveActivityClass.contains("InAppBrowserActivity"));
+                        if (!inInAppBrowser) {
+                            List<AccessibilityNodeInfo> searchBarNodes = root.findAccessibilityNodeInfosByViewId("com.nhn.android.search:id/searchBarRootView");
+                            if (searchBarNodes == null || searchBarNodes.isEmpty()) {
+                                searchBarNodes = root.findAccessibilityNodeInfosByViewId("com.nhn.android.search:id/searchBarView");
+                            }
+                            if (searchBarNodes != null && !searchBarNodes.isEmpty()) {
+                                return true; // Native NAVER search engine home / search portal
+                            }
+                        }
+                    } else if ("com.baidu.searchbox".equals(pkgStr)) {
+                        // Check if in Baidu Search Home / Results with native search bar
+                        List<AccessibilityNodeInfo> searchBoxes = root.findAccessibilityNodeInfosByViewId("com.baidu.searchbox:id/landing_page_box_tv");
+                        if (searchBoxes == null || searchBoxes.isEmpty()) {
+                            searchBoxes = root.findAccessibilityNodeInfosByViewId("com.baidu.searchbox:id/search_box_content");
+                        }
+                        if (searchBoxes != null && !searchBoxes.isEmpty()) {
+                            List<AccessibilityNodeInfo> webViews = root.findAccessibilityNodeInfosByViewId("com.baidu.searchbox:id/bdframeview_id");
+                            if (webViews == null || webViews.isEmpty()) {
+                                return true; // Native Baidu search results feed
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
         }
 
         return false;
@@ -1124,17 +1208,29 @@ public class LockAccessibilityService extends AccessibilityService {
                     resetBrowserRemediationState();
                 }
             } else {
-                // ── BRANCH B: URL is Null (Scrolled Tab / In-Page Context Menu / PWA / TWA) ──
+                // ── BRANCH B: URL is Null (Scrolled Tab / In-Page Context Menu / PWA / TWA / Super-App In-App Web) ──
                 // Known general web browsers in standard browsing (scrolling down, in-page popups, context menus)
                 // must NEVER be treated as Standalone PWAs and must NEVER be evicted to QIEZKA Lock.
                 boolean isPwa = isStandalonePwa(pkg, lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass, null, root);
-                if (!isPwa && isBrowserPackage(pkg)) {
+                if (!isPwa && isBrowserPackage(pkg) && !AppClassifier.isPortalSuperApp(pkg)) {
                     // Standard browser in-page interaction or scrolled state -> ALLOW_BROWSER
                     return;
                 }
 
+                // Portal Super-Apps (Baidu, NAVER) browsing in-app web views where address bar is omitted:
+                if (AppClassifier.isPortalSuperApp(pkg)) {
+                    WebClassifier.ClassificationResult inAppRes = WebClassifier.classifyInAppWeb(root, allowYoutube, allowedDomains);
+                    if (inAppRes.isBlocked) {
+                        Log.w(TAG, "inspectBrowserWindow: blocked portal superapp in-app web page: " + pkg + " (" + inAppRes.reason + ") -> Auto-Back");
+                        remediateBlockedBrowserTab(pkg, "in_app_web", inAppRes.reason, root);
+                    } else {
+                        resetBrowserRemediationState();
+                    }
+                    return;
+                }
+
                 // Walk Chromium Accessibility View Tree for genuine standalone PWAs / WebAPKs
-                WebClassifier.ClassificationResult pwaRes = WebClassifier.classifyStandalonePwa(null, root, allowYoutube);
+                WebClassifier.ClassificationResult pwaRes = WebClassifier.classifyStandalonePwa(null, root, allowYoutube, allowedDomains);
                 if (pwaRes.isBlocked) {
                     Log.w(TAG, "inspectBrowserWindow: caught blocked standalone PWA: " + pkg + " (" + pwaRes.reason + ")");
                     // Flowchart: Block and Evict to QIEZKA (no Back key)
@@ -1558,6 +1654,30 @@ public class LockAccessibilityService extends AccessibilityService {
                         String val = text != null && text.length() > 0 ? text.toString().trim() :
                                     (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
                         if (isValidUrlCandidate(val)) return val;
+                    }
+                }
+            }
+        }
+
+        // 6b. Portal Super-Apps (NAVER Search & Browser)
+        if ("com.nhn.android.search".equals(pkg)) {
+            String[] naverSearchIds = {
+                "com.nhn.android.search.InAppBrowser:id/search_window_edit",
+                "com.nhn.android.search:id/search_window_edit",
+                "com.nhn.android.search:id/nx_query"
+            };
+            for (String id : naverSearchIds) {
+                nodes = root.findAccessibilityNodeInfosByViewId(id);
+                if (nodes != null && !nodes.isEmpty()) {
+                    for (AccessibilityNodeInfo node : nodes) {
+                        if (node != null) {
+                            if (node.isFocused()) continue;
+                            CharSequence text = node.getText();
+                            CharSequence desc = node.getContentDescription();
+                            String val = text != null && text.length() > 0 ? text.toString().trim() :
+                                        (desc != null && desc.length() > 0 ? desc.toString().trim() : null);
+                            if (isValidUrlCandidate(val)) return val;
+                        }
                     }
                 }
             }

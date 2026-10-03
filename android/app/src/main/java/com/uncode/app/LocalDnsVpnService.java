@@ -243,6 +243,12 @@ public class LocalDnsVpnService extends VpnService {
                 builder.addRoute("2606:4700:4700::1001", 128);
                 builder.addRoute("2620:fe::fe", 128);
                 builder.addRoute("2620:fe::9", 128);
+                // Public HTTPDNS IPs: Route to virtual interface to force fallback to system UDP 53 DNS
+                builder.addRoute("180.76.76.200", 32); // Baidu HTTPDNS primary
+                builder.addRoute("180.76.76.76", 32);  // Baidu HTTPDNS secondary
+                builder.addRoute("203.107.1.1", 32);   // Alibaba HTTPDNS primary
+                builder.addRoute("203.107.1.33", 32);  // Alibaba HTTPDNS secondary
+                builder.addRoute("119.29.29.29", 32);  // Tencent HTTPDNS
             } catch (Exception ignore) {}
 
             // Intercept all physical networks' underlying DNS servers (Cellular LTE carrier DNS, Wi-Fi router DNS, etc.)

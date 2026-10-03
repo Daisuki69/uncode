@@ -129,7 +129,6 @@ public final class AppClassifier {
         "org.mozilla.firefox",
         "com.microsoft.emmx",
         "com.opera.browser",
-        "com.opera.mini.native",
         "com.opera.gx",
         "com.brave.browser",
         "com.duckduckgo.mobile.android",
@@ -140,7 +139,6 @@ public final class AppClassifier {
         "com.heytap.browser",
         "com.coloros.browser",
         "com.huawei.browser",
-        "com.transsion.phoenix",
         "com.android.browser",
         "idm.internet.download.manager",
         "idm.internet.download.manager.plus",
@@ -167,7 +165,10 @@ public final class AppClassifier {
             List<ResolveInfo> activities = pm.queryIntentActivities(intent, 0);
             for (ResolveInfo info : activities) {
                 if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                    dynamicBrowserPackages.add(info.activityInfo.packageName);
+                    String candidatePkg = info.activityInfo.packageName;
+                    if (!isDisallowedPortalSuperApp(candidatePkg)) {
+                        dynamicBrowserPackages.add(candidatePkg);
+                    }
                 }
             }
             Log.d(TAG, "Dynamic browser cache refreshed, found " + dynamicBrowserPackages.size() + " browsers");
@@ -193,8 +194,9 @@ public final class AppClassifier {
      *
      * In accordance with Android OS native architecture:
      * 1. Checks Stage 1 Master Veto (hostile evasion proxies, Tor, Puffin, etc. are strictly vetoed).
+     * 1b. Disallowed / Unmanaged Super-Apps (Phoenix, UC, etc.) are strictly blocked regardless.
      * 2. Checks explicit proxy/VPN keywords.
-     * 3. Checks fast-path static set (KNOWN_BROWSER_PACKAGES) and pre-warmed dynamic cache.
+     * 3. Checks fast-path static set (KNOWN_BROWSER_PACKAGES), pre-warmed dynamic cache, or Curated Super-App.
      * 4. Checks 1DM downloader packages and standard Latin substrings.
      * 5. Resolves candidate via Android OS PackageManager Intent resolution (ACTION_VIEW + CATEGORY_BROWSABLE + https).
      */
@@ -205,13 +207,18 @@ public final class AppClassifier {
         // Proxy browsers, cloud renderers, and onion bypasses are strictly vetoed here
         if (isStage1Vetoed(pkg, appLabel)) return false;
 
+        // 1b. Disallowed / Unmanaged Super-Apps & Portal Browsers are strictly blocked regardless
+        if (isDisallowedPortalSuperApp(pkg)) {
+            return false;
+        }
+
         // 2. Explicit Proxy & VPN Keyword Exclusion
         String lower = pkg.toLowerCase(Locale.ROOT).trim();
         if (lower.contains("proxy") || lower.contains("vpn") || lower.contains("unblock")) {
             return false;
         }
 
-        // 3. Fast-Path O(1) Lookup: Static Known Set, Pre-warmed Dynamic Cache, or Portal Super-App
+        // 3. Fast-Path O(1) Lookup: Standard Known Set, Pre-warmed Dynamic Cache, or Allowed Portal Super-App
         if (KNOWN_BROWSER_PACKAGES.contains(pkg) || dynamicBrowserPackages.contains(pkg) || isPortalSuperApp(pkg)) {
             return true;
         }
@@ -219,7 +226,7 @@ public final class AppClassifier {
         // 4. 1DM / IDM Downloaders
         if (pkg.startsWith("idm.internet.download.manager")) return true;
 
-        // 5. Standard Latin Substring Fallback
+        // 5. Standard Latin Substring Fallback (if not vetoed by disallowed super-app check)
         if (lower.contains("browser") || lower.contains("chrome") || lower.contains("firefox") || lower.contains("explorer")) {
             return true;
         }
@@ -233,8 +240,10 @@ public final class AppClassifier {
                 List<ResolveInfo> resolved = pm.queryIntentActivities(intent, 0);
                 for (ResolveInfo info : resolved) {
                     if (info.activityInfo != null && pkg.equals(info.activityInfo.packageName)) {
-                        dynamicBrowserPackages.add(pkg);
-                        return true;
+                        if (!isDisallowedPortalSuperApp(pkg)) {
+                            dynamicBrowserPackages.add(pkg);
+                            return true;
+                        }
                     }
                 }
             } catch (Exception ignore) {}
@@ -252,21 +261,40 @@ public final class AppClassifier {
     }
 
     /**
-     * Recognized Portal Super-Apps that combine search/browser engines with media/content feeds.
-     * Allowed as browsers at the package level, but distracting sub-functions (video feeds, reels,
-     * serialized web novels) are strictly intercepted by LockAccessibilityService.
+     * Curated Allowed Portal Super-Apps. Exactly two official super-apps are permitted during lockdown:
+     * 1. Baidu Search & Portal App (China Gaokao/Kaoyan search & study)
+     * 2. NAVER Search & Portal App (South Korea Suneung/CSAT search & study)
+     *
+     * Permitted at the package level as search portals, but their distracting internal sub-functions
+     * (short-video reels, video feeds, shopping) are strictly intercepted by LockAccessibilityService.
      */
-    public static final Set<String> KNOWN_PORTAL_SUPERAPPS = new HashSet<>(Arrays.asList(
-        "com.baidu.searchbox",          // Baidu Search & Portal App
-        "com.transsion.phoenix",        // Phoenix Browser
+    public static final Set<String> ALLOWED_PORTAL_SUPERAPPS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+        "com.baidu.searchbox",          // Baidu Search & Portal App (China)
+        "com.nhn.android.search"        // NAVER Search & Portal App (South Korea)
+    )));
+
+    // Backward-compatibility alias
+    public static final Set<String> KNOWN_PORTAL_SUPERAPPS = ALLOWED_PORTAL_SUPERAPPS;
+
+    /**
+     * Recognized unmanaged or disguised super-apps / portal browsers that aggressively inject
+     * viral reels, news feeds, or entertainment hubs. Strictly blocked during active lockdown regardless.
+     */
+    public static final Set<String> DISALLOWED_PORTAL_SUPERAPPS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+        "com.transsion.phoenix",        // Phoenix Browser (viral video & news portal)
         "com.UCMobile",                 // UC Browser
-        "com.uc.browser.en",
-        "com.opera.mini.native"         // Opera Mini with news/video feed
-    ));
+        "com.uc.browser.en",            // UC Browser Global
+        "com.opera.mini.native"         // Opera Mini with feed/notification injection
+    )));
 
     public static boolean isPortalSuperApp(String pkg) {
         if (pkg == null) return false;
-        return KNOWN_PORTAL_SUPERAPPS.contains(pkg.trim());
+        return ALLOWED_PORTAL_SUPERAPPS.contains(pkg.trim());
+    }
+
+    public static boolean isDisallowedPortalSuperApp(String pkg) {
+        if (pkg == null) return false;
+        return DISALLOWED_PORTAL_SUPERAPPS.contains(pkg.trim());
     }
 
     /**
@@ -277,13 +305,15 @@ public final class AppClassifier {
         if (activityCls == null) return false;
         String lowerCls = activityCls.toLowerCase(Locale.ROOT);
 
-        // 1. Short Video Feeds & Reels Player Activities (Baidu VideoTabActivity, Phoenix, UC)
+        // 1. Short Video Feeds & Reels Player Activities (Baidu VideoTabActivity, Naver ClipActivity)
         if (lowerCls.contains(".video.feedflow.") ||
             lowerCls.contains("videotabactivity") ||
             lowerCls.contains("shortvideoactivity") ||
             lowerCls.contains("feedflowactivity") ||
             lowerCls.contains("reelsactivity") ||
-            lowerCls.contains("videoflowactivity")) {
+            lowerCls.contains("videoflowactivity") ||
+            lowerCls.contains(".clip.ui.") ||
+            lowerCls.contains("clipactivity")) {
             return true;
         }
 
@@ -298,7 +328,7 @@ public final class AppClassifier {
 
     /**
      * Identifies in-page video player, feed flow, or reels container view IDs inside
-     * portal super-apps (such as Baidu LightSearchActivity, Phoenix, UC Browser) where video playback
+     * portal super-apps (such as Baidu LightSearchActivity, Naver UniverseActivity) where video playback
      * is mounted natively into the view hierarchy without launching a distinct activity.
      */
     public static boolean isPortalSuperAppVideoViewId(String pkg, String viewId) {
@@ -316,14 +346,24 @@ public final class AppClassifier {
                    lowerId.contains("video_flow_cmp_seek_bar");
         }
 
-        // 2. Phoenix Browser (com.transsion.phoenix)
+        // 2. NAVER Search & Portal App (com.nhn.android.search)
+        if ("com.nhn.android.search".equals(pkg)) {
+            return lowerId.contains("container_clip_viewpager") ||
+                   lowerId.contains("clip_follow_view_pager") ||
+                   lowerId.contains("videoview") ||
+                   lowerId.contains("videogroup") ||
+                   lowerId.contains("container_clip_nested_scrollable_host") ||
+                   lowerId.contains("shortentsnowviewpager") ||
+                   lowerId.contains("clipcontentsoundtoggle");
+        }
+
+        // 3. Unmanaged / Disallowed Super-Apps (defensive detection)
         if ("com.transsion.phoenix".equals(pkg)) {
             return lowerId.contains("video_player") ||
                    lowerId.contains("short_video_flow") ||
                    lowerId.contains("feed_video_player");
         }
 
-        // 3. UC Browser (com.UCMobile / com.uc.browser.en)
         if ("com.ucmobile".equalsIgnoreCase(pkg) || "com.uc.browser.en".equalsIgnoreCase(pkg)) {
             return lowerId.contains("video_player") ||
                    lowerId.contains("video_feed_root") ||

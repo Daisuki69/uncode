@@ -147,7 +147,9 @@ object KnownSafeWeb {
         val clean = lowerUrl.trim().lowercase(Locale.US)
         if (clean.contains("v.baidu.com") || clean.contains("video.baidu.com") ||
             clean.contains("haokan.baidu.com") || clean.contains("tieba.baidu.com") ||
-            clean.contains("baidu.com/video") || clean.contains("m.baidu.com/video")) {
+            clean.contains("baidu.com/video") || clean.contains("m.baidu.com/video") ||
+            clean.contains("httpdns.baidu.com") || clean.contains("httpdns.baidubce.com") ||
+            clean.contains("tuisong.baidu.com")) {
             return false
         }
         for (engine in SEARCH_ENGINE_DOMAINS) {
