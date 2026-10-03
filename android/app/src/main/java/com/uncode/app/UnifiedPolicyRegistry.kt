@@ -41,7 +41,8 @@ object UnifiedPolicyRegistry {
                 "app.revanced.android.youtube",
                 "org.schabi.newpipe",
                 "app.libre_tube",
-                "org.polymc.tubular"
+                "org.polymc.tubular",
+                "com.baidu.haokan"
             ),
             domains = setOf(
                 "youtube.com",
@@ -49,7 +50,9 @@ object UnifiedPolicyRegistry {
                 "m.youtube.com",
                 "v.baidu.com",
                 "video.baidu.com",
-                "haokan.baidu.com"
+                "haokan.baidu.com",
+                "m.baidu.com/video",
+                "baidu.com/video"
             )
         ),
         "ai" to UnifiedService(

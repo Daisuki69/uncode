@@ -128,7 +128,7 @@ object KnownSafeWeb {
         "developer.mozilla", "w3schools", "geeksforgeeks", "stackoverflow", "stackexchange",
         "github", "gitlab", "leetcode", "hackerrank", "freecodecamp",
         "docs.oracle", "docs.python", "developer.android", "learn.microsoft",
-        "google.com/search", "baidu.com", "m.baidu.com"
+        "google.com/search", "baike.baidu.com"
     )
 
     @JvmStatic
@@ -145,6 +145,11 @@ object KnownSafeWeb {
     fun isSearchEngine(lowerUrl: String?): Boolean {
         if (lowerUrl == null) return false
         val clean = lowerUrl.trim().lowercase(Locale.US)
+        if (clean.contains("v.baidu.com") || clean.contains("video.baidu.com") ||
+            clean.contains("haokan.baidu.com") || clean.contains("tieba.baidu.com") ||
+            clean.contains("baidu.com/video") || clean.contains("m.baidu.com/video")) {
+            return false
+        }
         for (engine in SEARCH_ENGINE_DOMAINS) {
             if (clean.contains(engine)) return true
         }

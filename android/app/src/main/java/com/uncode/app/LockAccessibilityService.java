@@ -373,9 +373,7 @@ public class LockAccessibilityService extends AccessibilityService {
             String clsStr = event.getClassName().toString();
             lastBrowserEventClass = clsStr;
             if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-                clsStr.contains(".") &&
-                !clsStr.startsWith("android.widget.") &&
-                !clsStr.startsWith("android.view.")) {
+                isLikelyActivityClass(clsStr)) {
                 lastActiveActivityClass = clsStr;
             }
         }
@@ -383,12 +381,18 @@ public class LockAccessibilityService extends AccessibilityService {
         CharSequence pkgChar = event.getPackageName();
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
+            String eventCls = event.getClassName() != null ? event.getClassName().toString() : null;
+            String activeCls = isLikelyActivityClass(eventCls) ? eventCls : lastActiveActivityClass;
+            activeCls = resolveCandidateClass(pkgStr, activeCls, event.getSource());
+            if (AppClassifier.isSystemSettingsDialog(activeCls)) {
+                lastActiveActivityClass = activeCls;
+            }
             if ((eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
                  eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
                  eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED)) {
-                if (isGeminiActive(pkgStr, event.getClassName() != null ? event.getClassName().toString() : null, event.getSource()) && !isGeminiAllowed()) {
+                if (isGeminiActive(pkgStr, eventCls, event.getSource()) && !isGeminiAllowed()) {
                     lastForegroundPackage = "com.google.android.apps.bard";
-                } else if (!isSystemOrLauncher(pkgStr)) {
+                } else if (!isSystemOrLauncher(pkgStr, activeCls)) {
                     lastForegroundPackage = pkgStr;
                 }
             }
@@ -463,7 +467,14 @@ public class LockAccessibilityService extends AccessibilityService {
 
         if (pkgChar != null) {
             String pkgStr = pkgChar.toString();
-            if (!pkgStr.equals(getPackageName()) && !isSystemOrLauncher(pkgStr)) {
+            String eventCls = event.getClassName() != null ? event.getClassName().toString() : null;
+            String activeCls = isLikelyActivityClass(eventCls) ? eventCls : lastActiveActivityClass;
+            activeCls = resolveCandidateClass(pkgStr, activeCls, event.getSource());
+            if (AppClassifier.isSystemSettingsDialog(activeCls)) {
+                lastActiveActivityClass = activeCls;
+            }
+
+            if (!pkgStr.equals(getPackageName()) && !isSystemOrLauncher(pkgStr, activeCls)) {
 
                 String appLabel = null;
                 try {
@@ -475,8 +486,8 @@ public class LockAccessibilityService extends AccessibilityService {
                     }
                 } catch (Exception ignore) {}
 
-                if (AppClassifier.isSettingsOrDeviceManager(pkgStr, appLabel) || AppClassifier.isStage1Bloat(pkgStr, appLabel)) {
-                    Log.w(TAG, "Stage 1 Master Veto Gate matched: " + pkgStr + " (" + appLabel + ")");
+                if (AppClassifier.isSettingsOrDeviceManager(pkgStr, appLabel, activeCls) || AppClassifier.isStage1Bloat(pkgStr, appLabel)) {
+                    Log.w(TAG, "Stage 1 Master Veto Gate matched: " + pkgStr + " (" + appLabel + ", " + activeCls + ")");
                     enforceBlock(pkgStr);
                     return;
                 }
@@ -488,7 +499,17 @@ public class LockAccessibilityService extends AccessibilityService {
         // It MUST be evaluated here before any null package check.
         if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
             String currentFg = detectCurrentForegroundPackage();
-            if (currentFg != null && !currentFg.equals(getPackageName()) && !isSystemOrLauncher(currentFg)) {
+            String activeCls = lastActiveActivityClass;
+            if ("com.android.settings".equals(currentFg) && !AppClassifier.isSystemSettingsDialog(activeCls)) {
+                AccessibilityNodeInfo r = null;
+                try {
+                    r = getRootInActiveWindow();
+                    activeCls = resolveCandidateClass(currentFg, activeCls, r);
+                } finally {
+                    if (r != null) r.recycle();
+                }
+            }
+            if (currentFg != null && !currentFg.equals(getPackageName()) && !isSystemOrLauncher(currentFg, activeCls)) {
                 String fgLabel = null;
                 try {
                     PackageManager pm = getPackageManager();
@@ -499,8 +520,8 @@ public class LockAccessibilityService extends AccessibilityService {
                     }
                 } catch (Exception ignore) {}
 
-                if (AppClassifier.isSettingsOrDeviceManager(currentFg, fgLabel) || AppClassifier.isStage1Bloat(currentFg, fgLabel)) {
-                    Log.w(TAG, "Stage 1 Master Veto caught window stack change: " + currentFg);
+                if (AppClassifier.isSettingsOrDeviceManager(currentFg, fgLabel, activeCls) || AppClassifier.isStage1Bloat(currentFg, fgLabel)) {
+                    Log.w(TAG, "Stage 1 Master Veto caught window stack change: " + currentFg + " (" + activeCls + ")");
                     enforceBlock(currentFg);
                     return;
                 }
@@ -512,8 +533,8 @@ public class LockAccessibilityService extends AccessibilityService {
 
                 if (isBrowserPackage(currentFg)) {
                     if (AppClassifier.isPortalSuperApp(currentFg)) {
-                        String subCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
-                        if (AppClassifier.isDistractingSubActivity(currentFg, subCls)) {
+                        String subCls = lastActiveActivityClass;
+                        if (subCls != null && AppClassifier.isDistractingSubActivity(currentFg, subCls)) {
                             Log.w(TAG, "Caught distracting sub-activity on window change in portal app " + currentFg + " (" + subCls + ") -> Auto-Back");
                             remediateDistractingSubActivity(currentFg, subCls);
                             return;
@@ -578,11 +599,33 @@ public class LockAccessibilityService extends AccessibilityService {
 
             // Sub-Function Remediation for Portal Super-Apps (Baidu Reels, Phoenix, UC)
             if (AppClassifier.isPortalSuperApp(pkg)) {
-                String subCls = event.getClassName() != null ? event.getClassName().toString() : (lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass);
-                if (AppClassifier.isDistractingSubActivity(pkg, subCls) || (lastActiveActivityClass != null && AppClassifier.isDistractingSubActivity(pkg, lastActiveActivityClass))) {
+                String subCls = null;
+                if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                    eventCls != null &&
+                    !eventCls.startsWith("android.widget.") &&
+                    !eventCls.startsWith("android.view.")) {
+                    subCls = eventCls;
+                } else if (lastActiveActivityClass != null) {
+                    subCls = lastActiveActivityClass;
+                }
+                if (subCls != null && AppClassifier.isDistractingSubActivity(pkg, subCls)) {
                     Log.w(TAG, "Caught distracting sub-activity in portal app " + pkg + " (" + subCls + ") -> Auto-Back");
                     remediateDistractingSubActivity(pkg, subCls);
                     return;
+                }
+                if (isEnforcing && !isVideoPolicyAllowed()) {
+                    AccessibilityNodeInfo r = getRootInActiveWindow();
+                    if (r != null) {
+                        try {
+                            if (isPortalSuperAppVideoActive(r, pkg)) {
+                                Log.w(TAG, "Caught active video flow in portal app " + pkg + " while video policy is disabled -> Auto-Back");
+                                remediateDistractingSubActivity(pkg, "portal_video_flow");
+                                return;
+                            }
+                        } finally {
+                            r.recycle();
+                        }
+                    }
                 }
             }
             boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
@@ -713,12 +756,77 @@ public class LockAccessibilityService extends AccessibilityService {
         return false;
     }
 
-    private boolean isSystemOrLauncher(String pkg) {
-        if (pkg == null) return false;
-        if ("android".equals(pkg)) {
-            // Android core system framework & dialogs (ResolverActivity "Choose activity", ChooserActivity share sheet)
+    public boolean isVideoPolicyAllowed() {
+        if (prefs != null && prefs.getBoolean("allow_youtube", false)) {
             return true;
         }
+        return AppClassifier.getActiveServices(this).contains("youtube");
+    }
+
+    public boolean isPortalSuperAppVideoActive(AccessibilityNodeInfo root, String pkg) {
+        if (root == null || pkg == null) return false;
+        if (!AppClassifier.isPortalSuperApp(pkg)) return false;
+
+        if ("com.baidu.searchbox".equals(pkg)) {
+            String[] baiduVideoIds = {
+                "com.baidu.searchbox:id/video_flow_cmp_player",
+                "com.baidu.searchbox:id/video_flow_tab_component",
+                "com.baidu.searchbox:id/video_item_portrait_root",
+                "com.baidu.searchbox:id/first_init_video_item_container",
+                "com.baidu.searchbox:id/video_flow_cmp_list",
+                "com.baidu.searchbox:id/video_flow_next_big_card",
+                "com.baidu.searchbox:id/video_flow_cmp_seek_bar"
+            };
+            for (String vidId : baiduVideoIds) {
+                try {
+                    List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(vidId);
+                    if (nodes != null && !nodes.isEmpty()) {
+                        for (AccessibilityNodeInfo n : nodes) {
+                            if (n != null) {
+                                try {
+                                    if (n.isVisibleToUser()) return true;
+                                } catch (Exception ignore) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignore) {}
+            }
+        } else if ("com.transsion.phoenix".equals(pkg)) {
+            String[] phoenixIds = {
+                "com.transsion.phoenix:id/video_player",
+                "com.transsion.phoenix:id/short_video_flow",
+                "com.transsion.phoenix:id/feed_video_player"
+            };
+            for (String vidId : phoenixIds) {
+                try {
+                    List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(vidId);
+                    if (nodes != null && !nodes.isEmpty()) return true;
+                } catch (Exception ignore) {}
+            }
+        } else if ("com.ucmobile".equalsIgnoreCase(pkg) || "com.uc.browser.en".equalsIgnoreCase(pkg)) {
+            String[] ucIds = {
+                pkg + ":id/video_player",
+                pkg + ":id/video_feed_root",
+                pkg + ":id/reels_container"
+            };
+            for (String vidId : ucIds) {
+                try {
+                    List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(vidId);
+                    if (nodes != null && !nodes.isEmpty()) return true;
+                } catch (Exception ignore) {}
+            }
+        }
+        return false;
+    }
+
+    private boolean isSystemOrLauncher(String pkg) {
+        return isSystemOrLauncher(pkg, lastActiveActivityClass);
+    }
+
+    private boolean isSystemOrLauncher(String pkg, String activityCls) {
+        if (pkg == null) return false;
         if (pkg.contains("permissioncontroller")) {
             return false;
         }
@@ -731,6 +839,10 @@ public class LockAccessibilityService extends AccessibilityService {
         if (isLauncherApp(this, pkg)) {
             return true;
         }
+        // System Picker / Dialog hosted in Settings.apk (e.g. ActivityPicker for Intent.ACTION_PICK_ACTIVITY)
+        if (AppClassifier.isSystemSettingsDialog(activityCls)) {
+            return true;
+        }
         // Universal System Partition Gateway for non-browser, non-settings system overlays
         try {
             PackageManager pm = getPackageManager();
@@ -738,13 +850,42 @@ public class LockAccessibilityService extends AccessibilityService {
                 android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
                 if ((ai.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
                     (ai.flags & android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) {
-                    if (!isBrowserPackage(pkg) && !AppClassifier.isSettingsOrDeviceManager(pkg, null) && !AppClassifier.isStage1Bloat(pkg, null)) {
+                    if (!isBrowserPackage(pkg) && !AppClassifier.isSettingsOrDeviceManager(pkg, null, activityCls) && !AppClassifier.isStage1Bloat(pkg, null)) {
                         return true;
                     }
                 }
             }
         } catch (Exception ignore) {}
         return false;
+    }
+
+    private boolean isLikelyActivityClass(String cls) {
+        if (cls == null || !cls.contains(".")) return false;
+        String lower = cls.toLowerCase(Locale.US);
+        if (lower.startsWith("android.widget.") ||
+            lower.startsWith("android.view.") ||
+            lower.startsWith("android.app.dialog") ||
+            lower.startsWith("android.app.alertdialog") ||
+            lower.startsWith("androidx.") ||
+            lower.startsWith("com.android.internal.widget.")) {
+            return false;
+        }
+        return true;
+    }
+
+    private String resolveCandidateClass(String pkg, String candidateCls, AccessibilityNodeInfo root) {
+        if (!AppClassifier.isSystemSettingsDialog(candidateCls) && "com.android.settings".equals(pkg) && root != null) {
+            try {
+                List<AccessibilityNodeInfo> titles = root.findAccessibilityNodeInfosByViewId("android:id/alertTitle");
+                if (titles != null && !titles.isEmpty()) {
+                    CharSequence t = titles.get(0).getText();
+                    if (t != null && AppClassifier.isSystemSettingsDialog(t.toString())) {
+                        return t.toString();
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+        return candidateCls;
     }
 
     /**
@@ -893,7 +1034,11 @@ public class LockAccessibilityService extends AccessibilityService {
             if (isSearchEngineHost(host) && (lowerUrl.contains("/search") || lowerUrl.contains("?q=") || lowerUrl.contains("&q="))) {
                 return true;
             }
-            if (lowerUrl.contains("bing.com/search") || lowerUrl.contains("duckduckgo.com") ||
+            if (lowerUrl.contains("v.baidu.com") || lowerUrl.contains("video.baidu.com") ||
+                lowerUrl.contains("haokan.baidu.com") || lowerUrl.contains("tieba.baidu.com") ||
+                lowerUrl.contains("baidu.com/video") || lowerUrl.contains("m.baidu.com/video")) {
+                // Not search results page! Destination media / forum targets
+            } else if (lowerUrl.contains("bing.com/search") || lowerUrl.contains("duckduckgo.com") ||
                 lowerUrl.contains("search.yahoo.com") || lowerUrl.contains("ecosia.org/search") ||
                 lowerUrl.contains("qwant.com") || lowerUrl.contains("baidu.com") || lowerUrl.contains("m.baidu.com") ||
                 lowerUrl.contains("yandex.com/search") || lowerUrl.contains("startpage.com")) {
@@ -937,6 +1082,15 @@ public class LockAccessibilityService extends AccessibilityService {
         try {
             String url = extractUrlFromBrowser(root, pkg);
 
+            // Portal Super-App (Baidu, Phoenix, UC) In-App Video & Reels Remediation
+            if (AppClassifier.isPortalSuperApp(pkg) && !isVideoPolicyAllowed()) {
+                if (isPortalSuperAppVideoActive(root, pkg)) {
+                    Log.w(TAG, "inspectBrowserWindow: detected active video flow in portal superapp " + pkg + " while video policy is disabled -> Auto-Back");
+                    remediateDistractingSubActivity(pkg, "portal_video_flow");
+                    return;
+                }
+            }
+
             // ── VERIFICATION: Is it a Browser Search? ──
             if (isBrowserSearch(url, root)) {
                 resetBrowserRemediationState();
@@ -977,14 +1131,6 @@ public class LockAccessibilityService extends AccessibilityService {
                 if (!isPwa && isBrowserPackage(pkg)) {
                     // Standard browser in-page interaction or scrolled state -> ALLOW_BROWSER
                     return;
-                }
-
-                // Super-App utility and download activities (FileManagerActivity, DownloadManagerActivity)
-                if (AppClassifier.isPortalSuperApp(pkg)) {
-                    String activeCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
-                    if (AppClassifier.isSuperAppUtilityActivity(pkg, activeCls)) {
-                        return; // Allowed super-app download / file utility
-                    }
                 }
 
                 // Walk Chromium Accessibility View Tree for genuine standalone PWAs / WebAPKs
@@ -1111,7 +1257,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private void remediateDistractingSubActivity(String pkg, String activityCls) {
         long now = System.currentTimeMillis();
-        if (now - lastSubActivityRemediationTime < 250L && activityCls != null && activityCls.equals(lastRemediatedSubActivity)) {
+        if (now - lastSubActivityRemediationTime < 500L) {
             return; // Debounce rapid accessibility events while back transition is in flight
         }
 
@@ -1123,12 +1269,16 @@ public class LockAccessibilityService extends AccessibilityService {
 
         lastSubActivityRemediationTime = now;
         lastRemediatedSubActivity = activityCls;
+        lastActiveActivityClass = null;
 
         Log.w(TAG, "remediateDistractingSubActivity on " + pkg + " (" + activityCls + ") hits=" + consecutiveSubActivityHits);
 
         // Educational Toast notice informing student
+        final boolean isGeneralVideo = "portal_video_flow".equals(activityCls) || !isVideoPolicyAllowed();
         new Handler(Looper.getMainLooper()).post(() -> {
-            Toast.makeText(getApplicationContext(), "⚠️ Short videos / reels are restricted during focus lockdown.", Toast.LENGTH_SHORT).show();
+            String msg = isGeneralVideo ? "⚠️ Videos are restricted during focus lockdown." :
+                                         "⚠️ Short videos / reels are restricted during focus lockdown.";
+            Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_SHORT).show();
         });
 
         // If repeated persistent attempts (> 3 rapid clicks into reels), bring up lock overlay
@@ -1492,9 +1642,13 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     public boolean isPackageBlocked(String pkg) {
+        return isPackageBlocked(pkg, lastActiveActivityClass);
+    }
+
+    public boolean isPackageBlocked(String pkg, String activityCls) {
         if (pkg == null) return false;
         if (pkg.equals(getPackageName())) return false;
-        if (isSystemOrLauncher(pkg)) return false;
+        if (isSystemOrLauncher(pkg, activityCls)) return false;
 
         // Query app label for fast-path blacklist matching
         String appLabel = null;
@@ -1508,7 +1662,7 @@ public class LockAccessibilityService extends AccessibilityService {
         } catch (Exception ignore) {}
 
         // STAGE 1 — MASTER VETO GATE: Strict Anti-Tamper, Bloatware & Evasion Shield
-        if (AppClassifier.isStage1Vetoed(pkg, appLabel)) return true;
+        if (AppClassifier.isStage1Vetoed(pkg, appLabel, activityCls)) return true;
 
         // STAGE 2 — Branch 1: Web Browsers (Passed Stage 1, allowed at package level for WebClassifier inspection)
         if (isBrowserPackage(pkg, appLabel)) return false;
@@ -1722,7 +1876,11 @@ public class LockAccessibilityService extends AccessibilityService {
                             }
                         } catch (Exception ignore) {}
 
-                        if (AppClassifier.isSettingsOrDeviceManager(rootPkg, appLabel) || AppClassifier.isStage1Bloat(rootPkg, appLabel)) {
+                        String activeCls = resolveCandidateClass(rootPkg, lastActiveActivityClass, activeRoot);
+                        if (AppClassifier.isSystemSettingsDialog(activeCls)) {
+                            lastActiveActivityClass = activeCls;
+                        }
+                        if (AppClassifier.isSettingsOrDeviceManager(rootPkg, appLabel, activeCls) || AppClassifier.isStage1Bloat(rootPkg, appLabel)) {
                             enforceBlock(rootPkg);
                             return;
                         }
@@ -1734,7 +1892,7 @@ public class LockAccessibilityService extends AccessibilityService {
                                 enforceBlock("com.google.android.apps.bard");
                                 return;
                             }
-                            if (!isSystemOrLauncher(rootPkg)) {
+                            if (!isSystemOrLauncher(rootPkg, activeCls)) {
                                 if (isBrowserPackage(rootPkg)) {
                                     if (AppClassifier.isPortalSuperApp(rootPkg)) {
                                         String subCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
@@ -1742,9 +1900,14 @@ public class LockAccessibilityService extends AccessibilityService {
                                             remediateDistractingSubActivity(rootPkg, subCls);
                                             return;
                                         }
+                                        if (!isVideoPolicyAllowed() && isPortalSuperAppVideoActive(activeRoot, rootPkg)) {
+                                            Log.w(TAG, "Ticker: detected active video flow in portal superapp " + rootPkg + " while video policy is disabled -> Auto-Back");
+                                            remediateDistractingSubActivity(rootPkg, "portal_video_flow");
+                                            return;
+                                        }
                                     }
                                     inspectBrowserWindow(activeRoot, rootPkg, true);
-                                } else if (isPackageBlocked(rootPkg)) {
+                                } else if (isPackageBlocked(rootPkg, activeCls)) {
                                     enforceBlock(rootPkg);
                                     return;
                                 }
@@ -1916,14 +2079,16 @@ public class LockAccessibilityService extends AccessibilityService {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
-                                    if (isSystemOrLauncher(pkg) || pkg.equals(getPackageName()) || "com.android.systemui".equals(pkg)) {
+                                    String winTitle = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && w.getTitle() != null) ? w.getTitle().toString() : null;
+                                    String candidateCls = resolveCandidateClass(pkg, (winTitle != null && !winTitle.isEmpty()) ? winTitle : lastActiveActivityClass, root);
+                                    if (isSystemOrLauncher(pkg, candidateCls) || pkg.equals(getPackageName()) || "com.android.systemui".equals(pkg)) {
                                         continue;
                                     }
                                     if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
                                         lastForegroundPackage = "com.google.android.apps.bard";
                                         return "com.google.android.apps.bard";
                                     }
-                                    if (!isSystemOrLauncher(pkg) && isPackageBlocked(pkg)) {
+                                    if (!isSystemOrLauncher(pkg, candidateCls) && isPackageBlocked(pkg, candidateCls)) {
                                         lastForegroundPackage = pkg;
                                         return pkg;
                                     }
@@ -1952,18 +2117,22 @@ public class LockAccessibilityService extends AccessibilityService {
         try {
             AccessibilityNodeInfo activeRoot = getRootInActiveWindow();
             if (activeRoot != null) {
-                CharSequence p = activeRoot.getPackageName();
-                activeRoot.recycle();
-                if (p != null) {
-                    String rootPkg = p.toString();
-                    if ("com.google.android.googlequicksearchbox".equals(rootPkg) && isGeminiActive(rootPkg, null, null) && !isGeminiAllowed()) {
-                        lastForegroundPackage = "com.google.android.apps.bard";
-                        return "com.google.android.apps.bard";
+                try {
+                    CharSequence p = activeRoot.getPackageName();
+                    if (p != null) {
+                        String rootPkg = p.toString();
+                        if ("com.google.android.googlequicksearchbox".equals(rootPkg) && isGeminiActive(rootPkg, null, null) && !isGeminiAllowed()) {
+                            lastForegroundPackage = "com.google.android.apps.bard";
+                            return "com.google.android.apps.bard";
+                        }
+                        String candidateCls = resolveCandidateClass(rootPkg, lastActiveActivityClass, activeRoot);
+                        if (!isSystemOrLauncher(rootPkg, candidateCls)) {
+                            lastForegroundPackage = rootPkg;
+                            return rootPkg;
+                        }
                     }
-                    if (!isSystemOrLauncher(rootPkg)) {
-                        lastForegroundPackage = rootPkg;
-                        return rootPkg;
-                    }
+                } finally {
+                    activeRoot.recycle();
                 }
             }
         } catch (Exception ignore) {}
@@ -1981,14 +2150,16 @@ public class LockAccessibilityService extends AccessibilityService {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
-                                    if (isSystemOrLauncher(pkg) || pkg.equals(getPackageName()) || "com.android.systemui".equals(pkg)) {
+                                    String winTitle = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && w.getTitle() != null) ? w.getTitle().toString() : null;
+                                    String candidateCls = resolveCandidateClass(pkg, (winTitle != null && !winTitle.isEmpty()) ? winTitle : lastActiveActivityClass, root);
+                                    if (isSystemOrLauncher(pkg, candidateCls) || pkg.equals(getPackageName()) || "com.android.systemui".equals(pkg)) {
                                         continue;
                                     }
                                     if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
                                         lastForegroundPackage = "com.google.android.apps.bard";
                                         return "com.google.android.apps.bard";
                                     }
-                                    if (!isSystemOrLauncher(pkg)) {
+                                    if (!isSystemOrLauncher(pkg, candidateCls)) {
                                         lastForegroundPackage = pkg;
                                         return pkg;
                                     }
@@ -2019,11 +2190,16 @@ public class LockAccessibilityService extends AccessibilityService {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
+                                    String winTitle = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && w.getTitle() != null) ? w.getTitle().toString() : null;
+                                    String candidateCls = resolveCandidateClass(pkg, (winTitle != null && !winTitle.isEmpty()) ? winTitle : lastActiveActivityClass, root);
+                                    if (isSystemOrLauncher(pkg, candidateCls) || pkg.equals(getPackageName()) || "com.android.systemui".equals(pkg)) {
+                                        continue;
+                                    }
                                     if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
                                         lastForegroundPackage = "com.google.android.apps.bard";
                                         return "com.google.android.apps.bard";
                                     }
-                                    if (!isSystemOrLauncher(pkg)) {
+                                    if (!isSystemOrLauncher(pkg, candidateCls)) {
                                         lastForegroundPackage = pkg;
                                         return pkg;
                                     }
@@ -2038,7 +2214,7 @@ public class LockAccessibilityService extends AccessibilityService {
         } catch (Exception ignore) {}
 
         // 4. Fallback: last recorded non-system/non-launcher foreground package from events
-        if (lastForegroundPackage != null && !isSystemOrLauncher(lastForegroundPackage)) {
+        if (lastForegroundPackage != null && !isSystemOrLauncher(lastForegroundPackage, lastActiveActivityClass)) {
             return lastForegroundPackage;
         }
 

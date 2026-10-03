@@ -297,25 +297,37 @@ public final class AppClassifier {
     }
 
     /**
-     * Identifies legitimate utility and navigation activities inside portal super-apps
-     * (such as file managers, download centers, in-app browser tabs, and bookmark managers)
-     * that lack standard browser URL omniboxes but must NOT be treated as rogue standalone PWAs.
+     * Identifies in-page video player, feed flow, or reels container view IDs inside
+     * portal super-apps (such as Baidu LightSearchActivity, Phoenix, UC Browser) where video playback
+     * is mounted natively into the view hierarchy without launching a distinct activity.
      */
-    public static boolean isSuperAppUtilityActivity(String pkg, String activityCls) {
-        if (activityCls == null) return false;
-        String lowerCls = activityCls.toLowerCase(Locale.ROOT);
+    public static boolean isPortalSuperAppVideoViewId(String pkg, String viewId) {
+        if (pkg == null || viewId == null) return false;
+        String lowerId = viewId.toLowerCase(Locale.ROOT);
 
-        if (lowerCls.contains("downloadmanageractivity") ||
-            lowerCls.contains("filemanageractivity") ||
-            lowerCls.contains("downloadlistactivity") ||
-            lowerCls.contains("boxbrowseractivity") ||
-            lowerCls.contains("browseractivity") ||
-            lowerCls.contains("webactivity") ||
-            lowerCls.contains("splashactivity") ||
-            lowerCls.contains("mainactivity") ||
-            lowerCls.contains("bookmarkactivity") ||
-            lowerCls.contains("historyactivity")) {
-            return true;
+        // 1. Baidu Search & Portal App (com.baidu.searchbox)
+        if ("com.baidu.searchbox".equals(pkg)) {
+            return lowerId.contains("video_flow_cmp_player") ||
+                   lowerId.contains("video_flow_tab_component") ||
+                   lowerId.contains("video_item_portrait_root") ||
+                   lowerId.contains("first_init_video_item_container") ||
+                   lowerId.contains("video_flow_cmp_list") ||
+                   lowerId.contains("video_flow_next_big_card") ||
+                   lowerId.contains("video_flow_cmp_seek_bar");
+        }
+
+        // 2. Phoenix Browser (com.transsion.phoenix)
+        if ("com.transsion.phoenix".equals(pkg)) {
+            return lowerId.contains("video_player") ||
+                   lowerId.contains("short_video_flow") ||
+                   lowerId.contains("feed_video_player");
+        }
+
+        // 3. UC Browser (com.UCMobile / com.uc.browser.en)
+        if ("com.ucmobile".equalsIgnoreCase(pkg) || "com.uc.browser.en".equalsIgnoreCase(pkg)) {
+            return lowerId.contains("video_player") ||
+                   lowerId.contains("video_feed_root") ||
+                   lowerId.contains("reels_container");
         }
 
         return false;
@@ -931,22 +943,6 @@ public final class AppClassifier {
             return false;
         }
 
-        // ── STAGE 3 — UNIVERSAL SYSTEM GATEWAY (SYSALLOW) ──
-        // If it is on the system partition (pre-installed by OEM in /system, /vendor, /product)
-        // and has passed all Stage 1 Master Veto checks above (not YouTube, not social, not game, not settings/manager),
-        // it is a verified legitimate OEM hardware tool, SIM/STK, Telephony, or system utility!
-        if (appInfo != null) {
-            boolean isSystemApp = (appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ||
-                                  (appInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
-            if (isSystemApp) {
-                // Guard: Ensure general web browsers still route through WebClassifier URL inspection
-                if (!isBrowserPackage(context, pkg, appLabel)) {
-                    Log.d(TAG, "Allowed by Stage 3 Universal System Gateway (SYSALLOW): " + pkg + " (" + appLabel + ")");
-                    return false;
-                }
-            }
-        }
-
         // ── Stage 2: SIM or Carrier Service Exemption ──
         if (isSimOrCarrierService(pkg, appLabel)) {
             Log.d(TAG, "Allowed as SIM or Carrier Service: " + pkg + " (" + appLabel + ")");
@@ -960,6 +956,26 @@ public final class AppClassifier {
             return false;
         }
 
+        // ── STAGE 3 — UNIVERSAL SYSTEM GATEWAY (SYSALLOW) FOR UNDEFINED APPS ──
+        // Flowchart Alignment (Option B):
+        // In the Secondary App Classifier, an application reaches the Undefined gate only after
+        // surviving all Stage 1 Master Vetoes, with NO detected distracting signals, fake vaults,
+        // or distracting categories, and having no positive academic/camera/carrier signals.
+        // If the undefined app resides on the system partition (FLAG_SYSTEM or FLAG_UPDATED_SYSTEM_APP),
+        // it IS ALWAYS ALLOWED! This naturally permits OS system dialogs (e.g. ResolverActivity,
+        // DocumentsUI, Telecom, PackageInstaller) without allowing bloat or pre-installed games.
+        if (appInfo != null) {
+            boolean isSystemApp = (appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                                  (appInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+            if (isSystemApp) {
+                // Guard: Ensure general web browsers still route through WebClassifier URL inspection
+                if (!isBrowserPackage(context, pkg, appLabel)) {
+                    Log.d(TAG, "Allowed by Stage 3 Universal System Gateway (SYSALLOW): " + pkg + " (" + appLabel + ")");
+                    return false;
+                }
+            }
+        }
+
         // ── Layer 5: Conservative Fallback ──
         // Unknown user-installed third-party app with undefined category and no educational signals is blocked
         Log.i(TAG, "Blocked by conservative fallback (unknown user app): " + pkg + " (" + appLabel + ")");
@@ -967,11 +983,38 @@ public final class AppClassifier {
     }
 
     /**
+     * Identifies legitimate system picker and utility dialog activities hosted inside Settings.apk
+     * (e.g. ActivityPicker for "Choose activity" / Intent.ACTION_PICK_ACTIVITY, BluetoothPairingDialog, WifiDialogActivity).
+     * These activities are purely OS selection dialogs with NO access to settings, app management,
+     * permissions, or data clearing.
+     */
+    public static boolean isSystemSettingsDialog(String activityOrTitle) {
+        if (activityOrTitle == null || activityOrTitle.trim().isEmpty()) return false;
+        String lower = activityOrTitle.toLowerCase(Locale.ROOT).trim();
+        return lower.endsWith(".activitypicker") ||
+               lower.equals("activitypicker") ||
+               lower.contains(".activitypicker") ||
+               lower.contains("activitypicker") ||
+               lower.contains("choose activity") ||
+               lower.contains("activity picker") ||
+               lower.endsWith(".bluetoothpairingdialog") ||
+               lower.equals("bluetoothpairingdialog") ||
+               lower.endsWith(".wifidialogactivity") ||
+               lower.equals("wifidialogactivity");
+    }
+
+    /**
      * Identifies Android Settings, MIUI Security Center, and OEM Device Care/Phone Managers
      * that provide UI to force-stop QIEZKA, clear app data, or revoke permissions.
      */
-    public static boolean isSettingsOrDeviceManager(String pkg, String appLabel) {
+    public static boolean isSettingsOrDeviceManager(String pkg, String appLabel, String activityCls) {
         if (pkg == null) return false;
+
+        // System picker and pairing dialogs hosted inside Settings.apk are NOT settings or device managers
+        if (isSystemSettingsDialog(activityCls)) {
+            return false;
+        }
+
         String lowerPkg = pkg.toLowerCase(Locale.ROOT);
         if (lowerPkg.equals("com.android.settings") ||
             lowerPkg.equals("com.miui.securitycenter") ||
@@ -1002,6 +1045,10 @@ public final class AppClassifier {
             }
         }
         return false;
+    }
+
+    public static boolean isSettingsOrDeviceManager(String pkg, String appLabel) {
+        return isSettingsOrDeviceManager(pkg, appLabel, null);
     }
 
     /**
@@ -1035,11 +1082,15 @@ public final class AppClassifier {
      * Any package returning true here is strictly vetoed across the entire OS (cannot run,
      * cannot be exempted, and cannot be a Home launcher).
      */
-    public static boolean isStage1Vetoed(String pkg, String appLabel) {
+    public static boolean isStage1Vetoed(String pkg, String appLabel, String activityCls) {
         if (pkg == null || pkg.trim().isEmpty()) return true;
-        return isSettingsOrDeviceManager(pkg, appLabel) ||
+        return isSettingsOrDeviceManager(pkg, appLabel, activityCls) ||
                isStage1Bloat(pkg, appLabel) ||
                KnownDistracting.isKnownDistracting(pkg, appLabel);
+    }
+
+    public static boolean isStage1Vetoed(String pkg, String appLabel) {
+        return isStage1Vetoed(pkg, appLabel, null);
     }
 
     /**
@@ -1051,11 +1102,16 @@ public final class AppClassifier {
      * In accordance with UI declutter architecture, apps that pass Stage 3 SYSALLOW must NOT be rendered
      * at the UI (they are hidden from candidate selection and user whitelist).
      */
-    public static boolean isPassedStage3SystemAllow(ApplicationInfo appInfo, String pkg, String appLabel) {
+    public static boolean isPassedStage3SystemAllow(ApplicationInfo appInfo, String pkg, String appLabel, String activityCls) {
         if (appInfo == null || pkg == null) return false;
         boolean isSystemApp = (appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ||
                               (appInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
         if (!isSystemApp) return false;
+
+        // System picker and pairing dialogs hosted inside Settings.apk naturally pass Stage 3 SYSALLOW
+        if (isSystemSettingsDialog(activityCls)) {
+            return true;
+        }
 
         String lowerPkg = pkg.toLowerCase(Locale.ROOT).trim();
         String lowerLabel = appLabel != null ? appLabel.toLowerCase(Locale.ROOT).trim() : "";
@@ -1066,7 +1122,7 @@ public final class AppClassifier {
         }
 
         // Must not be anti-tamper settings or device managers (Stage 1)
-        if (isSettingsOrDeviceManager(pkg, appLabel)) return false;
+        if (isSettingsOrDeviceManager(pkg, appLabel, activityCls)) return false;
 
         // Must not be hardware bloatware or game boosters (Stage 1)
         if (isStage1Bloat(pkg, appLabel)) return false;
@@ -1079,6 +1135,10 @@ public final class AppClassifier {
 
         // Verified legitimate OEM system partition tool!
         return true;
+    }
+
+    public static boolean isPassedStage3SystemAllow(ApplicationInfo appInfo, String pkg, String appLabel) {
+        return isPassedStage3SystemAllow(appInfo, pkg, appLabel, null);
     }
 
     public static boolean isForbiddenDistraction(Context context, String pkg) {
