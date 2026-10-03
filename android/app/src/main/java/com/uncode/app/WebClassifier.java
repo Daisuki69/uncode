@@ -267,7 +267,9 @@ public final class WebClassifier {
             withoutScheme.startsWith("duckduckgo.com") || withoutScheme.startsWith("search.yahoo.com") ||
             withoutScheme.startsWith("ecosia.org/search") || withoutScheme.startsWith("qwant.com") ||
             withoutScheme.startsWith("baidu.com") || withoutScheme.startsWith("www.baidu.com") ||
-            withoutScheme.startsWith("m.baidu.com") || withoutScheme.startsWith("yandex.com/search") ||
+            withoutScheme.startsWith("m.baidu.com") || withoutScheme.startsWith("v.baidu.com") ||
+            withoutScheme.startsWith("video.baidu.com") || withoutScheme.startsWith("haokan.baidu.com") ||
+            withoutScheme.startsWith("yandex.com/search") ||
             withoutScheme.startsWith("startpage.com")) {
             return false;
         }
@@ -324,6 +326,9 @@ public final class WebClassifier {
             effectiveAllowed.add("youtube.com");
             effectiveAllowed.add("youtu.be");
             effectiveAllowed.add("m.youtube.com");
+            effectiveAllowed.add("v.baidu.com");
+            effectiveAllowed.add("video.baidu.com");
+            effectiveAllowed.add("haokan.baidu.com");
         }
 
         if (windowTitle != null && !windowTitle.trim().isEmpty()) {
@@ -411,6 +416,9 @@ public final class WebClassifier {
             effectiveAllowed.add("youtube.com");
             effectiveAllowed.add("youtu.be");
             effectiveAllowed.add("m.youtube.com");
+            effectiveAllowed.add("v.baidu.com");
+            effectiveAllowed.add("video.baidu.com");
+            effectiveAllowed.add("haokan.baidu.com");
         }
 
         // ── STAGE 2 — INITIAL WEB POLICY EVALUATION (Truth Table) ──
@@ -494,6 +502,9 @@ public final class WebClassifier {
             effectiveAllowed.add("youtube.com");
             effectiveAllowed.add("youtu.be");
             effectiveAllowed.add("m.youtube.com");
+            effectiveAllowed.add("v.baidu.com");
+            effectiveAllowed.add("video.baidu.com");
+            effectiveAllowed.add("haokan.baidu.com");
         }
 
         boolean isSafeWeb = KnownSafeWeb.isKnownSafeWeb(lower, effectiveAllowed);

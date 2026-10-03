@@ -55,6 +55,22 @@ class WebTruthTableTest {
         )
         assertFalse(ytWithFlag.isBlocked)
 
+        val baiduVideoWithFlag = WebClassifier.classify(
+            "https://v.baidu.com/v?word=calculus",
+            null,
+            true,
+            emptySet()
+        )
+        assertFalse(baiduVideoWithFlag.isBlocked)
+
+        val baiduVideoWithPolicy = WebClassifier.classify(
+            "https://video.baidu.com/v?word=physics",
+            null,
+            false,
+            setOf("video.baidu.com")
+        )
+        assertFalse(baiduVideoWithPolicy.isBlocked)
+
         // 2. AI Assistant domains allowed via Unified Policy
         val chatGptAllowed = WebClassifier.classify(
             "https://chatgpt.com/c/68fa1234-abcd",
@@ -173,6 +189,14 @@ class WebTruthTableTest {
         val ytPolicyDns = WebClassifier.classifyDomain("youtube.com", false, setOf("youtube.com"))
         assertFalse(ytPolicyDns.isBlocked)
 
+        WebClassifier.clearCache()
+        val baiduVideoDns = WebClassifier.classifyDomain("v.baidu.com", true)
+        assertFalse(baiduVideoDns.isBlocked)
+
+        WebClassifier.clearCache()
+        val haokanVideoDns = WebClassifier.classifyDomain("haokan.baidu.com", false, setOf("haokan.baidu.com"))
+        assertFalse(haokanVideoDns.isBlocked)
+
         // 3. AI DNS: Blocked when not in policy, Allowed when in policy
         WebClassifier.clearCache()
         val aiBlockedDns = WebClassifier.classifyDomain("chatgpt.com", false, emptySet())
@@ -247,10 +271,13 @@ class WebTruthTableTest {
         assertTrue(KnownSafeWeb.isKnownSafeWeb("baidu.com", null))
         assertTrue(KnownSafeWeb.isKnownSafeWeb("m.baidu.com", null))
 
-        // 3. Baidu SERP Search Queries are research pages, NOT destination websites
+        // 3. Baidu SERP Search Queries and Video Search Pages are research pages, NOT destination websites
         assertFalse(WebClassifier.isDestinationUrl("https://m.baidu.com/s?wd=operating+system"))
         assertFalse(WebClassifier.isDestinationUrl("https://baidu.com/s?wd=calculus"))
         assertFalse(WebClassifier.isDestinationUrl("https://www.baidu.com/s?wd=ai"))
+        assertFalse(WebClassifier.isDestinationUrl("https://v.baidu.com/v?word=linear+algebra"))
+        assertFalse(WebClassifier.isDestinationUrl("https://video.baidu.com/v?word=physics"))
+        assertFalse(WebClassifier.isDestinationUrl("https://haokan.baidu.com/v?pd=wisenatural"))
     }
 
     @Test
@@ -272,5 +299,13 @@ class WebTruthTableTest {
         // 4. Primary search and browsing activities must NOT be flagged as distracting sub-activities
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.MainActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.BoxBrowserActivity"))
+
+        // 5. Super-app utility activities (FileManager, DownloadManager, WebActivity, etc.) must be recognized
+        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.FileManagerActivity"))
+        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.download.center.ui.fusion.DownloadManagerActivity"))
+        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.BoxBrowserActivity"))
+        assertTrue(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.WebActivity"))
+        assertFalse(AppClassifier.isSuperAppUtilityActivity("com.baidu.searchbox", "com.baidu.searchbox.video.feedflow.tab.VideoTabActivity"))
+        assertFalse(AppClassifier.isSuperAppUtilityActivity("com.android.chrome", "com.google.android.apps.chrome.Main"))
     }
 }

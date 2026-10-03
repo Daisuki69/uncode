@@ -28,8 +28,8 @@ object UnifiedPolicyRegistry {
     val SERVICES: Map<String, UnifiedService> = mapOf(
         "youtube" to UnifiedService(
             id = "youtube",
-            displayName = "YouTube",
-            description = "Allows YouTube application and YouTube web browser domains.",
+            displayName = "Videos (YouTube & Baidu Video)",
+            description = "Allows educational long-form videos on YouTube and Baidu Video in browser and supported video players.",
             badge = "App + Web",
             iconName = "Video",
             themeColor = "red",
@@ -46,7 +46,10 @@ object UnifiedPolicyRegistry {
             domains = setOf(
                 "youtube.com",
                 "youtu.be",
-                "m.youtube.com"
+                "m.youtube.com",
+                "v.baidu.com",
+                "video.baidu.com",
+                "haokan.baidu.com"
             )
         ),
         "ai" to UnifiedService(

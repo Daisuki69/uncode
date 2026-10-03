@@ -296,6 +296,31 @@ public final class AppClassifier {
         return false;
     }
 
+    /**
+     * Identifies legitimate utility and navigation activities inside portal super-apps
+     * (such as file managers, download centers, in-app browser tabs, and bookmark managers)
+     * that lack standard browser URL omniboxes but must NOT be treated as rogue standalone PWAs.
+     */
+    public static boolean isSuperAppUtilityActivity(String pkg, String activityCls) {
+        if (activityCls == null) return false;
+        String lowerCls = activityCls.toLowerCase(Locale.ROOT);
+
+        if (lowerCls.contains("downloadmanageractivity") ||
+            lowerCls.contains("filemanageractivity") ||
+            lowerCls.contains("downloadlistactivity") ||
+            lowerCls.contains("boxbrowseractivity") ||
+            lowerCls.contains("browseractivity") ||
+            lowerCls.contains("webactivity") ||
+            lowerCls.contains("splashactivity") ||
+            lowerCls.contains("mainactivity") ||
+            lowerCls.contains("bookmarkactivity") ||
+            lowerCls.contains("historyactivity")) {
+            return true;
+        }
+
+        return false;
+    }
+
 
 
     /**
