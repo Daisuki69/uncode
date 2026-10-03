@@ -37,11 +37,14 @@ class UnifiedPolicyTest {
     fun testUnifiedPolicyRegistryStructure() {
         val yt = UnifiedPolicyRegistry.SERVICES["youtube"]
         assertNotNull(yt)
-        assertEquals("YouTube", yt?.displayName)
+        assertEquals("Videos (YouTube & Baidu Video)", yt?.displayName)
         assertEquals("Video", yt?.iconName)
         assertEquals("red", yt?.themeColor)
         assertTrue(yt?.packages?.contains("com.google.android.youtube") == true)
         assertTrue(yt?.domains?.contains("youtube.com") == true)
+        assertTrue(yt?.domains?.contains("v.baidu.com") == true)
+        assertTrue(yt?.domains?.contains("video.baidu.com") == true)
+        assertTrue(yt?.domains?.contains("haokan.baidu.com") == true)
 
         val ai = UnifiedPolicyRegistry.SERVICES["ai"]
         assertNotNull(ai)
@@ -93,6 +96,9 @@ class UnifiedPolicyTest {
         assertTrue(UnifiedPolicyRegistry.isDomainAllowedByService("youtube.com", ytOnly))
         assertTrue(UnifiedPolicyRegistry.isDomainAllowedByService("m.youtube.com", ytOnly))
         assertTrue(UnifiedPolicyRegistry.isDomainAllowedByService("youtu.be", ytOnly))
+        assertTrue(UnifiedPolicyRegistry.isDomainAllowedByService("v.baidu.com", ytOnly))
+        assertTrue(UnifiedPolicyRegistry.isDomainAllowedByService("video.baidu.com", ytOnly))
+        assertTrue(UnifiedPolicyRegistry.isDomainAllowedByService("haokan.baidu.com", ytOnly))
         assertFalse(UnifiedPolicyRegistry.isDomainAllowedByService("chatgpt.com", ytOnly))
     }
 

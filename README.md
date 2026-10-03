@@ -3260,6 +3260,71 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
          - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
 
+- **Snappy Super-App Reels Remediation, Android System Resolver Exemption & Unified Video Generalization (Patch 26.5 Update)**:
+  - **Why It Was Mandated (Root Cause Analysis & Forensic Breakdown)**:
+    - *Sub-Activity Remediation Delay in Super-Apps (Baidu Reels)*:
+      - Although sub-activity Auto-Back in super-apps (`com.baidu.searchbox`) functioned, users reported a latency delay before the reels feed was bounced back.
+      - Forensic investigation identified that `lastBrowserEventClass` in `LockAccessibilityService.java` was previously updated on every generic accessibility event (including transient layouts such as `android.widget.FrameLayout`, `android.view.ViewGroup`, `android.widget.ImageView`). If child view layout events fired immediately upon activity transition, `lastBrowserEventClass` was prematurely replaced with a generic view widget name before `isDistractingSubActivity` could evaluate the top-level activity component. Furthermore, a 600ms debounce added perceptible delay.
+      - *Fix*: Introduced `lastActiveActivityClass` tracked strictly on `TYPE_WINDOW_STATE_CHANGED` events when the class contains `.` and is not an Android view class (`!startsWith("android.widget.") && !startsWith("android.view.")`). Sub-activity evaluations across `TYPE_WINDOWS_CHANGED`, `onAccessibilityEvent`, and `onTickerTick` now check `lastActiveActivityClass`. Reduced the Auto-Back debounce in `remediateDistractingSubActivity` from 600ms to 250ms for instantaneous remediation.
+    - *Android Intent Resolver ("Choose Activity" Dialog) Intercepted by QIEZKA*:
+      - When opening search results on `baidu.com`, tapping links prompting a "Choose activity" dialog (e.g. Chrome vs. Baidu) caused QIEZKA Lock to unexpectedly intercept the screen.
+      - Forensic logcat on Evolution X test device (`f678bc48`) revealed:
+        `Start proc for next-top-activity {android/com.android.internal.app.ResolverActivity}`.
+        The chooser popup is drawn by the **Android operating system** (`android`), not Chrome.
+        *Root Causes*:
+        1. Package `"android"` was not explicitly exempted at the top of `isPackageBlocked(String pkg)` in `LockAccessibilityService.java`. When `ResolverActivity` gained focus, `isPackageBlocked("android")` fell through to default package checks.
+        2. When users chose Baidu in the resolver, Android launched Baidu's download manager (`com.baidu.searchbox/.download.center.ui.fusion.FileManagerActivity` / `DownloadManagerActivity`). Because download managers lack a browser address bar (`url == null`), `inspectBrowserWindow` evaluated it as an unclassified window or back attempts escalated to `launchLockOverlay()`.
+      - *Fix*:
+        - Explicitly exempted package `"android"` in `isSystemOrLauncher(pkg)` and added `if (isSystemOrLauncher(pkg)) return false;` at the very beginning of `isPackageBlocked(pkg)`.
+        - Created `AppClassifier.isSuperAppUtilityActivity(pkg, activityCls)` recognizing safe super-app utility components: `FileManagerActivity`, `DownloadManagerActivity`, `DownloadListActivity`, `BoxBrowserActivity`, `WebActivity`, `BrowserActivity`, `SplashActivity`, `MainActivity`, `BookmarkActivity`, `HistoryActivity`.
+        - In `inspectBrowserWindow()`, when `url == null`, verified whether `AppClassifier.isSuperAppUtilityActivity(pkg, activeCls)` is true. If so, allowed it without treating it as an unknown standalone PWA.
+    - *Unified Policy Online Video Service Generalization*:
+      - Replaced the YouTube-exclusive toggle in the Unified Policy with **"Videos (YouTube & Baidu Video)"** (retaining internal key `"youtube"` for 100% backwards compatibility with stored preferences).
+      - Expanded registered domains to include `v.baidu.com`, `video.baidu.com`, and `haokan.baidu.com`.
+      - In `WebClassifier.java`:
+        - `isDestinationUrl()`: exempted `v.baidu.com`, `video.baidu.com`, and `haokan.baidu.com` (classified as video search/catalogs, returning `false`).
+        - `classify()`, `classifyDomain()`, and `classifyStandalonePwa()`: added `v.baidu.com`, `video.baidu.com`, and `haokan.baidu.com` to `effectiveAllowed` when `allowYoutube` (online videos) is enabled.
+        - Short-form doomscroll video feeds (such as `VideoTabActivity` / `.video.feedflow.`) remain strictly blocked by `isDistractingSubActivity`, ensuring educational long-form videos on web and portals are accessible while viral doomscrolling remains locked down.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Dedicated Activity Component Tracking (`LockAccessibilityService.java`)**: Added `lastActiveActivityClass` updated strictly on `TYPE_WINDOW_STATE_CHANGED` for non-view classes. Replaced transient view class checks in sub-activity enforcement. Reduced debounce to 250ms.
+    - **System Resolver Exemption (`LockAccessibilityService.java`)**: Added explicit package `"android"` exemption in `isSystemOrLauncher()` and guarded `isPackageBlocked()`.
+    - **Super-App Utility Activity Catalog (`AppClassifier.java`, `LockAccessibilityService.java`)**: Added `isSuperAppUtilityActivity()` exempting download and file managers in portal super-apps from rogue PWA eviction.
+    - **Unified Policy Video Service Expansion (`UnifiedPolicyRegistry.kt`, `WebClassifier.java`)**: Updated `youtube` service display name to `"Videos (YouTube & Baidu Video)"` and added `v.baidu.com`, `video.baidu.com`, `haokan.baidu.com`. Updated `WebClassifier.isDestinationUrl()` and policy resolution.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`UnifiedPolicyRegistry.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/UnifiedPolicyRegistry.kt)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`UnifiedPolicyTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/UnifiedPolicyTest.kt)
+      - [`WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.isAllowed()` & `isSuperAppUtilityActivity()`: Evaluates package and activity classification across foreground events.
+      - `WebClassifier.classify()` & `isDestinationUrl()`: Evaluates browser URLs in address bars and local DNS lookups.
+      - `LockAccessibilityService.onAccessibilityEvent()`, `inspectBrowserWindow()`, and `onTickerTick()`: Dispatches Auto-Back or full lockdown redirect.
+      - `UnifiedPolicyRegistry.isDomainAllowedByService()`: Evaluates domain whitelist permissions in WebClassifier.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Snappy In-App Reels Auto-Back (Baidu App)**:
+         - *Action*: During active lockdown, open Baidu app (`com.baidu.searchbox`) -> tap the bottom "视频" (Video) tab.
+         - *Expected Result*: The short-video feed is intercepted immediately (within ~250ms) without lagging or stuttering, showing the toast warning and bouncing back to `MainActivity` (search bar).
+      2. **Android Intent Resolver ("Choose Activity" Dialog)**:
+         - *Action*: During active lockdown, open Chrome or Baidu -> perform a search -> tap an intent link or file download that opens the system "Choose activity" / Resolver dialog (e.g. choosing between Chrome and Baidu).
+         - *Expected Result*: The system chooser dialog (`ResolverActivity`) appears cleanly on screen and is NOT intercepted by QIEZKA Lock. Tapping either app smoothly opens that app.
+      3. **Super-App Download & File Manager Utility**:
+         - *Action*: In Baidu app, download a document or view downloaded files (`FileManagerActivity` / `DownloadManagerActivity`).
+         - *Expected Result*: The download manager opens without being kicked back to QIEZKA Lock.
+      4. **Unified Policy Video Service (YouTube & Baidu Video)**:
+         - *Action*:
+           - When "Videos" toggle is OFF: navigate to `https://v.baidu.com` or `https://video.baidu.com` in browser -> site is blocked.
+           - When "Videos" toggle is ON: navigate to `https://v.baidu.com` or `https://video.baidu.com` in browser -> site loads smoothly for educational video search and playback.
+           - In Baidu app: short-video reels ("视频" tab) still trigger Auto-Back even when the "Videos" toggle is ON (reels remain strictly prohibited).
+      5. **Automated Unit Testing & Linter Verification**:
+         - *Action*: Run `.\gradlew.bat testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 18 unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      6. **User Rule 3 Compliance Check**:
+         - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
+
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks

@@ -41,6 +41,7 @@ public class LockAccessibilityService extends AccessibilityService {
      * including long-press or context menu interactions continues uninterrupted.
      */
     private String lastBrowserEventClass = null;
+    private String lastActiveActivityClass = null;
 
 
 
@@ -369,7 +370,14 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         if (event.getClassName() != null) {
-            lastBrowserEventClass = event.getClassName().toString();
+            String clsStr = event.getClassName().toString();
+            lastBrowserEventClass = clsStr;
+            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                clsStr.contains(".") &&
+                !clsStr.startsWith("android.widget.") &&
+                !clsStr.startsWith("android.view.")) {
+                lastActiveActivityClass = clsStr;
+            }
         }
 
         CharSequence pkgChar = event.getPackageName();
@@ -504,7 +512,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
                 if (isBrowserPackage(currentFg)) {
                     if (AppClassifier.isPortalSuperApp(currentFg)) {
-                        String subCls = lastBrowserEventClass;
+                        String subCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
                         if (AppClassifier.isDistractingSubActivity(currentFg, subCls)) {
                             Log.w(TAG, "Caught distracting sub-activity on window change in portal app " + currentFg + " (" + subCls + ") -> Auto-Back");
                             remediateDistractingSubActivity(currentFg, subCls);
@@ -570,8 +578,8 @@ public class LockAccessibilityService extends AccessibilityService {
 
             // Sub-Function Remediation for Portal Super-Apps (Baidu Reels, Phoenix, UC)
             if (AppClassifier.isPortalSuperApp(pkg)) {
-                String subCls = event.getClassName() != null ? event.getClassName().toString() : lastBrowserEventClass;
-                if (AppClassifier.isDistractingSubActivity(pkg, subCls)) {
+                String subCls = event.getClassName() != null ? event.getClassName().toString() : (lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass);
+                if (AppClassifier.isDistractingSubActivity(pkg, subCls) || (lastActiveActivityClass != null && AppClassifier.isDistractingSubActivity(pkg, lastActiveActivityClass))) {
                     Log.w(TAG, "Caught distracting sub-activity in portal app " + pkg + " (" + subCls + ") -> Auto-Back");
                     remediateDistractingSubActivity(pkg, subCls);
                     return;
@@ -707,6 +715,10 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private boolean isSystemOrLauncher(String pkg) {
         if (pkg == null) return false;
+        if ("android".equals(pkg)) {
+            // Android core system framework & dialogs (ResolverActivity "Choose activity", ChooserActivity share sheet)
+            return true;
+        }
         if (pkg.contains("permissioncontroller")) {
             return false;
         }
@@ -961,10 +973,18 @@ public class LockAccessibilityService extends AccessibilityService {
                 // ── BRANCH B: URL is Null (Scrolled Tab / In-Page Context Menu / PWA / TWA) ──
                 // Known general web browsers in standard browsing (scrolling down, in-page popups, context menus)
                 // must NEVER be treated as Standalone PWAs and must NEVER be evicted to QIEZKA Lock.
-                boolean isPwa = isStandalonePwa(pkg, lastBrowserEventClass, null, root);
+                boolean isPwa = isStandalonePwa(pkg, lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass, null, root);
                 if (!isPwa && isBrowserPackage(pkg)) {
                     // Standard browser in-page interaction or scrolled state -> ALLOW_BROWSER
                     return;
+                }
+
+                // Super-App utility and download activities (FileManagerActivity, DownloadManagerActivity)
+                if (AppClassifier.isPortalSuperApp(pkg)) {
+                    String activeCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
+                    if (AppClassifier.isSuperAppUtilityActivity(pkg, activeCls)) {
+                        return; // Allowed super-app download / file utility
+                    }
                 }
 
                 // Walk Chromium Accessibility View Tree for genuine standalone PWAs / WebAPKs
@@ -1091,7 +1111,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private void remediateDistractingSubActivity(String pkg, String activityCls) {
         long now = System.currentTimeMillis();
-        if (now - lastSubActivityRemediationTime < 600L && activityCls != null && activityCls.equals(lastRemediatedSubActivity)) {
+        if (now - lastSubActivityRemediationTime < 250L && activityCls != null && activityCls.equals(lastRemediatedSubActivity)) {
             return; // Debounce rapid accessibility events while back transition is in flight
         }
 
@@ -1474,6 +1494,7 @@ public class LockAccessibilityService extends AccessibilityService {
     public boolean isPackageBlocked(String pkg) {
         if (pkg == null) return false;
         if (pkg.equals(getPackageName())) return false;
+        if (isSystemOrLauncher(pkg)) return false;
 
         // Query app label for fast-path blacklist matching
         String appLabel = null;
@@ -1716,7 +1737,7 @@ public class LockAccessibilityService extends AccessibilityService {
                             if (!isSystemOrLauncher(rootPkg)) {
                                 if (isBrowserPackage(rootPkg)) {
                                     if (AppClassifier.isPortalSuperApp(rootPkg)) {
-                                        String subCls = lastBrowserEventClass;
+                                        String subCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
                                         if (AppClassifier.isDistractingSubActivity(rootPkg, subCls)) {
                                             remediateDistractingSubActivity(rootPkg, subCls);
                                             return;
@@ -1744,7 +1765,7 @@ public class LockAccessibilityService extends AccessibilityService {
             if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
                 if (isBrowserPackage(currentForegroundPkg)) {
                     if (AppClassifier.isPortalSuperApp(currentForegroundPkg)) {
-                        String subCls = lastBrowserEventClass;
+                        String subCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
                         if (AppClassifier.isDistractingSubActivity(currentForegroundPkg, subCls)) {
                             remediateDistractingSubActivity(currentForegroundPkg, subCls);
                             return;
