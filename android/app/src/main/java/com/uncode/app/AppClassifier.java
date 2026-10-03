@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -53,31 +54,249 @@ public final class AppClassifier {
 
 
 
+    /**
+     * Dynamically identifies SIM Card Toolkit (STK), MMS, Carrier Notifications (e.g. Globe Telecom, Smart, DITO),
+     * USSD, Flash SMS (Class 0), and Cell Broadcast alerts across various Android OEMs and carriers.
+     */
     public static boolean isSimOrCarrierService(String pkg, String appLabel) {
-        return LockAccessibilityService.isSimOrCarrierService(pkg, appLabel);
+        if (pkg == null) return false;
+
+        String lowerPkg = pkg.toLowerCase(Locale.US);
+
+        // SIM Toolkit (STK) package patterns
+        if (lowerPkg.equals("com.android.stk") || lowerPkg.equals("com.android.stk2") ||
+            lowerPkg.contains(".stk") || lowerPkg.endsWith(".stk") ||
+            lowerPkg.contains("simtoolkit") || lowerPkg.contains("simapp") ||
+            lowerPkg.contains("simsetting") || lowerPkg.contains("simprocessor") ||
+            lowerPkg.contains("simcard") || lowerPkg.contains("simcontacts") ||
+            lowerPkg.contains(".uim")) {
+            return true;
+        }
+
+        // MMS & native messaging services
+        if (lowerPkg.equals("com.android.mms") || lowerPkg.contains(".mms") || lowerPkg.endsWith(".mms") ||
+            lowerPkg.contains("mms.service") || lowerPkg.equals("com.google.android.apps.messaging") ||
+            lowerPkg.equals("com.samsung.android.messaging") || lowerPkg.contains("messaging")) {
+            // Guard: ensure it is not a third-party social messenger (e.g. Facebook Messenger)
+            if (!lowerPkg.contains("facebook") && !lowerPkg.contains("orca") && !lowerPkg.contains("telegram") && !lowerPkg.contains("whatsapp")) {
+                return true;
+            }
+        }
+
+        // Cell Broadcast & Emergency alerts
+        if (lowerPkg.contains("cellbroadcast") || lowerPkg.contains("emergencyalert") || lowerPkg.contains(".cbr")) {
+            return true;
+        }
+
+        // Carrier default apps and configurations (including Globe, Smart, DITO)
+        if (lowerPkg.contains("carrierdefaultapp") || lowerPkg.contains("carrierconfig") ||
+            lowerPkg.contains("telephonyui") || lowerPkg.contains(".ims") || lowerPkg.contains("imsservice")) {
+            return true;
+        }
+
+        // Philippine carriers (Globe, Smart, DITO)
+        if (lowerPkg.startsWith("ph.com.globe") || lowerPkg.startsWith("com.globe") ||
+            lowerPkg.startsWith("ph.com.smart") || lowerPkg.startsWith("com.smart") ||
+            lowerPkg.startsWith("ph.dito") || lowerPkg.startsWith("com.dito") ||
+            (lowerPkg.contains("globe") && (lowerPkg.contains("sim") || lowerPkg.contains("service") || lowerPkg.contains("carrier")))) {
+            return true;
+        }
+
+        // Application Label inspection (catches OEM-customized STK and carrier dialogs)
+        if (appLabel != null && !appLabel.trim().isEmpty()) {
+            String lowerLabel = appLabel.toLowerCase(Locale.US);
+            if (lowerLabel.equals("sim toolkit") || lowerLabel.equals("sim card toolkit") ||
+                lowerLabel.equals("sim menu") || lowerLabel.equals("menu ng sim") ||
+                lowerLabel.equals("stk") || lowerLabel.startsWith("stk ") ||
+                lowerLabel.contains("globe services") || lowerLabel.contains("smart menu") ||
+                lowerLabel.contains("dito menu") || lowerLabel.contains("cell broadcast") ||
+                lowerLabel.contains("emergency alert") || lowerLabel.contains("wireless alerts") ||
+                lowerLabel.contains("wireless emergency alerts") || lowerLabel.equals("mms service") ||
+                lowerLabel.equals("carrier default app") || lowerLabel.contains("carrier services")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static boolean isSimOrCarrierService(String pkg) {
-        return LockAccessibilityService.isSimOrCarrierService(pkg, null);
+        return isSimOrCarrierService(pkg, null);
+    }
+
+    public static final Set<String> KNOWN_BROWSER_PACKAGES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+        "com.android.chrome",
+        "org.mozilla.firefox",
+        "com.microsoft.emmx",
+        "com.opera.browser",
+        "com.opera.mini.native",
+        "com.opera.gx",
+        "com.brave.browser",
+        "com.duckduckgo.mobile.android",
+        "com.sec.android.app.sbrowser",
+        "com.sec.android.app.sbrowser.beta",
+        "com.mi.globalbrowser",
+        "com.vivo.browser",
+        "com.heytap.browser",
+        "com.coloros.browser",
+        "com.huawei.browser",
+        "com.transsion.phoenix",
+        "com.android.browser",
+        "idm.internet.download.manager",
+        "idm.internet.download.manager.plus",
+        "idm.internet.download.manager.lite"
+    )));
+
+    /**
+     * Dynamically resolved web browser packages discovered via Android OS native Intent resolution.
+     * Pre-warmed at service startup and cached in-memory for instant O(1) performance.
+     */
+    private static final Set<String> dynamicBrowserPackages = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    /**
+     * Pre-warms the dynamic browser cache by querying Android OS native intent resolution
+     * for all applications that register Intent.ACTION_VIEW + Intent.CATEGORY_BROWSABLE with https scheme.
+     * Pure native OS classification — completely language-independent.
+     */
+    public static void refreshBrowserCache(Context context) {
+        if (context == null) return;
+        try {
+            PackageManager pm = context.getPackageManager();
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"));
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            List<ResolveInfo> activities = pm.queryIntentActivities(intent, 0);
+            for (ResolveInfo info : activities) {
+                if (info.activityInfo != null && info.activityInfo.packageName != null) {
+                    dynamicBrowserPackages.add(info.activityInfo.packageName);
+                }
+            }
+            Log.d(TAG, "Dynamic browser cache refreshed, found " + dynamicBrowserPackages.size() + " browsers");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to refresh dynamic browser cache", e);
+        }
+    }
+
+    public static void addDynamicBrowserPackageForTesting(String pkg) {
+        if (pkg != null) dynamicBrowserPackages.add(pkg);
+    }
+
+    public static void clearDynamicBrowserPackagesForTesting() {
+        dynamicBrowserPackages.clear();
     }
 
     /**
-     * Legitimate App Store and Package Installer packages allowed during lockdown
-     * and consequence modes for installation and maintenance (Milestone 17).
+     * Universal Web Browser Resolution Gate (Stage 2).
+     *
+     * Evaluates whether an application is a legitimate general-purpose web browser.
+     * Web browsers are permitted at the package level during active lockdown because
+     * WebClassifier dynamically inspects visited URLs, search queries, and DOM nodes in real-time.
+     *
+     * In accordance with Android OS native architecture:
+     * 1. Checks Stage 1 Master Veto (hostile evasion proxies, Tor, Puffin, etc. are strictly vetoed).
+     * 2. Checks explicit proxy/VPN keywords.
+     * 3. Checks fast-path static set (KNOWN_BROWSER_PACKAGES) and pre-warmed dynamic cache.
+     * 4. Checks 1DM downloader packages and standard Latin substrings.
+     * 5. Resolves candidate via Android OS PackageManager Intent resolution (ACTION_VIEW + CATEGORY_BROWSABLE + https).
      */
-    public static final Set<String> APP_STORE_AND_INSTALLER_PACKAGES = new HashSet<>(Arrays.asList(
-        "com.android.vending",                     // Google Play Store
-        "com.google.android.feedback",             // Play Store feedback
-        "com.google.android.gms",                  // Google Play Services
-        "com.google.android.packageinstaller",     // Android Package Installer (Allowed)
-        "com.android.packageinstaller",            // AOSP Package Installer (Allowed)
-        "com.sec.android.app.samsungapps"          // Samsung Galaxy Store
+    public static boolean isBrowserPackage(Context context, String pkg, String appLabel) {
+        if (pkg == null || pkg.trim().isEmpty()) return false;
+
+        // 1. STAGE 1 — MASTER VETO GATE: Strict Anti-Tamper, Bloatware & Evasion Shield
+        // Proxy browsers, cloud renderers, and onion bypasses are strictly vetoed here
+        if (isStage1Vetoed(pkg, appLabel)) return false;
+
+        // 2. Explicit Proxy & VPN Keyword Exclusion
+        String lower = pkg.toLowerCase(Locale.ROOT).trim();
+        if (lower.contains("proxy") || lower.contains("vpn") || lower.contains("unblock")) {
+            return false;
+        }
+
+        // 3. Fast-Path O(1) Lookup: Static Known Set, Pre-warmed Dynamic Cache, or Portal Super-App
+        if (KNOWN_BROWSER_PACKAGES.contains(pkg) || dynamicBrowserPackages.contains(pkg) || isPortalSuperApp(pkg)) {
+            return true;
+        }
+
+        // 4. 1DM / IDM Downloaders
+        if (pkg.startsWith("idm.internet.download.manager")) return true;
+
+        // 5. Standard Latin Substring Fallback
+        if (lower.contains("browser") || lower.contains("chrome") || lower.contains("firefox") || lower.contains("explorer")) {
+            return true;
+        }
+
+        // 6. Universal Native Android OS Intent Resolution
+        if (context != null) {
+            try {
+                PackageManager pm = context.getPackageManager();
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"));
+                intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                List<ResolveInfo> resolved = pm.queryIntentActivities(intent, 0);
+                for (ResolveInfo info : resolved) {
+                    if (info.activityInfo != null && pkg.equals(info.activityInfo.packageName)) {
+                        dynamicBrowserPackages.add(pkg);
+                        return true;
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+
+        return false;
+    }
+
+    public static boolean isBrowserPackage(Context context, String pkg) {
+        return isBrowserPackage(context, pkg, null);
+    }
+
+    public static boolean isBrowserPackage(String pkg) {
+        return isBrowserPackage(null, pkg, null);
+    }
+
+    /**
+     * Recognized Portal Super-Apps that combine search/browser engines with media/content feeds.
+     * Allowed as browsers at the package level, but distracting sub-functions (video feeds, reels,
+     * serialized web novels) are strictly intercepted by LockAccessibilityService.
+     */
+    public static final Set<String> KNOWN_PORTAL_SUPERAPPS = new HashSet<>(Arrays.asList(
+        "com.baidu.searchbox",          // Baidu Search & Portal App
+        "com.transsion.phoenix",        // Phoenix Browser
+        "com.UCMobile",                 // UC Browser
+        "com.uc.browser.en",
+        "com.opera.mini.native"         // Opera Mini with news/video feed
     ));
 
-    public static boolean isInstallerOrStoreApp(String pkg) {
+    public static boolean isPortalSuperApp(String pkg) {
         if (pkg == null) return false;
-        return APP_STORE_AND_INSTALLER_PACKAGES.contains(pkg) || pkg.toLowerCase(Locale.ROOT).contains("packageinstaller");
+        return KNOWN_PORTAL_SUPERAPPS.contains(pkg.trim());
     }
+
+    /**
+     * Identifies distracting sub-activities inside portal super-apps (such as short-video reels,
+     * video feed flows, or novel readers) while allowing primary search and educational browsing.
+     */
+    public static boolean isDistractingSubActivity(String pkg, String activityCls) {
+        if (activityCls == null) return false;
+        String lowerCls = activityCls.toLowerCase(Locale.ROOT);
+
+        // 1. Short Video Feeds & Reels Player Activities (Baidu VideoTabActivity, Phoenix, UC)
+        if (lowerCls.contains(".video.feedflow.") ||
+            lowerCls.contains("videotabactivity") ||
+            lowerCls.contains("shortvideoactivity") ||
+            lowerCls.contains("feedflowactivity") ||
+            lowerCls.contains("reelsactivity") ||
+            lowerCls.contains("videoflowactivity")) {
+            return true;
+        }
+
+        // 2. Web Novel / Serialized Fiction Hubs
+        if (lowerCls.contains("novelhomeactivity") ||
+            lowerCls.contains("novelreaderactivity")) {
+            return true;
+        }
+
+        return false;
+    }
+
+
 
     /**
      * Recognized Direct Messaging & Communication applications.
@@ -453,11 +672,6 @@ public final class AppClassifier {
             return false;
         }
 
-        // STAGE 2 — Branch 1: Web Browsers are inspected by WebClassifier at URL/DOM level and NEVER blocked at package level
-        if (LockAccessibilityService.isBrowserPackage(pkg)) {
-            return false;
-        }
-
         String appLabel = null;
         if (context != null) {
             try {
@@ -470,18 +684,18 @@ public final class AppClassifier {
             } catch (Exception ignore) {}
         }
 
-        // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield (Android Settings, MIUI Security Center, OEM Phone Managers)
-        if (isSettingsOrDeviceManager(pkg, appLabel)) {
+        // STAGE 1 — MASTER VETO GATE: Strict Anti-Tamper, Bloatware & Evasion Shield
+        if (isStage1Vetoed(pkg, appLabel)) {
             return true;
         }
 
-        // STAGE 1 — MASTER VETO GATE: Hardware Bloatware & Game Boosters (Joyose, GameCenter, PalmStore, Glance)
-        if (isStage1Bloat(pkg, appLabel)) {
-            return true;
+        // STAGE 2 — Branch 1: Web Browsers are inspected by WebClassifier at URL/DOM level and NEVER blocked at package level
+        if (isBrowserPackage(context, pkg, appLabel)) {
+            return false;
         }
 
-        // Home Launchers (including system and third-party launchers) are never blocked
-        if (LockAccessibilityService.isLauncherApp(context, pkg)) {
+        // STAGE 2 — Branch 2: Home Launchers (including system and third-party launchers) are never blocked
+        if (KnownSafe.isLauncherApp(context, pkg)) {
             return false;
         }
 
@@ -701,16 +915,22 @@ public final class AppClassifier {
                                   (appInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
             if (isSystemApp) {
                 // Guard: Ensure general web browsers still route through WebClassifier URL inspection
-                if (!lowerPkg.contains("browser") && !lowerPkg.contains("chrome") && !lowerPkg.contains("firefox")) {
+                if (!isBrowserPackage(context, pkg, appLabel)) {
                     Log.d(TAG, "Allowed by Stage 3 Universal System Gateway (SYSALLOW): " + pkg + " (" + appLabel + ")");
                     return false;
                 }
             }
         }
 
+        // ── Stage 2: SIM or Carrier Service Exemption ──
+        if (isSimOrCarrierService(pkg, appLabel)) {
+            Log.d(TAG, "Allowed as SIM or Carrier Service: " + pkg + " (" + appLabel + ")");
+            return false;
+        }
+
         // ── Stage 2: Home Launcher Exemption ──
         // Home launchers (user's home screen) are always allowed to execute and must never fall through to Layer 5
-        if (LockAccessibilityService.isLauncherApp(context, pkg)) {
+        if (KnownSafe.isLauncherApp(context, pkg)) {
             Log.d(TAG, "Allowed as Home Launcher: " + pkg + " (" + appLabel + ")");
             return false;
         }

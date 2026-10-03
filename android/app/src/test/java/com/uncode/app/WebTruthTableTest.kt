@@ -226,4 +226,51 @@ class WebTruthTableTest {
         assertTrue(LockAccessibilityService.isValidUrlCandidate("m.youtube.com"))
         assertTrue(LockAccessibilityService.isValidUrlCandidate("canvas.instructure.com/courses/123"))
     }
+
+    @Test
+    fun testSoftwareRepositoriesAndSearchEngines() {
+        // 1. Verified Software Repositories must be recognized and allowed
+        assertTrue(KnownSafeWeb.isSoftwareRepository("uptodown.com"))
+        assertTrue(KnownSafeWeb.isSoftwareRepository("https://en.uptodown.com/android"))
+        assertTrue(KnownSafeWeb.isSoftwareRepository("apkmirror.com"))
+        assertTrue(KnownSafeWeb.isSoftwareRepository("f-droid.org"))
+        assertTrue(KnownSafeWeb.isSoftwareRepository("apkpure.com"))
+        assertTrue(KnownSafeWeb.isKnownSafeWeb("uptodown.com", null))
+        assertTrue(KnownSafeWeb.isKnownSafeWeb("https://en.uptodown.com/android", null))
+
+        val uptodownDns = WebClassifier.classifyDomain("uptodown.com", false)
+        assertFalse(uptodownDns.isBlocked)
+
+        // 2. Multilingual Search Engines must be recognized
+        assertTrue(KnownSafeWeb.isSearchEngine("baidu.com"))
+        assertTrue(KnownSafeWeb.isSearchEngine("m.baidu.com"))
+        assertTrue(KnownSafeWeb.isKnownSafeWeb("baidu.com", null))
+        assertTrue(KnownSafeWeb.isKnownSafeWeb("m.baidu.com", null))
+
+        // 3. Baidu SERP Search Queries are research pages, NOT destination websites
+        assertFalse(WebClassifier.isDestinationUrl("https://m.baidu.com/s?wd=operating+system"))
+        assertFalse(WebClassifier.isDestinationUrl("https://baidu.com/s?wd=calculus"))
+        assertFalse(WebClassifier.isDestinationUrl("https://www.baidu.com/s?wd=ai"))
+    }
+
+    @Test
+    fun testPortalSuperAppAndSubActivityRemediation() {
+        // 1. Portal Super-Apps must be recognized
+        assertTrue(AppClassifier.isPortalSuperApp("com.baidu.searchbox"))
+        assertTrue(AppClassifier.isPortalSuperApp("com.transsion.phoenix"))
+        assertTrue(AppClassifier.isPortalSuperApp("com.UCMobile"))
+        assertFalse(AppClassifier.isPortalSuperApp("com.android.chrome"))
+
+        // 2. Portal Super-Apps are recognized as browser portals at the package level
+        assertTrue(AppClassifier.isBrowserPackage(null, "com.baidu.searchbox", "Baidu"))
+
+        // 3. Short video reels and distracting sub-activities inside portal super-apps must be identified
+        assertTrue(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.video.feedflow.tab.VideoTabActivity"))
+        assertTrue(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.discovery.novel.NovelHomeActivity"))
+        assertTrue(AppClassifier.isDistractingSubActivity("com.transsion.phoenix", "com.transsion.phoenix.reels.ShortVideoActivity"))
+
+        // 4. Primary search and browsing activities must NOT be flagged as distracting sub-activities
+        assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.MainActivity"))
+        assertFalse(AppClassifier.isDistractingSubActivity("com.baidu.searchbox", "com.baidu.searchbox.BoxBrowserActivity"))
+    }
 }

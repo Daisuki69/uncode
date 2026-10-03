@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, BookOpen, Trash2, Plus, Sparkles, Pencil, Upload, Loader2, Settings, ShieldAlert, X, GitMerge, FileText, Calculator, Music, Globe, MessageSquare, MonitorPlay, Check, LayoutGrid, Camera, ShieldCheck, AlertTriangle, Home } from 'lucide-react';
 import { AppSettings, SavedResource, ScheduleData, AllowedApp } from '../types';
+import { parseResource } from '../api/parseResource';
 import { getInstalledApps } from '../systemBridge';
 import { isAppBlacklisted } from '../constants/blacklistedApps';
 
@@ -236,7 +237,6 @@ export function Dashboard({
 
     setIsParsing(true);
     try {
-      const { parseResource } = await import('../api/parseResource');
       const data = await parseResource({
         file,
         type: 'transcription',

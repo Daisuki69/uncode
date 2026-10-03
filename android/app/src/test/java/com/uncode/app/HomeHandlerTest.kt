@@ -218,4 +218,278 @@ class HomeHandlerTest {
         }
         assertFalse(InstalledLauncherDetector.isRealLauncher(sirenInfo, myPkg))
     }
+
+    @Test
+    fun testHomeAppSelectionTitleClassification() {
+        // 1. Language-independent exact Activity class names
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("com.android.permissioncontroller.role.ui.RequestRoleActivity"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("com.android.permissioncontroller.role.ui.DefaultAppActivity"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("com.android.settings.Settings\$HomeSettingsActivity"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("com.android.settings.applications.defaultapps.DefaultHomePicker"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("RequestRoleActivity"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("DefaultAppActivity"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("HomeSettingsActivity"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("DefaultHomePicker"))
+
+        // 2. Installed launcher brand names are NOT home app selection titles (they are window titles of launchers)
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Lawnchair"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Microsoft Launcher"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Niagara Launcher"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Nova Launcher"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Nexus Launcher"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Pixel Launcher"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("One UI Home"))
+
+        // 3. Fallback keywords
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("Default home app"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("default home"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("Home app"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("Home launcher"))
+
+        // 4. False: Generic "Open with..." and MIME type / intent resolver dialogs
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Open with"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Open with..."))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Complete action using"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Just once"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Always"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Use a different app"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Drive PDF Viewer"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Google Chrome"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("WPS Office"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Select an app"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle(null))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle(""))
+    }
+
+    @Test
+    fun testIsInstalledLauncherCandidate() {
+        // True for launcher brand signatures
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Lawnchair"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Microsoft Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Niagara Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Nova Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Nexus Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Trebuchet"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Pixel Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("One UI Home"))
+
+        // False for non-launcher apps
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Drive PDF Viewer"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("WPS Office"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Google Chrome"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Adobe Acrobat"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("VLC"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Open with"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate(null))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate(""))
+    }
+
+    @Test
+    fun testCentralizedSecurityClassification() {
+        // 1. KnownSafe.isLauncherApp
+        assertTrue(KnownSafe.isLauncherApp(null, "com.siren.homeproxy"))
+        assertFalse(KnownSafe.isLauncherApp(null, "com.android.settings"))
+        assertFalse(KnownSafe.isLauncherApp(null, null))
+
+        // Dynamic registration check
+        KnownSafe.dynamicLauncherPackages.add("ch.deletescape.lawnchair.ci")
+        assertTrue(KnownSafe.isLauncherApp(null, "ch.deletescape.lawnchair.ci"))
+        assertTrue(LockAccessibilityService.isLauncherApp(null, "ch.deletescape.lawnchair.ci"))
+
+        // 2. AppClassifier.isBrowserPackage
+        assertTrue(AppClassifier.isBrowserPackage("com.android.chrome"))
+        assertTrue(AppClassifier.isBrowserPackage("org.mozilla.firefox"))
+        assertTrue(AppClassifier.isBrowserPackage("com.sec.android.app.sbrowser"))
+        assertTrue(AppClassifier.isBrowserPackage("idm.internet.download.manager"))
+        assertTrue(LockAccessibilityService.isBrowserPackage("com.android.chrome"))
+        assertFalse(AppClassifier.isBrowserPackage("com.facebook.katana"))
+        assertFalse(AppClassifier.isBrowserPackage(null))
+
+        // 3. AppClassifier.isSimOrCarrierService
+        assertTrue(AppClassifier.isSimOrCarrierService("com.android.stk", null))
+        assertTrue(AppClassifier.isSimOrCarrierService("ph.com.globe", "Globe Services"))
+        assertTrue(AppClassifier.isSimOrCarrierService("ph.com.smart", "Smart Menu"))
+        assertTrue(AppClassifier.isSimOrCarrierService("com.android.mms", null))
+        assertTrue(LockAccessibilityService.isSimOrCarrierService("com.android.stk"))
+        assertFalse(AppClassifier.isSimOrCarrierService("com.facebook.orca", "Messenger"))
+        assertFalse(AppClassifier.isSimOrCarrierService(null))
+    }
+
+    @Test
+    fun testStage1MasterVetoBeforeStage2BrowserGate() {
+        // Hostile proxy browsers must be strictly VETOED in Stage 1 and BLOCKED by isPackageBlocked
+        val hostileBrowsers = listOf(
+            "org.torproject.torbrowser",
+            "org.torproject.torbrowser_alpha",
+            "com.cloudmosa.puffin",
+            "com.cloudmosa.puffinfree",
+            "com.ucmobile.intl",
+            "com.uc.browser.en"
+        )
+        for (pkg in hostileBrowsers) {
+            assertTrue("Expected $pkg to be vetoed by Stage 1 Master Veto", AppClassifier.isStage1Vetoed(pkg, null))
+            assertFalse("Expected $pkg NOT to qualify as a standard browser", AppClassifier.isBrowserPackage(pkg))
+            assertTrue("Expected $pkg to be blocked by isPackageBlocked", AppClassifier.isPackageBlocked(null, pkg, null))
+        }
+
+        // Standard browsers must pass Stage 1 Master Veto and be ALLOWED at package level for WebClassifier inspection
+        val standardBrowsers = listOf(
+            "com.android.chrome",
+            "org.mozilla.firefox",
+            "com.sec.android.app.sbrowser",
+            "com.microsoft.emmx",
+            "com.brave.browser",
+            "com.opera.browser"
+        )
+        for (pkg in standardBrowsers) {
+            assertFalse("Expected $pkg NOT to be vetoed by Stage 1", AppClassifier.isStage1Vetoed(pkg, null))
+            assertTrue("Expected $pkg to qualify as isBrowserPackage", AppClassifier.isBrowserPackage(pkg))
+            assertFalse("Expected $pkg to be allowed at package level for WebClassifier", AppClassifier.isPackageBlocked(null, pkg, null))
+        }
+
+        // Generic non-vetoed 3rd-party browser from Play Store
+        val genericBrowser = "com.sample.custom.browser"
+        assertFalse(AppClassifier.isStage1Vetoed(genericBrowser, null))
+        assertTrue(AppClassifier.isBrowserPackage(genericBrowser))
+        assertFalse(AppClassifier.isPackageBlocked(null, genericBrowser, null))
+    }
+
+    @Test
+    fun testStage1MultilingualProxyEvasionVeto() {
+        // 1. Evasion package signatures
+        val evasionPackages = listOf(
+            "free.vpn.unblock.proxy.turbovpn",
+            "org.torproject.torbrowser",
+            "com.cloudmosa.puffin",
+            "com.psiphon3",
+            "com.fake.vpn.client",
+            "com.network.bypass.tool",
+            "com.shadowsocks.speed",
+            "com.v2ray.client",
+            "com.aloha.browser"
+        )
+        for (pkg in evasionPackages) {
+            assertTrue("Expected $pkg to be vetoed by Stage 1 Master Veto", AppClassifier.isStage1Vetoed(pkg, null))
+            assertFalse("Expected $pkg NOT to qualify as browser", AppClassifier.isBrowserPackage(null, pkg, null))
+            assertTrue("Expected $pkg to be blocked by isPackageBlocked", AppClassifier.isPackageBlocked(null, pkg, null))
+        }
+
+        // 2. Multilingual evasion labels on otherwise generic/unclassified package names
+        val foreignEvasionApps = listOf(
+            "com.network.tool.ru" to "Прокси Браузер",
+            "com.network.tool.ru2" to "Супер ВПН Бесплатно",
+            "com.anonymizer.tool" to "Анонимайзер Веб",
+            "com.tool.zh" to "翻墙极速版",
+            "com.tool.zh2" to "科学上网神器",
+            "com.tool.zh3" to "免费代理浏览器",
+            "com.tool.zh4" to "网络加速器",
+            "com.tool.ja" to "プロキシ ブラウザ",
+            "com.tool.ar" to "متصفح بروكسي",
+            "com.tool.ar2" to "تطبيق في بي ان",
+            "com.tool.es" to "Navegador Proxy Rápido",
+            "com.tool.es2" to "Desbloquear Sitios Web"
+        )
+        for ((pkg, label) in foreignEvasionApps) {
+            assertTrue("Expected $pkg ($label) to be vetoed by Stage 1 Master Veto", AppClassifier.isStage1Vetoed(pkg, label))
+            assertFalse("Expected $pkg ($label) NOT to qualify as browser", AppClassifier.isBrowserPackage(null, pkg, label))
+        }
+
+        // 3. Audio / music exemptions: Ensure legitimate audio player labels are NOT falsely vetoed
+        val audioApps = listOf(
+            "com.music.player" to "Music Player & Proxy",
+            "com.podcast.app" to "Audio Podcast VPN"
+        )
+        for ((pkg, label) in audioApps) {
+            assertFalse("Audio app $pkg ($label) should NOT be vetoed by evasion heuristic", AppClassifier.isStage1Vetoed(pkg, label))
+        }
+    }
+
+    @Test
+    fun testStage2UniversalBrowserResolutionAndDynamicCache() {
+        try {
+            AppClassifier.clearDynamicBrowserPackagesForTesting()
+
+            // 1. Static known set
+            assertTrue(AppClassifier.isBrowserPackage("com.android.chrome"))
+            assertTrue(AppClassifier.isBrowserPackage("org.mozilla.firefox"))
+            assertTrue(AppClassifier.isBrowserPackage("com.microsoft.emmx"))
+            assertTrue(AppClassifier.isBrowserPackage("idm.internet.download.manager.plus"))
+
+            // 2. Foreign browsers lacking Latin "browser" in package ID (e.g. QQ Browser, Naver Whale, Via)
+            val qqBrowser = "com.tencent.mtt"
+            val naverWhale = "com.nhn.android.whale"
+            val viaBrowser = "mark.via.gp"
+
+            // Before dynamic resolution/caching:
+            // Since context is null, they aren't in static list or dynamic cache yet
+            assertFalse(AppClassifier.isStage1Vetoed(qqBrowser, "QQ浏览器"))
+            assertFalse(AppClassifier.isStage1Vetoed(naverWhale, "네이버 웨일"))
+            assertFalse(AppClassifier.isStage1Vetoed(viaBrowser, "Via"))
+
+            // Simulate dynamic Android OS Intent resolution populating dynamicBrowserPackages
+            AppClassifier.addDynamicBrowserPackageForTesting(qqBrowser)
+            AppClassifier.addDynamicBrowserPackageForTesting(naverWhale)
+            AppClassifier.addDynamicBrowserPackageForTesting(viaBrowser)
+
+            // Now, they resolve in O(1) time without needing app label inspection!
+            assertTrue("QQ Browser should be recognized as browser via dynamic cache", AppClassifier.isBrowserPackage(null, qqBrowser, "QQ浏览器"))
+            assertTrue("Naver Whale should be recognized as browser via dynamic cache", AppClassifier.isBrowserPackage(null, naverWhale, "네이버 웨일"))
+            assertTrue("Via Browser should be recognized as browser via dynamic cache", AppClassifier.isBrowserPackage(null, viaBrowser, "Via"))
+
+            // And isPackageBlocked returns false (allowed at package level for WebClassifier inspection)
+            assertFalse(AppClassifier.isPackageBlocked(null, qqBrowser, null))
+            assertFalse(AppClassifier.isPackageBlocked(null, naverWhale, null))
+            assertFalse(AppClassifier.isPackageBlocked(null, viaBrowser, null))
+        } finally {
+            AppClassifier.clearDynamicBrowserPackagesForTesting()
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private class FakeTestPreferences(private val data: Map<String, Any> = emptyMap()) : android.content.SharedPreferences {
+        override fun getAll(): Map<String, *> = data
+        override fun getString(key: String?, defValue: String?): String? = data[key] as? String ?: defValue
+        override fun getStringSet(key: String?, defValues: Set<String>?): Set<String>? = data[key] as? Set<String> ?: defValues
+        override fun getInt(key: String?, defValue: Int): Int = (data[key] as? Number)?.toInt() ?: defValue
+        override fun getLong(key: String?, defValue: Long): Long = (data[key] as? Number)?.toLong() ?: defValue
+        override fun getFloat(key: String?, defValue: Float): Float = (data[key] as? Number)?.toFloat() ?: defValue
+        override fun getBoolean(key: String?, defValue: Boolean): Boolean = data[key] as? Boolean ?: defValue
+        override fun contains(key: String?): Boolean = data.containsKey(key)
+        override fun edit(): android.content.SharedPreferences.Editor = throw UnsupportedOperationException()
+        override fun registerOnSharedPreferenceChangeListener(listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener?) {}
+        override fun unregisterOnSharedPreferenceChangeListener(listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener?) {}
+    }
+
+    @Test
+    fun testHomeChangeInterceptorDualConditionMatrix() {
+        try {
+            // Case 1: SIREN is NOT default -> MUST NOT activate even if lockdown is active!
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(false)
+            val lockdownPrefs = FakeTestPreferences(mapOf("lockdown_active" to true))
+            assertFalse(LockAccessibilityService.isHomeChangeInterceptorActive(null, lockdownPrefs))
+
+            val consequencePrefs = FakeTestPreferences(mapOf("consequence_active" to true, "operating_mode" to "hardcore"))
+            assertFalse(LockAccessibilityService.isHomeChangeInterceptorActive(null, consequencePrefs))
+
+            val schedulePrefs = FakeTestPreferences(mapOf("schedules_json" to "[{\"id\":\"s1\",\"isActive\":true}]"))
+            assertFalse(LockAccessibilityService.isHomeChangeInterceptorActive(null, schedulePrefs))
+
+            // Case 2: SIREN IS default, but NO session or schedule -> MUST NOT activate!
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(true)
+            val emptyPrefs = FakeTestPreferences(emptyMap())
+            assertFalse(LockAccessibilityService.isHomeChangeInterceptorActive(null, emptyPrefs))
+
+            val inactiveSchedulePrefs = FakeTestPreferences(mapOf("schedules_json" to "[{\"id\":\"s1\",\"isActive\":false}]"))
+            assertFalse(LockAccessibilityService.isHomeChangeInterceptorActive(null, inactiveSchedulePrefs))
+
+            // Case 3: BOTH conditions met (SIREN is default AND active session/schedule) -> MUST activate!
+            assertTrue(LockAccessibilityService.isHomeChangeInterceptorActive(null, lockdownPrefs))
+            assertTrue(LockAccessibilityService.isHomeChangeInterceptorActive(null, consequencePrefs))
+            assertTrue(LockAccessibilityService.isHomeChangeInterceptorActive(null, schedulePrefs))
+        } finally {
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(null)
+        }
+    }
 }
+
+

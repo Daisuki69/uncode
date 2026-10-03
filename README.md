@@ -2592,8 +2592,17 @@ so uninstall isnt merely uninstall you have to select first different launcher i
 
 would require to sOmehow intercept a default home launcher selectiOn whenever it happens
 
-possible to have the app package name to be randomised (not unreadable string of text)
-to try and prevent users from actually finding qieska using adb and force stopping it/uninstall
+great what iff
+app wont run if adb/developer option is enabled
+qieska as a widget only app no app drawer icon 
+why? in Android safemode widgets  are sometimes removed, and you cant remove a widget in order to uninstall the parent app
+at the same time
+but if qieska is widget only and there is no app icon the user would need to navigate settings just to find the qieska main icon, and what if qieska main icon is something innocent something that blends in across hundreds of apps(not system app camouflage)
+that improves qieska defense against androdi safemode uninstallation and  disabling
+
+another thing also if SIREN is the home, then what about keyboard input... yeah android does kill it but android calls it too when user needs it...hmm what if SIREN as a keyboard proxy too...
+
+
 ```mermaid
 flowchart TB
     A["ANDROID<br>User presses HOME"] --> C["QiezkaHomeHandlerActivity<br>🏠 Android HOME Role"]
@@ -2955,6 +2964,301 @@ for a genuine distracting app successfully disguises, will be tested and hardene
       - Web asset build: `npm run build` followed by `npx cap sync android`.
       - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
       - User Rule 5 Compliance: SIREN HomeProxy untouched.
+
+- **Security Classification Centralization & Inverted Dependency Elimination (Patch 26.3 Follow-Up)**:
+  - **Why It Was Mandated (Root Cause Analysis & Functional Requirements)**:
+    - *Inverted Dependency Architecture*: Following the centralization of keyboard detection in `KnownSafe.kt`, an architectural audit revealed multiple remaining inverted dependencies where core security policies and the central classifier depended directly on an accessibility service (`LockAccessibilityService`):
+      1. *`isLauncherApp` in `LockAccessibilityService`*: Home Launchers are recognized as `KnownSafe` in Stage 2. Having `KnownSafe.kt:308` and `AppClassifier.java:468, 697` depend on `LockAccessibilityService.isLauncherApp()` inverted the hierarchy, forcing policy modules to query an OS interaction service.
+      2. *`isSimOrCarrierService` in `LockAccessibilityService`*: SIM card toolkit (STK), MMS, and Philippine carrier emergency services (Globe, Smart, DITO, Cell Broadcast) were implemented in `LockAccessibilityService.java:61-125`, while `AppClassifier.java:56-62` contained dummy forwarders delegating back to `LockAccessibilityService`.
+      3. *`KNOWN_BROWSER_PACKAGES` and `isBrowserPackage` in `LockAccessibilityService`*: Web browser identification is a Stage 2 classification branch (`WebClassifier`). `AppClassifier.java:441` called `LockAccessibilityService.isBrowserPackage()`, while `KnownSafe.kt:228` used an ad-hoc substring check instead of the authoritative definition.
+      4. *Redundant Legacy Collections*: `dynamicKeyboardPackages` in `LockAccessibilityService` performed redundant discovery already handled dynamically by `KnownSafe.isKeyboardPackage()`. `dynamicExemptPackages` was an obsolete pre-SYSALLOW cache whose roles are fully served by `KnownSafe.isCameraApp()`, `AppClassifier.isBrowserPackage()`, `KnownSafe.isKeyboardPackage()`, and Stage 3 `SYSALLOW`.
+      5. *Preservation of Gemini*: Per explicit user mandate, `isGeminiAllowed` and `isGeminiActive` remain strictly intact in `LockAccessibilityService.java`.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Launcher Centralization (`KnownSafe.kt`)**: Relocated `isLauncherApp(context, pkg)` along with `dynamicLauncherPackages` and `dynamicLauncherLabels` to `KnownSafe.kt`. `KnownSafe.kt:308` now checks `isLauncherApp(context, pkg)` directly. `AppClassifier.java` and `LockPlugin.java` call `KnownSafe.isLauncherApp(...)`. `LockAccessibilityService.isLauncherApp` cleanly delegates to `KnownSafe.isLauncherApp`.
+    - **SIM & Carrier Service Centralization (`AppClassifier.java`)**: Moved complete STK, MMS, and carrier service detection into `AppClassifier.java`. In `evaluatePackage()`, added an explicit safety exemption for verified carrier services. `LockAccessibilityService.isSimOrCarrierService` and `LockPlugin.java` delegate to `AppClassifier.isSimOrCarrierService`.
+    - **Browser Package Centralization (`AppClassifier.java`)**: Relocated `KNOWN_BROWSER_PACKAGES` and `isBrowserPackage(pkg)` to `AppClassifier.java`. In `KnownSafe.isHardcodedApp()` and `LockAccessibilityService.isBrowserPackage()`, delegated directly to `AppClassifier.isBrowserPackage(pkg)`.
+    - **Legacy Cache Elimination (`LockAccessibilityService.java`)**: Removed `dynamicKeyboardPackages` and `dynamicExemptPackages`. `isKeyboardApp(pkg)` delegates directly to `KnownSafe.isKeyboardPackage(this, pkg)`. `isPackageBlocked()` simplified to evaluate `KnownSafe.isCameraApp(this, pkg, appLabel)` directly.
+    - **Unit Test Coverage (`HomeHandlerTest.kt`)**: Added `testCentralizedSecurityClassification()` systematically verifying `KnownSafe.isLauncherApp`, `AppClassifier.isBrowserPackage`, and `AppClassifier.isSimOrCarrierService`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`KnownSafe.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafe.kt)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`LockPlugin.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `KnownSafe.kt`: Verifies dynamic launcher detection, keyboard safety, and browser exemption in `isHardcodedApp`.
+      - `AppClassifier.java`: Verifies 3-stage security gate with native browser and SIM/carrier evaluation.
+      - `LockAccessibilityService.java`: Evaluates foreground package blocks and home transitions without local hardcoded lists or inverted dependencies.
+      - `LockPlugin.java`: Populates application lists and whitelist validations with centralized classification queries.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Home Launcher Resolution & SIREN Delegation (`KnownSafe.isLauncherApp` Centralization)**:
+         - *Action*: Start an active lockdown in QIEZKA -> press the device's hardware or gesture HOME button.
+         - *Expected Result*: The home screen appears immediately in 0ms via SIREN delegation. QIEZKA's `MainActivity` does NOT pop up, and no anti-tamper toasts are displayed. Transitions to the home launcher remain fluid.
+      2. **Keyboard Safety & IME Typing (`KnownSafe.isKeyboardPackage` Single Source of Truth)**:
+         - *Action*: During active lockdown, open a permitted app (Google Keep, Notion, Google Docs) -> tap a text note or search field to summon the keyboard.
+         - *Expected Result*: Gboard / Samsung Keyboard / SwiftKey appears immediately and typing functions normally. `LockAccessibilityService` delegates to `KnownSafe.isKeyboardPackage()` and does not intercept the keyboard.
+      3. **Web Browser Classification & URL Guard (`AppClassifier.isBrowserPackage` Centralization)**:
+         - *Action*: During active lockdown, launch Google Chrome or Samsung Internet -> navigate to `https://en.wikipedia.org` -> then navigate to `https://www.tiktok.com`.
+         - *Expected Result*: Chrome opens without being blocked at the package level. Academic Wikipedia continues browsing uninterrupted. Distracting TikTok is immediately intercepted and auto-backed by `WebClassifier`.
+      4. **SIM Toolkit & Carrier Services Verification (`AppClassifier.isSimOrCarrierService` Centralization)**:
+         - *Action*: Open QIEZKA Dashboard -> navigate to Allowed Applications drawer.
+         - *Expected Result*: Carrier background services and SIM Toolkit dialogs do not show up as distracting user apps (`LockPlugin` filters them via `AppClassifier.isSimOrCarrierService`). STK prompts and emergency alerts are never force-closed.
+      5. **Anti-Tamper & Hostile Veto Invariant Preservation**:
+         - *Action*: During active lockdown, attempt to open Android Settings (`com.android.settings`) or a game booster (Joyose).
+         - *Expected Result*: Settings and game boosters are instantly blocked and evicted by Stage 1 Master Veto Gate.
+      6. **Automated Unit Testing & Linter Verification**:
+         - *Action*: Run `.\gradlew.bat testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 31 unit tests pass (`BUILD SUCCESSFUL in 49s`, 0 failures, 0 warnings); TypeScript compiler outputs 0 errors.
+    - *Build & Test Verification*:
+      - `.\gradlew.bat testDebugUnitTest`: Tested all unit tests in test suite (`BUILD SUCCESSFUL in 49s`).
+      - `npm run lint`: `tsc --noEmit` passed with 0 errors.
+      - User Rule 3 Compliance: No APK built (`assembleDebug`/`assembleRelease` omitted).
+      - User Rule 5 Compliance: SIREN HomeProxy untouched.
+
+- **Repository Redundancy Cleanup & AI Studio Boilerplate Purge (Patch 26.3 Clean-Up)**:
+  - **Why It Was Mandated (Root Cause Analysis & Functional Requirements)**:
+    - *Repository Bloat & Dead Artifacts*: Following the centralization of security classifications and accessibility services, a full repository audit revealed obsolete, dead, and redundant files that added clutter, risk of dual-lockfile drift, and unnecessary workspace weight:
+      1. *AI Studio Boilerplate*: The repository retained `.env.example` containing Cloud Run template comments and a root `assets/` directory containing only `assets/.aistudio/.gitignore`. Furthermore, `vite.config.ts` retained an obsolete `DISABLE_HMR` server configuration specifically tailored for AI Studio iframes. Since QIEZKA is an on-device Android mobile application operating under a client-side BYOK (Bring Your Own Key) model where keys are managed locally by the student in the app UI, these files were completely obsolete.
+      2. *Temporary Debug Snapshots (`scratch/`)*: The root `scratch/` directory contained 5 temporary debugging screen captures and UI XML dumps (`device_screen.png`, `nova_settings.xml`, `share_sheet.png`, `uninstall_dialog.png`, `uninstall_ui.xml`) totaling ~1.2 MB from earlier testing sessions with zero code references.
+      3. *Stale Root APK Binary (`app-debug.apk`)*: A 4.65 MB pre-built APK binary from September 9, 2026 sat in the repository root. The actual Gradle build destination is `android/app/build/outputs/apk/debug/app-debug.apk`. Per User Rule 3, the user builds the APK themselves, making the root binary a dead orphan.
+      4. *Dual-Lockfile Drift (`bun.lock`)*: A 78 KB Bun lockfile existed alongside `package.json` and `package-lock.json`. The project is standardized on `npm` scripts and dependencies, making `bun.lock` redundant.
+      5. *Defunct Legacy Android Layout (`activity_home_handler.xml`)*: A 138-line layout file remained from the defunct `HomeHandlerActivity`, which was purged when home handling migrated to transparent accessibility and SIREN HomeProxy IPC.
+      6. *Dangling Git Index Entry (`KOTLIN_IMPLEMENTATION_PLAN.md`)*: An old migration plan file was deleted from disk but remained staged in git as added (`AD`), creating an index ghost.
+      7. *Defunct String Resource (`title_activity_home`)*: Leftover `<string name="title_activity_home">QIEZKA Home</string>` in `res/values/strings.xml` with zero references.
+      8. *Dead Native Imports in `LockAccessibilityService.java`*: Residual unused imports (`MediaStore`, `Settings`, `InputMethodManager`, `InputMethodInfo`) left after moving keyboard detection to `KnownSafe.kt`.
+  - **Concrete Cleanups & Removals Implemented**:
+    - **Deleted Redundant Files**: Removed `scratch/` directory, `app-debug.apk`, `bun.lock`, `.env.example`, `assets/` directory, and `android/app/src/main/res/layout/activity_home_handler.xml`.
+    - **Unstaged Dangling Git Index**: Ran `git rm --cached KOTLIN_IMPLEMENTATION_PLAN.md` to restore a clean git status.
+    - **Purged AI Studio Boilerplate in `vite.config.ts`**: Stripped the obsolete `server` block with `DISABLE_HMR` file watching workarounds; kept Vite configuration clean, fast, and standard.
+    - **Cleaned Android Resources (`strings.xml`)**: Removed unused `title_activity_home`.
+    - **Cleaned Native Accessibility Imports (`LockAccessibilityService.java`)**: Removed unused `MediaStore`, `Settings`, `InputMethodManager`, and `InputMethodInfo` imports.
+    - **Preserved User-Facing Portal Links**: Maintained the user-facing Gemini API key button in `Onboarding.tsx` (`https://aistudio.google.com/app/apikey`) and developer documentation links in `README.md` as explicitly mandated.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [Deleted] `scratch/` (`device_screen.png`, `nova_settings.xml`, `share_sheet.png`, `uninstall_dialog.png`, `uninstall_ui.xml`)
+      - [Deleted] `app-debug.apk`
+      - [Deleted] `bun.lock`
+      - [Deleted] `.env.example`
+      - [Deleted] `assets/` (`.aistudio/.gitignore`)
+      - [Deleted] `android/app/src/main/res/layout/activity_home_handler.xml`
+      - [Unstaged] `KOTLIN_IMPLEMENTATION_PLAN.md`
+      - [`vite.config.ts`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/vite.config.ts)
+      - [`android/app/src/main/res/values/strings.xml`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/res/values/strings.xml)
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+    - *Known Dependents & Callers*:
+      - `vite.config.ts`: Vite bundler (`npm run build`, `npm run dev`).
+      - `strings.xml`: Android resource packaging via AAPT2.
+      - `LockAccessibilityService.java`: Foreground application and home event handling.
+      - `LockPlugin.java` & `MainActivity.java`: Native runtime execution and plugin bridge.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Home Launcher Resolution & SIREN Delegation (`activity_home_handler.xml` and `title_activity_home` Removal)**:
+         - *Action*: Start an active lockdown in QIEZKA -> press the device's hardware or gesture HOME button.
+         - *Expected Result*: The default launcher (e.g., Nova Launcher, One UI, or SIREN HomeProxy) appears immediately in 0ms. QIEZKA's `MainActivity` does NOT appear, no missing layout exception occurs (`android.view.InflateException`), and transitions remain fluid.
+      2. **Keyboard Safety & IME Typing (`LockAccessibilityService` InputMethod Import Cleanups)**:
+         - *Action*: During active lockdown, open any permitted study app (Google Keep, Notion, Calculator) -> tap a text note or search field to summon the keyboard.
+         - *Expected Result*: Gboard / Samsung Keyboard / SwiftKey appears immediately and typing functions normally. Accessibility service continues delegating cleanly to `KnownSafe.isKeyboardPackage()`.
+      3. **Web Browsing & Domain Sinkhole**:
+         - *Action*: During active lockdown, launch Google Chrome or Samsung Internet -> navigate to `https://en.wikipedia.org` -> then navigate to `https://www.tiktok.com`.
+         - *Expected Result*: Chrome opens without package-level blocks. Educational Wikipedia continues browsing uninterrupted. Distracting TikTok is intercepted and redirected immediately.
+      4. **Onboarding & BYOK Gemini API Key Setup**:
+         - *Action*: Open QIEZKA -> open Onboarding / Settings -> tap the "Gemini API Key (Google AI Studio)" button.
+         - *Expected Result*: Browser opens `https://aistudio.google.com/app/apikey` correctly. Pasting a valid key saves locally and enables homework evaluation.
+      5. **Frontend Build & Linter Verification**:
+         - *Action*: Run `npm run lint` and `npm run build`.
+         - *Expected Result*: TypeScript compiler reports 0 errors (`tsc --noEmit`); Vite builds `dist/` cleanly in 23s without configuration warnings.
+      6. **Native Android Unit Testing Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest`.
+         - *Expected Result*: All 31 unit tests pass (`BUILD SUCCESSFUL in 31s`, 0 failures, 71 tasks).
+      7. **User Rule 3 Compliance Check**:
+         - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Clean build artifacts verified; APK compilation left entirely to the user via `build.bat`.
+
+- **Stage 1 Master Veto & Stage 2 Browser Gate Realignment (Patch 26.3 Architecture Update)**:
+  - **Why It Was Mandated (Root Cause Analysis & Functional Requirements)**:
+    - *Architectural Inversion Bug*: Under QIEZKA's official 3-Stage system flowchart (`README.md:2102-2115`), Stage 1 is the Master Veto Gate (Supreme Negative Filter), while Web Browsers belong strictly to Stage 2 — Branch 1 (`WebClassifier`).
+    - *Code Reality Discrepancy*: In `AppClassifier.java:536`, `isBrowserPackage(pkg)` was physically placed *before* the Stage 1 Master Veto checks (`isSettingsOrDeviceManager`, `isStage1Bloat`). Because Stage 2 was executing before Stage 1, hostile evasion browsers (e.g. Tor Browser, Puffin cloud-renderer, UC proxy) were evaluated before Master Veto could inspect them, forcing `isBrowserPackage` to awkwardly maintain an internal `KnownDistracting` check.
+    - *Fragmented Master Veto in Accessibility Service*: In `LockAccessibilityService.java:1428-1431`, Master Veto called `isSettingsOrDeviceManager` and `isStage1Bloat` separately, bypassing the centralized `AppClassifier.isStage1Vetoed()` which also guards against hostile evasion proxies.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Realigned Stage 1 Before Stage 2 (`AppClassifier.java`)**: Reordered `isPackageBlocked()` so that `AppClassifier.isStage1Vetoed(pkg, appLabel)` executes as the primary Stage 1 gate immediately following self-immunity. If vetoed (Settings, OEM Device Care, Bloatware, or Hostile Evasion Proxies like Tor/Puffin), it is blocked immediately (`return true`).
+    - **Positioned Web Browsers in Stage 2 — Branch 1 (`AppClassifier.java`)**: Placed `isBrowserPackage(pkg)` strictly in Stage 2. Once an app passes Stage 1 Master Veto, if it is a web browser, it is allowed at the package level (`return false`) so that `WebClassifier` and `LocalDnsVpnService` can inspect its visited URLs and DOM in real time.
+    - **Unified Master Veto in `LockAccessibilityService.java`**: Replaced fragmented checks with `AppClassifier.isStage1Vetoed(pkg, appLabel)` as the primary gate, followed immediately by `if (isBrowserPackage(pkg)) return false;`.
+    - **Streamlined `isBrowserPackage`**: Replaced internal ad-hoc checks with `if (isStage1Vetoed(pkg, null)) return false;` followed by $O(1)$ HashSet lookup against `KNOWN_BROWSER_PACKAGES` and safe fallbacks for user-installed Play Store browsers.
+    - **Comprehensive Unit Test Suite (`HomeHandlerTest.kt`)**: Added `testStage1MasterVetoBeforeStage2BrowserGate()` systematically verifying that hostile proxy browsers (Tor, Puffin, UC) are strictly vetoed in Stage 1 and blocked, while standard and generic third-party browsers pass Stage 1 and are allowed at the package level for Stage 2 URL policing.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.java`: Authoritative 3-stage security gate and package evaluator.
+      - `LockAccessibilityService.java`: Evaluates foreground package blocks and delegates URL events to `WebClassifier`.
+      - `WebClassifier.java`: Real-time URL and DOM node parser for in-browser auto-back.
+      - `HomeHandlerTest.kt`: Unit test suite ensuring truth table and gate ordering integrity.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Hostile Evasion Browser Eviction (Stage 1 Master Veto Gate)**:
+         - *Action*: Install Tor Browser (`org.torproject.torbrowser`) or Puffin (`com.cloudmosa.puffin`) -> start active lockdown in QIEZKA -> attempt to launch Tor/Puffin.
+         - *Expected Result*: The hostile browser is immediately intercepted and evicted by Stage 1 Master Veto. It is NEVER granted package-level browser exemption.
+      2. **Standard Web Browser Exemption & URL Policing (Stage 2 Branch 1)**:
+         - *Action*: During active lockdown, launch Google Chrome or Samsung Internet -> navigate to `https://en.wikipedia.org` -> then navigate to `https://www.tiktok.com`.
+         - *Expected Result*: Chrome opens without being blocked at the package level. Academic Wikipedia continues browsing uninterrupted. Distracting TikTok is immediately intercepted and auto-backed by `WebClassifier`.
+      3. **Generic Non-Vetoed Play Store Browser Handling**:
+         - *Action*: Install an alternative standard browser from Play Store (Brave, Vivaldi, DuckDuckGo) -> open during active lockdown -> test study vs. distracting websites.
+         - *Expected Result*: The browser passes Stage 1 Master Veto, is recognized as a browser in Stage 2, and distracting URLs are policed by `WebClassifier` and `LocalDnsVpnService`.
+      4. **Anti-Tamper & Settings Veto Invariant**:
+         - *Action*: During active lockdown, attempt to open Android Settings (`com.android.settings`) or a game booster (Joyose).
+         - *Expected Result*: Settings and game boosters are immediately blocked and dismissed by Stage 1 Master Veto.
+      5. **Automated Unit Testing & Linter Verification**:
+         - *Action*: Run `.\gradlew.bat testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 32 unit tests pass (`BUILD SUCCESSFUL in 57s`, 0 failures); TypeScript compiler outputs 0 errors.
+      6. **User Rule 3 Compliance Check**:
+         - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
+
+- **Stage 1 Multilingual Proxy & Evasion Veto and Stage 2 Native Android OS Browser Resolution (Patch 26.3 Hardening Update)**:
+  - **Why It Was Mandated (Root Cause Analysis & Security Hardening)**:
+    - *Disguised Circumvention Tools & Multilingual Proxy Evasion*: Hostile proxy browsers, cloud renderers, and circumvention tools (Tor Browser, Psiphon, Turbo VPN browser, unblockers) often target non-English regions by disguising their Latin package IDs (e.g. `com.free.network.tool`) while advertising localized evasive app titles in Russian (*"Прокси Браузер"*, *"Супер ВПН"*), Chinese (*"翻墙极速版"*, *"科学上网"*), Japanese (*"プロキシ ブラウザ"*), Arabic (*"متصفح بروكسي"*), or Spanish/Portuguese (*"Navegador Proxy"*, *"Desbloquear Sitios"*). Without explicit multilingual evasion detection in Stage 1 Master Veto, these circumvention tools could slip through to Stage 2 and masquerade as legitimate web browsers.
+    - *Brittle Multilingual Dictionaries vs. Universal Native Android Browser Resolution*: Attempting to maintain localized dictionary lists of "browser" in dozens of languages (`浏览器`, `браузер`, `ブラウザ`, `navegador`, etc.) for Stage 2 is brittle and incomplete. Many major non-Western browsers (e.g. China's QQ Browser `com.tencent.mtt`, Korea's Naver Whale `com.nhn.android.whale`, or Via Browser `mark.via.gp`) do not contain the English word `"browser"` in their Latin package names.
+    - *Android OS Native Standard*: Android already defines a universal, 100% language-independent standard for web browsers: registering an Activity for `Intent.ACTION_VIEW` + `Intent.CATEGORY_BROWSABLE` with scheme `https`. Every genuine browser worldwide declares this exact filter.
+    - *Performance & Zero IPC Latency*: Querying `PackageManager.queryIntentActivities` directly during high-frequency accessibility window change events would introduce Binder IPC latency. Pre-warming and caching dynamically resolved packages in an in-memory thread-safe set guarantees instant $O(1)$ lookups during active lockdown.
+    - *Academic & Enterprise VPN Preservation*: Blanket substring blocking on `"vpn"` risked capturing legitimate open-source academic/enterprise VPN tools (WireGuard, Tailscale, Cisco AnyConnect, Palo Alto GlobalProtect, OpenVPN). Explicit exemption guards ensure university/research intranet access is preserved.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Stage 1 Evasion Package Substring Signatures (`KnownDistracting.kt`)**: Added explicit evasion package signatures (`.proxy`, `proxy.`, `.vpn.`, `.vpn_`, `vpn.`, `.vpn`, `unblock`, `.tunnel`, `.bypass`, `shadowsocks`, `v2ray`, `.clash.`, `psiphon`, `torproject`, `cloudmosa`, `.aloha.`) while protecting legitimate audio players (`music`, `audio`, `podcast`).
+    - **Stage 1 Multilingual Evasion & Proxy Label Signatures (`KnownDistracting.kt`)**: Added localized evasion keyword inspection for Russian (`прокси`, `впн`, `анонимайзер`), Chinese (`代理`, `翻墙`, `梯子`, `科学上网`, `加速器`), Japanese (`プロキシ`), Spanish/Portuguese (`navegador proxy`, `desbloquear`), Arabic (`بروكسي`, `في بي ان`), and English (`proxy`, `vpn`, `unblock`, `tunnel`, `tor browser`, `onion browser`).
+    - **Academic & Enterprise VPN Exemption Guards (`KnownDistracting.kt`)**: Added explicit exemptions in both package and label checks for `wireguard`, `tailscale`, `cisco`, `globalprotect`, and `openvpn`, ensuring legitimate academic/work tunnels remain unblocked.
+    - **Dynamic In-Memory Browser Cache (`AppClassifier.java`)**: Added `dynamicBrowserPackages` thread-safe `Set` (`Collections.newSetFromMap(new ConcurrentHashMap<>())`) and `refreshBrowserCache(Context)` pre-warming method to query `pm.queryIntentActivities(Intent(ACTION_VIEW, "https://example.com").addCategory(CATEGORY_BROWSABLE), 0)`.
+    - **Universal Native Android Browser Resolution (`AppClassifier.java`)**: Refactored `isBrowserPackage(Context, String, String)` into a 6-step pipeline: (1) Stage 1 Master Veto guard, (2) explicit proxy/VPN rejection, (3) fast $O(1)$ static and dynamic cache lookup, (4) 1DM downloaders, (5) standard Latin substrings, and (6) dynamic native intent resolution with instant caching.
+    - **Service Pre-Warming & Harmonization (`LockAccessibilityService.java`)**: Pre-warmed `AppClassifier.refreshBrowserCache(this)` inside `onCreate()` and `onServiceConnected()`, and forwarded `(this, pkg, appLabel)` from `isPackageBlocked()` to `AppClassifier.isBrowserPackage()`.
+    - **Comprehensive Automated Test Coverage (`HomeHandlerTest.kt`)**: Added `testStage1MultilingualProxyEvasionVeto()` and `testStage2UniversalBrowserResolutionAndDynamicCache()` asserting foreign evasion tools in RU/ZH/JA/AR/ES are vetoed in Stage 1 and blocked, while foreign browsers (QQ Browser, Naver Whale, Via) resolve dynamically and pass Stage 2.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`KnownDistracting.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistracting.kt)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.isStage1Vetoed()`: Supreme Master Veto Gate blocking hostile evasion and tamper apps across the OS.
+      - `AppClassifier.isPackageBlocked()`: Evaluates packages across pure Stage 1 -> Stage 2 -> Stage 3 hierarchy.
+      - `LockAccessibilityService.isPackageBlocked()`: Evaluates active window packages and grants package-level permission to browsers for `WebClassifier` URL inspection.
+      - `WebClassifier.java`: Real-time URL and DOM node parser for in-browser auto-back.
+      - `HomeHandlerTest.kt`: Unit test suite ensuring truth table and gate ordering integrity.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Foreign Proxy / Evasion App Eviction (Stage 1 Master Veto Gate)**:
+         - *Action*: Install an evasion proxy app (e.g. Tor Browser `org.torproject.torbrowser`, Turbo VPN `free.vpn.unblock.proxy.turbovpn`, or a proxy browser with title *"Прокси"* or *"翻墙"*) -> start active lockdown in QIEZKA -> attempt to launch the proxy app.
+         - *Expected Result*: The app is instantly evicted and force-closed with an anti-tamper notice. The package is NEVER classified as an allowed browser.
+      2. **Foreign-Language Standard Web Browser Resolution (Stage 2 Native OS Intent Gate)**:
+         - *Action*: Install a non-English standard browser lacking Latin "browser" in its package ID (e.g. QQ Browser `com.tencent.mtt`, Naver Whale `com.nhn.android.whale`, or Via Browser `mark.via.gp`) -> start active lockdown in QIEZKA -> launch the browser -> navigate to `https://en.wikipedia.org` -> then navigate to `https://www.tiktok.com`.
+         - *Expected Result*: The browser remains open at the package level (no force-close). Educational Wikipedia loads without interruption. Distracting TikTok is immediately intercepted by `WebClassifier` with In-Browser Auto-Back.
+      3. **Standard Western Browser Baseline (Regression Guard)**:
+         - *Action*: Open Chrome or Firefox during an active lockdown session.
+         - *Expected Result*: The browser is allowed at the package level; study URLs load normally, blacklisted websites trigger Auto-Back.
+      4. **Academic / Enterprise VPN Intranet Research Protection**:
+         - *Action*: During active lockdown, launch WireGuard, Tailscale, Cisco AnyConnect, or OpenVPN.
+         - *Expected Result*: Enterprise/academic VPN tools remain clean and accessible for university intranet connections; only commercial bypass VPNs are vetoed.
+      5. **Automated Unit Testing & Linter Verification**:
+         - *Action*: Run `.\gradlew.bat testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 34 unit tests pass (`BUILD SUCCESSFUL in 28s`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      6. **User Rule 3 Compliance Check**:
+         - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
+
+- **Sub-Second Timer Stutter Elimination & Dual-Timer Synchronization (Patch 26.3 Polish Update)**:
+  - **Why It Was Mandated (Root Cause Analysis & Forensic Breakdown)**:
+    - *The 1-Second Delay-Skip Stutter Bug*: In previous implementations, both the native assistive floating bubble (`FloatingOverlayService.java`) and the in-app lock screen (`LockScreen.tsx`) calculated delays attempting whole-second rollover alignment via:
+      ```ts
+      let delay = 1000 - (now % 1000);
+      if (delay < 50) delay += 1000;
+      ```
+      Whenever the Android Looper or JavaScript event loop woke up slightly late (e.g. at 960ms into a second), the remaining delay to the rollover was 40ms. Because 40 < 50, the algorithm executed `delay += 1000`, scheduling the next tick for 1,040ms later! This completely skipped the upcoming second change, causing the timer to freeze on the same second for nearly two seconds before abruptly jumping two numbers ahead to catch up.
+    - *Independent Event Loop Desynchronization*: Because native Android (`FloatingOverlayService`) and the React WebView (`LockScreen.tsx`) run on independent event loops, one would hit the `< 50ms` delay-skip condition on one second while the other hit it on a different second. When viewed together on the screen simultaneously, one timer would pause for a second, fall behind, and then snap forward to match the other, producing jarring visual lag.
+    - *Background WebView Sleep Lag*: While the user was in another app viewing the floating bubble, Android throttled WebView JavaScript execution to conserve battery. Returning to QIEZKA lacked an immediate foreground wake-up listener, causing the lock screen countdown to pause briefly before catching up to the bubble.
+  - **Concrete Architectural Fixes Implemented**:
+    - **High-Precision 250ms Cadence (`FloatingOverlayService.java`)**: Removed the delay-skip math entirely. The native floating ball now polls on a steady 250ms cadence (`tickerHandler.postDelayed(this, 250L)`). Because `updateTimerDisplay()` verifies `!formattedTime.contentEquals(current)` before touching `tvTimer.setText()`, the underlying Android `TextView` is only updated when the formatted whole second string changes, resulting in 0 extra view layout passes.
+    - **Synchronized 250ms Cadence (`LockScreen.tsx`)**: Replaced the rollover calculation with `timer = setTimeout(tick, 250)`. Because `setTimeLeft(prev => prev !== remaining ? remaining : prev)` guards React state reconciliation, the component only re-renders when the whole second integer decrements.
+    - **Instant Foreground Resumption Listener (`LockScreen.tsx`)**: Added a document `visibilitychange` listener. The exact millisecond QIEZKA returns to the foreground (`visibilityState === 'visible'`), `tick()` executes instantly in 0ms without waiting for delayed timeouts, eliminating all catch-up lag.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`FloatingOverlayService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.java)
+      - [`src/components/LockScreen.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/LockScreen.tsx)
+    - *Known Dependents & Callers*:
+      - `FloatingOverlayService.java`: Assistive floating timer ball rendered over all apps during lockdown.
+      - `LockScreen.tsx`: Primary in-app lockdown dashboard and countdown view.
+      - `LockAccessibilityService.java`: Starts and stops `FloatingOverlayService` across session boundaries.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Live In-App Dual Timer Stutter & Freeze Elimination**:
+         - *Action*: Start an active lockdown session in QIEZKA -> on the lock screen with the floating bubble visible, stare directly at both timers simultaneously for 60 consecutive seconds.
+         - *Expected Result*: Neither timer pauses or freezes; every second decrements with smooth continuous rhythm; both digits roll over in perfect unison without visible phase drift.
+      2. **Background-to-Foreground Instant Catch-Up**:
+         - *Action*: During active lockdown, press Home -> wait 15–30 seconds watching the floating bubble count down -> tap the floating bubble to bring QIEZKA to the foreground.
+         - *Expected Result*: The lock screen timer is already showing the exact same second as the bubble the instant the screen appears (0ms catch-up lag).
+      3. **Session Completion & Timeout Handover**:
+         - *Action*: Let a test session run down to 0:03 -> observe transition at 0:00.
+         - *Expected Result*: When the countdown reaches 0:00, `onTimeout()` fires immediately, transitioning cleanly into Consequence Mode.
+      4. **Automated Unit Testing & Linter Verification**:
+         - *Action*: Run `.\gradlew.bat testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All 34 unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      5. **User Rule 3 Compliance Check**:
+         - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
+
+- **Software Repositories Whitelist, Multilingual Search Immunity & Super-App Sub-Function Remediation (Patch 26.4 Update)**:
+  - **Why It Was Mandated (Root Cause Analysis & Forensic Breakdown)**:
+    - *Verified Software Repositories Blocked as "Unknown Websites"*:
+      - Users needed the ability to download, install, and update study tools, educational APKs, and open-source applications (such as AnkiDroid, Obsidian, Termux, or LibreOffice viewers) from trusted repositories like `uptodown.com`, `apkmirror.com`, `f-droid.org`, `apkpure.com`, and `apkcombo.com` during lockdown.
+      - Although QIEZKA already explicitly allows Android package installers (`com.google.android.packageinstaller`, etc.), web downloads from these trusted repositories were previously caught by `WebClassifier`'s Layer 5 zero-trust fallback and triggered In-Browser Auto-Back (`WEB_FALLBACK`), preventing students from acquiring study materials.
+      - Because downstream `AppClassifier` already intercepts and blocks any distracting or blacklisted game upon installation/launch, downloading APKs from verified repositories is safe.
+    - *Baidu Mobile Web Search SERP Kicked to QIEZKA*:
+      - Mobile users conducting web research on `baidu.com` were unexpectedly redirected to QIEZKA after brief browsing.
+      - Forensic investigation revealed that `isSearchEngineHost()` only checked `baidu.com` and `www.baidu.com`, omitting mobile subdomains (`m.baidu.com`). In mobile Chrome, queries navigate to `m.baidu.com/s?...`. Because `m.baidu.com` failed the search engine gate, `WebClassifier.isDestinationUrl()` classified it as an unclassified destination URL, causing Layer 5 fallback to trigger an eviction back to QIEZKA.
+    - *Portal Super-Apps Running Reels/Short Videos Unrestricted*:
+      - Super-apps like Baidu (`com.baidu.searchbox`), Phoenix Browser, and UC Browser bundle a full web browser with aggressive viral entertainment features: algorithmic short-video reels (`VideoTabActivity` / `.video.feedflow.`), web novels (`NovelHomeActivity`), and live streams.
+      - Because `com.baidu.searchbox` registers an activity (`.BoxBrowserActivity`) with `ACTION_VIEW` + `CATEGORY_BROWSABLE` + `https`, QIEZKA's dynamic intent resolution classified the entire package as an allowed browser tool.
+      - When a student opened Baidu's short-video tab ("视频"), the app presented no Chromium address bar (`url == null`). `inspectBrowserWindow()` assumed it was simply an in-page web scroll within an allowed browser, allowing students to doomscroll reels indefinitely during active study sessions.
+      - Blacklisting the entire package was unacceptable because non-Western students (especially in China where Google/Chrome services are unavailable) rely on Baidu as their primary search engine and web browser.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Verified Software Repository Exemption (`KnownSafeWeb.kt`)**: Added `SOFTWARE_REPOSITORY_DOMAINS` (`uptodown.com`, `apkmirror.com`, `f-droid.org`, `apkpure.com`, `apkcombo.com`) to `isKnownSafeWeb` and `isAcademicExempt`. Students can freely browse repository catalogs and download APKs during lockdown.
+    - **Multilingual Search Engine Immunity (`KnownSafeWeb.kt`, `WebClassifier.java`, `LockAccessibilityService.java`)**: Added `SEARCH_ENGINE_DOMAINS` with full wildcard coverage for Baidu (`baidu.com`, `m.baidu.com`, `www.baidu.com`) and Startpage. In `WebClassifier.isDestinationUrl()`, all search query subpaths (`/s`, `/from=`, etc.) return `false`, ensuring search results pages are never treated as unclassified destination websites.
+    - **Surgical Sub-Activity Remediation Engine (`AppClassifier.java`)**:
+      - Added `KNOWN_PORTAL_SUPERAPPS` (`com.baidu.searchbox`, `com.transsion.phoenix`, `com.UCMobile`, `com.opera.mini.native`) and `isPortalSuperApp()`.
+      - Added `isDistractingSubActivity()` matching distracting component signatures: short-form video reels (`.video.feedflow.`, `VideoTabActivity`, `ShortVideoActivity`, `ReelsActivity`) and web novels (`NovelHomeActivity`, `NovelReaderActivity`).
+    - **Auto-Back Sub-Function Interceptor (`LockAccessibilityService.java`)**:
+      - Implemented `remediateDistractingSubActivity(pkg, activityCls)` with 600ms debounce: when a user in a portal super-app navigates to a distracting sub-activity, QIEZKA immediately dispatches `performGlobalAction(GLOBAL_ACTION_BACK)` with an educational toast (*"⚠️ Short-form reels and novels are blocked during study sessions"*).
+      - Live ADB device testing confirmed that `GLOBAL_ACTION_BACK` cleanly exits `VideoTabActivity` and snaps the user right back to the search bar (`MainActivity`), preserving uninterrupted search and web browsing utility.
+      - Includes a 3-strike escalation counter: if a user persistently attempts to force past the Auto-Back boundary 3 times within 10 seconds, `enforceBlock()` takes over, returning the user to QIEZKA Lock.
+    - **Continuous Triple-Hook Enforcement (`LockAccessibilityService.java`)**:
+      - Bound sub-activity audits to `TYPE_WINDOWS_CHANGED`, `TYPE_WINDOW_STATE_CHANGED`, and the 1-second background safety ticker (`onTickerTick()`) to catch attempts to switch to reels via bottom navigation tabs, drawer menus, or Android Recents.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`KnownSafeWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafeWeb.kt)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.isAllowed()`: Evaluates package and activity classification across foreground events.
+      - `WebClassifier.classify()` & `isDestinationUrl()`: Evaluates browser URLs in address bars and local DNS lookups.
+      - `LockAccessibilityService.onAccessibilityEvent()` & `onTickerTick()`: Dispatches Auto-Back or full lockdown redirect.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Verified Software Repository Download & Browsing (Uptodown, APKMirror, F-Droid)**:
+         - *Action*: During active lockdown, open Chrome or any browser -> navigate to `https://en.uptodown.com/android` or `https://www.apkmirror.com` -> search for an educational tool (e.g. AnkiDroid) -> initiate APK download.
+         - *Expected Result*: The website loads smoothly; downloading APKs completes without triggering Auto-Back or redirecting to QIEZKA.
+         - *Secondary Verification*: Attempt to install a downloaded distracting game APK -> package installer launches (allowed per Patch 10) -> upon launch, `AppClassifier` immediately intercepts the game and locks the screen.
+      2. **Multilingual Search Engine Immunity (Baidu Mobile Web)**:
+         - *Action*: During active lockdown, open Chrome -> navigate to `https://m.baidu.com` -> enter search query `量子力学` (Quantum Mechanics) -> tap search.
+         - *Expected Result*: Search results page (`m.baidu.com/s?...`) loads completely; scrolling through search results never triggers Layer 5 fallback or kicks the user back to QIEZKA.
+      3. **Super-App Search & Browsing Allowance (Baidu App)**:
+         - *Action*: During active lockdown, open Baidu app (`com.baidu.searchbox`) -> use the search bar to search for academic topics -> view search results.
+         - *Expected Result*: The Baidu app remains open; search queries and educational articles function without interruption.
+      4. **Surgical Sub-Activity Remediation (Baidu App Video Reels & Novels Interception)**:
+         - *Action*: In Baidu app, tap the bottom "视频" (Video) tab or navigate into short-video feeds.
+         - *Expected Result*: QIEZKA immediately intercepts `VideoTabActivity`, shows toast alert *"⚠️ Short-form reels and novels are blocked during study sessions"*, and dispatches Auto-Back, returning the user instantly to the search bar. The app is NOT killed, and legitimate search utility is preserved.
+         - *Escalation Test*: Rapidly tap "视频" 3 times in under 10 seconds -> QIEZKA escalates to `enforceBlock()` and brings QIEZKA Lock to the foreground.
+      5. **Automated Unit Testing & Linter Verification**:
+         - *Action*: Run `.\gradlew.bat testDebugUnitTest` and `npm run lint`.
+         - *Expected Result*: All unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      6. **User Rule 3 Compliance Check**:
+         - *Action*: Verify that no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Build artifacts verified; APK compilation left entirely to the user via `build.bat`.
 
 ---
 

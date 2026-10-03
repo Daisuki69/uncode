@@ -1,6 +1,6 @@
 package com.uncode.app
 
-import android.app.Notification
+import androidx.core.app.NotificationCompat
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -130,7 +130,7 @@ class BootReceiver : BroadcastReceiver() {
                     AlarmReceiver.CHANNEL_ID_ALERTS,
                     "⚠️ Scheduled Lockdown Missed",
                     "A scheduled study session was missed while device was powered off. Distracting apps are restricted in Consequence Mode.",
-                    Notification.PRIORITY_HIGH,
+                    NotificationCompat.PRIORITY_HIGH,
                     false
                 )
                 Log.i(TAG, "Missed scheduled session while powered off -> consequence mode activated")

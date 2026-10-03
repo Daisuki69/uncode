@@ -7,18 +7,14 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.provider.MediaStore;
-import android.provider.Settings;
 import android.provider.Browser;
 import android.net.Uri;
+import android.app.Notification;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
-import android.view.inputmethod.InputMethodManager;
-import android.view.inputmethod.InputMethodInfo;
 
-import android.app.Notification;
 import android.widget.Toast;
 import android.os.Build;
 import android.os.Bundle;
@@ -48,272 +44,18 @@ public class LockAccessibilityService extends AccessibilityService {
 
 
 
-    /**
-     * Common OEM cameras, galleries, and system file/photo pickers.
-     * These must be exempt so users can take photos or upload images to submit homework.
-     */
-    public static final Set<String> MEDIA_AND_FILE_EXEMPT = new HashSet<String>() {{
-        addAll(KnownSafe.KNOWN_CAMERA_PACKAGES);
-        addAll(Arrays.asList(
-            // Gallery & Photos
-        "com.google.android.apps.photos",
-        "com.google.android.apps.photosgo",
-        "com.sec.android.gallery3d",
-        "com.android.gallery3d",
-        "com.android.gallery",
-        "com.miui.gallery",
-        "com.coloros.gallery3d",
-        "com.oneplus.gallery",
-        "com.huawei.photos",
-        "com.vivo.gallery",
-
-        // Document pickers, Media providers & File managers
-        "com.android.documentsui",
-        "com.google.android.documentsui",
-        "com.google.android.providers.media.module",
-        "com.android.providers.media",
-        "com.sec.android.app.myfiles",
-        "com.google.android.apps.nbu.files",
-        "com.mi.android.globalFileexplorer",
-        "com.coloros.filemanager",
-        "com.oneplus.filemanager",
-        "com.huawei.filemanager",
-        "com.vivo.FileManager",
-        "com.motorola.filemanager",
-        "com.asus.filemanager"
-    ));
-}};
-
-    /**
-     * Known Music & Audio player packages that are hardcoded to be allowed during lock.
-     */
-    private static final Set<String> KNOWN_MUSIC_APPS = new HashSet<>(Arrays.asList(
-        "com.spotify.music",
-        "com.google.android.apps.youtube.music",
-        "com.apple.android.music",
-        "com.amazon.mp3",
-        "com.aspiro.tidal",
-        "deezer.android.app",
-        "com.soundcloud.android",
-        "com.sec.android.app.music",
-        "com.miui.player",
-        "com.android.music",
-        "com.oppo.music",
-        "com.vivo.musicplayer"
-    ));
-
-    /**
-     * Common OEM and popular third-party keyboard packages (Input Method Editors).
-     * These are permanently hardcoded as exempt to prevent the device from bricking during typing.
-     */
-    private static final Set<String> KNOWN_KEYBOARDS = new HashSet<>(Arrays.asList(
-        "com.google.android.inputmethod.latin", // Gboard
-        "com.samsung.android.honeyboard",       // Samsung Keyboard
-        "com.touchtype.swiftkey",              // Microsoft SwiftKey
-        "com.touchtype.swiftkey.beta",
-        "com.android.inputmethod.latin",        // AOSP Keyboard
-        "com.miui.voiceassist",
-        "com.sohu.inputmethod.sogou.xiaomi",
-        "com.huawei.ohos.inputmethod",
-        "com.oppo.keyboard",
-        "com.coloros.keyboard",
-        "com.vivo.keyboard",
-        "com.syntellia.fleksy.keyboard",
-        "org.pocketworkstation.pckeyboard",
-        "org.dslul.openboard.inputmethod.latin",
-        "com.menny.android.anysoftkeyboard",
-        "com.grammarly.android.keyboard",
-        "com.baidu.input",
-        "com.sohu.inputmethod.sogou",
-        "com.google.android.tts"                // Google Speech Services / Voice Typing IME
-    ));
-
-    /**
-     * Known 2FA Authenticator application package IDs.
-     * Always exempt natively so students can sign into school portals and 2FA accounts.
-     */
-    private static final Set<String> KNOWN_AUTHENTICATORS = new HashSet<>(Arrays.asList(
-        "com.google.android.apps.authenticator2",
-        "com.azure.authenticator",
-        "com.duosecurity.duomobile",
-        "com.authy.authy",
-        "com.twofasapp",
-        "com.beemdevelopment.aegis",
-        "com.bitwarden.authenticator",
-        "com.lastpass.authenticator",
-        "org.fedorahosted.freeotp",
-        "com.yubico.yubioath"
-    ));
-
-    /**
-     * Known Notes & Productivity applications permanently allowed to prevent procrastination
-     * while enabling students to take notes, study, and complete homework.
-     */
-    private static final Set<String> KNOWN_NOTES_APPS = new HashSet<>(Arrays.asList(
-        "com.google.android.keep",
-        "com.samsung.android.app.notes",
-        "com.microsoft.office.onenote",
-        "notion.id",
-        "md.obsidian",
-        "com.evernote",
-        "com.socialnmobile.dictapps.notepad.color.note",
-        "com.zoho.notebook",
-        "com.automattic.simplenote",
-        "com.steadfastinnovation.android.furret",
-        "com.nebula.notes",
-        "com.colornote.notepad",
-        "com.acadoid.lecturenotes"
-    ));
-
-    /**
-     * Known Student, Coursework & Educational applications permanently allowed.
-     */
-    private static final Set<String> KNOWN_STUDENT_APPS = new HashSet<>(Arrays.asList(
-        "com.google.android.apps.classroom",
-        "com.google.android.apps.docs",
-        "com.google.android.apps.docs.editors.docs",
-        "com.google.android.apps.docs.editors.sheets",
-        "com.google.android.apps.docs.editors.slides",
-        "com.instructure.candroid",
-        "com.blackboard.android.bbmatx",
-        "com.schoology.app",
-        "com.quizlet.quizletandroid",
-        "com.ichi2.anki",
-        "com.microblink.photomath",
-        "com.desmos.calculator",
-        "org.geogebra.android",
-        "com.wolfram.android.alpha",
-        "com.microsoft.office.officehubrow",
-        "com.microsoft.office.word",
-        "com.microsoft.office.excel",
-        "com.microsoft.office.powerpoint",
-
-        // Document Scanners & PDF Worksheets
-        "com.adobe.reader",
-        "com.adobe.scan.android",
-        "com.intsig.camscanner",
-        "cn.wps.moffice_eng",
-        "com.microsoft.office.officelens",
-        "org.readera",
-        "com.xodo.pdf.reader",
-        "com.foxit.mobile.pdf.lite",
-
-        // Translation & Language Learning
-        "com.google.android.apps.translate",
-        "com.deepl.mobiletranslator",
-        "com.duolingo",
-        "com.merriamwebster",
-        "com.mobisystems.msdict.embedded.wireless.oxford.dictionaryofenglish",
-        "org.cambridge.cclae",
-
-        // STEM Homework Solvers & Learning Hubs
-        "org.khanacademy.android",
-        "com.devsense.symbolab",
-        "com.bagatrix.mathway.android",
-        "com.chegg",
-        "org.brilliant.android",
-        "mendeleev.redlime",
-        "com.cymath.cymath",
-
-        // Cloud Storage & Sync
-        "com.microsoft.skydrive",
-        "com.dropbox.android",
-        "net.box.android",
-
-        // CS & Coding Environments
-        "com.termux",
-        "com.foxdebug.acode",
-        "ru.iiec.pydroid3",
-        "com.github.android"
-    ));
 
 
-    /**
-     * Legitimate App Store and Package Installer services.
-     * Package installers are explicitly allowed during lockdown and consequence modes per user configuration.
-     */
-    public static final Set<String> KNOWN_INSTALLER_AND_STORE_PACKAGES = new HashSet<>(Arrays.asList(
-        "com.android.vending",                     // Google Play Store
-        "com.google.android.feedback",             // Play Store feedback
-        "com.google.android.gms",                  // Google Play Services
-        "com.google.android.packageinstaller",     // Google Package Installer (Allowed)
-        "com.android.packageinstaller",            // AOSP Package Installer (Allowed)
-        "com.sec.android.app.samsungapps"          // Samsung Galaxy Store
-    ));
 
-    public static boolean isInstallerOrStoreApp(String pkg) {
-        if (pkg == null) return false;
-        return KNOWN_INSTALLER_AND_STORE_PACKAGES.contains(pkg) || pkg.toLowerCase(Locale.US).contains("packageinstaller");
-    }
 
-    /**
-     * Dynamically identifies SIM Card Toolkit (STK), MMS, Carrier Notifications (e.g. Globe Telecom, Smart, DITO),
-     * USSD, Flash SMS (Class 0), and Cell Broadcast alerts across various Android OEMs and carriers.
-     */
+
+
     public static boolean isSimOrCarrierService(String pkg, String appLabel) {
-        if (pkg == null) return false;
-
-        String lowerPkg = pkg.toLowerCase(Locale.US);
-
-        // SIM Toolkit (STK) package patterns
-        if (lowerPkg.equals("com.android.stk") || lowerPkg.equals("com.android.stk2") ||
-            lowerPkg.contains(".stk") || lowerPkg.endsWith(".stk") ||
-            lowerPkg.contains("simtoolkit") || lowerPkg.contains("simapp") ||
-            lowerPkg.contains("simsetting") || lowerPkg.contains("simprocessor") ||
-            lowerPkg.contains("simcard") || lowerPkg.contains("simcontacts") ||
-            lowerPkg.contains(".uim")) {
-            return true;
-        }
-
-        // MMS & native messaging services
-        if (lowerPkg.equals("com.android.mms") || lowerPkg.contains(".mms") || lowerPkg.endsWith(".mms") ||
-            lowerPkg.contains("mms.service") || lowerPkg.equals("com.google.android.apps.messaging") ||
-            lowerPkg.equals("com.samsung.android.messaging") || lowerPkg.contains("messaging")) {
-            // Guard: ensure it is not a third-party social messenger (e.g. Facebook Messenger)
-            if (!lowerPkg.contains("facebook") && !lowerPkg.contains("orca") && !lowerPkg.contains("telegram") && !lowerPkg.contains("whatsapp")) {
-                return true;
-            }
-        }
-
-        // Cell Broadcast & Emergency alerts
-        if (lowerPkg.contains("cellbroadcast") || lowerPkg.contains("emergencyalert") || lowerPkg.contains(".cbr")) {
-            return true;
-        }
-
-        // Carrier default apps and configurations (including Globe, Smart, DITO)
-        if (lowerPkg.contains("carrierdefaultapp") || lowerPkg.contains("carrierconfig") ||
-            lowerPkg.contains("telephonyui") || lowerPkg.contains(".ims") || lowerPkg.contains("imsservice")) {
-            return true;
-        }
-
-        // Philippine carriers (Globe, Smart, DITO)
-        if (lowerPkg.startsWith("ph.com.globe") || lowerPkg.startsWith("com.globe") ||
-            lowerPkg.startsWith("ph.com.smart") || lowerPkg.startsWith("com.smart") ||
-            lowerPkg.startsWith("ph.dito") || lowerPkg.startsWith("com.dito") ||
-            (lowerPkg.contains("globe") && (lowerPkg.contains("sim") || lowerPkg.contains("service") || lowerPkg.contains("carrier")))) {
-            return true;
-        }
-
-        // Application Label inspection (catches OEM-customized STK and carrier dialogs)
-        if (appLabel != null && !appLabel.trim().isEmpty()) {
-            String lowerLabel = appLabel.toLowerCase(Locale.US);
-            if (lowerLabel.equals("sim toolkit") || lowerLabel.equals("sim card toolkit") ||
-                lowerLabel.equals("sim menu") || lowerLabel.equals("menu ng sim") ||
-                lowerLabel.equals("stk") || lowerLabel.startsWith("stk ") ||
-                lowerLabel.contains("globe services") || lowerLabel.contains("smart menu") ||
-                lowerLabel.contains("dito menu") || lowerLabel.contains("cell broadcast") ||
-                lowerLabel.contains("emergency alert") || lowerLabel.contains("wireless alerts") ||
-                lowerLabel.contains("wireless emergency alerts") || lowerLabel.equals("mms service") ||
-                lowerLabel.equals("carrier default app") || lowerLabel.contains("carrier services")) {
-                return true;
-            }
-        }
-
-        return false;
+        return AppClassifier.isSimOrCarrierService(pkg, appLabel);
     }
 
     public static boolean isSimOrCarrierService(String pkg) {
-        return isSimOrCarrierService(pkg, null);
+        return AppClassifier.isSimOrCarrierService(pkg);
     }
 
     public static volatile LockAccessibilityService instance = null;
@@ -322,44 +64,12 @@ public class LockAccessibilityService extends AccessibilityService {
         return instance;
     }
 
-    private final Set<String> dynamicExemptPackages = new HashSet<>();
-    private final Set<String> dynamicKeyboardPackages = new HashSet<>();
-    public static final Set<String> dynamicLauncherPackages = new HashSet<>();
+    public static final Set<String> dynamicLauncherPackages = KnownSafe.dynamicLauncherPackages;
+    public static final Set<String> dynamicLauncherLabels = KnownSafe.dynamicLauncherLabels;
     private SharedPreferences prefs;
 
     public static boolean isLauncherApp(Context context, String pkg) {
-        if (pkg == null) return false;
-        if (pkg.equals("com.siren.homeproxy")) return true;
-        if (context != null && pkg.equals(context.getPackageName())) return false;
-        if (AppClassifier.isStage1Vetoed(pkg, null)) return false;
-        if (dynamicLauncherPackages.contains(pkg)) return true;
-        if (context != null) {
-            try {
-                // If explicitly saved in preferences, honor it immediately
-                android.content.ComponentName saved = LauncherStateManager.getSelectedLauncher(context);
-                if (saved != null && pkg.equals(saved.getPackageName())) {
-                    dynamicLauncherPackages.add(pkg);
-                    return true;
-                }
-
-                PackageManager pm = context.getPackageManager();
-                if (pm != null) {
-                    Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-                    homeIntent.addCategory(Intent.CATEGORY_HOME);
-                    homeIntent.setPackage(pkg);
-                    List<ResolveInfo> list = pm.queryIntentActivities(homeIntent, 0);
-                    if (list != null && !list.isEmpty()) {
-                        for (ResolveInfo info : list) {
-                            if (InstalledLauncherDetector.isRealLauncher(info, context.getPackageName())) {
-                                dynamicLauncherPackages.add(pkg);
-                                return true;
-                            }
-                        }
-                    }
-                }
-            } catch (Exception ignore) {}
-        }
-        return false;
+        return KnownSafe.isLauncherApp(context, pkg);
     }
 
     private String lastForegroundPackage = null;
@@ -390,6 +100,7 @@ public class LockAccessibilityService extends AccessibilityService {
         instance = this;
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         refreshDynamicExemptPackages();
+        AppClassifier.refreshBrowserCache(this);
         startTicker();
         Log.i(TAG, "LockAccessibilityService onCreate — ticker started");
     }
@@ -412,6 +123,7 @@ public class LockAccessibilityService extends AccessibilityService {
         super.onServiceConnected();
         instance = this;
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        AppClassifier.refreshBrowserCache(this);
 
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.packageNames = null; // Watch all packages
@@ -458,115 +170,13 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     /**
-     * Dynamically discovers all installed apps that handle camera capture,
-     * photo picking, and image document selection on this specific device.
+     * Dynamically discovers all installed Home Launchers (CATEGORY_HOME)
+     * on this specific device.
      */
     private void refreshDynamicExemptPackages() {
         try {
             PackageManager pm = getPackageManager();
             if (pm == null) return;
-
-            // Camera capture & still camera handlers
-            Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-            List<ResolveInfo> cameraApps = pm.queryIntentActivities(cameraIntent, 0);
-            for (ResolveInfo info : cameraApps) {
-                if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                    dynamicExemptPackages.add(info.activityInfo.packageName);
-                }
-            }
-            try {
-                Intent stillCameraIntent = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
-                List<ResolveInfo> stillApps = pm.queryIntentActivities(stillCameraIntent, 0);
-                for (ResolveInfo info : stillApps) {
-                    if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                        dynamicExemptPackages.add(info.activityInfo.packageName);
-                    }
-                }
-            } catch (Exception ignore) {}
-
-            // Photo picker & Gallery handlers
-            Intent galleryIntent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-            List<ResolveInfo> galleryApps = pm.queryIntentActivities(galleryIntent, 0);
-            for (ResolveInfo info : galleryApps) {
-                if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                    dynamicExemptPackages.add(info.activityInfo.packageName);
-                }
-            }
-
-            // Document / image file picker handlers
-            Intent getContentIntent = new Intent(Intent.ACTION_GET_CONTENT);
-            getContentIntent.setType("image/*");
-            List<ResolveInfo> fileApps = pm.queryIntentActivities(getContentIntent, 0);
-            for (ResolveInfo info : fileApps) {
-                if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                    dynamicExemptPackages.add(info.activityInfo.packageName);
-                }
-            }
-
-            // Web browser handlers (always hardcoded to be allowed during lockdown)
-            try {
-                Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"));
-                browserIntent.addCategory(Intent.CATEGORY_BROWSABLE);
-                List<ResolveInfo> browserApps = pm.queryIntentActivities(browserIntent, 0);
-                for (ResolveInfo info : browserApps) {
-                    if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                        String bPkg = info.activityInfo.packageName;
-                        if (!BlacklistConstants.isBlacklisted(bPkg) && !bPkg.contains("webapk")) {
-                            dynamicExemptPackages.add(bPkg);
-                        }
-                    }
-                }
-            } catch (Exception ignore) {}
-
-            // Music / Audio player category handlers
-            try {
-                Intent musicIntent = new Intent(Intent.ACTION_MAIN);
-                musicIntent.addCategory(Intent.CATEGORY_APP_MUSIC);
-                List<ResolveInfo> musicApps = pm.queryIntentActivities(musicIntent, 0);
-                for (ResolveInfo info : musicApps) {
-                    if (info.activityInfo != null && info.activityInfo.packageName != null) {
-                        String mPkg = info.activityInfo.packageName;
-                        if (!BlacklistConstants.isBlacklisted(mPkg)) {
-                            dynamicExemptPackages.add(mPkg);
-                        }
-                    }
-                }
-            } catch (Exception ignore) {}
-
-            // ── Input Method Editors (Keyboards) handlers ──
-            try {
-                // Query active/default IME from Settings
-                String defaultIme = Settings.Secure.getString(getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
-                if (defaultIme != null && defaultIme.contains("/")) {
-                    String defaultImePkg = defaultIme.split("/")[0];
-                    dynamicKeyboardPackages.add(defaultImePkg);
-                }
-
-                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                if (imm != null) {
-                    List<InputMethodInfo> imis = imm.getInputMethodList();
-                    if (imis != null) {
-                        for (InputMethodInfo imi : imis) {
-                            if (imi != null && imi.getPackageName() != null) {
-                                dynamicKeyboardPackages.add(imi.getPackageName());
-                            }
-                        }
-                    }
-                    List<InputMethodInfo> enabledImis = imm.getEnabledInputMethodList();
-                    if (enabledImis != null) {
-                        for (InputMethodInfo imi : enabledImis) {
-                            if (imi != null && imi.getPackageName() != null) {
-                                dynamicKeyboardPackages.add(imi.getPackageName());
-                            }
-                        }
-                    }
-                }
-            } catch (Exception ignore) {}
-
-            // Add authenticators, notes, and student apps to dynamic exemptions
-            dynamicExemptPackages.addAll(KNOWN_AUTHENTICATORS);
-            dynamicExemptPackages.addAll(KNOWN_NOTES_APPS);
-            dynamicExemptPackages.addAll(KNOWN_STUDENT_APPS);
 
             // Dynamically discover all installed Home Launchers (CATEGORY_HOME)
             try {
@@ -577,120 +187,33 @@ public class LockAccessibilityService extends AccessibilityService {
                     for (ResolveInfo info : homeApps) {
                         if (InstalledLauncherDetector.isRealLauncher(info, getPackageName())) {
                             dynamicLauncherPackages.add(info.activityInfo.packageName);
+                            CharSequence lbl = info.loadLabel(pm);
+                            if (lbl != null) {
+                                dynamicLauncherLabels.add(lbl.toString().trim().toLowerCase(Locale.US));
+                            }
                         }
                     }
                 }
             } catch (Exception ignore) {}
 
-            Log.d(TAG, "Discovered dynamic exempt packages: media=" + dynamicExemptPackages.size() + ", keyboards=" + dynamicKeyboardPackages.size() + ", launchers=" + dynamicLauncherPackages.size());
+            Log.d(TAG, "Discovered dynamic launchers: " + dynamicLauncherPackages.size());
         } catch (Exception e) {
-            Log.w(TAG, "Error resolving dynamic media/keyboard packages: " + e.getMessage());
+            Log.w(TAG, "Error resolving dynamic launchers: " + e.getMessage());
         }
     }
 
-    private boolean isAuthenticatorApp(String pkg) {
-        if (pkg == null) return false;
-        if (KNOWN_AUTHENTICATORS.contains(pkg)) return true;
-        String lower = pkg.toLowerCase();
-        return lower.contains("authenticator") || lower.contains("twofas") || lower.contains("duomobile") || lower.contains("yubioath");
-    }
 
-    private boolean isNotesApp(String pkg) {
-        if (pkg == null) return false;
-        if (KNOWN_NOTES_APPS.contains(pkg)) return true;
-        String lower = pkg.toLowerCase();
-        return lower.contains("keep") || 
-               lower.contains("onenote") || 
-               lower.contains("obsidian") || 
-               lower.contains("notion") || 
-               lower.contains("notepad") || 
-               lower.contains(".notes") || 
-               lower.contains("memo") || 
-               lower.contains("simplenote") || 
-               lower.contains("colornote") ||
-               lower.contains("creation"); // Xiaomi Mi Canvas
-    }
-
-    private boolean isStudentApp(String pkg) {
-        if (pkg == null) return false;
-        if (KNOWN_STUDENT_APPS.contains(pkg)) return true;
-        String lower = pkg.toLowerCase(Locale.US);
-        // Do not exempt disguised vaults, lockers, or cloners that contain 'calculator' in name
-        if (lower.contains("vault") || lower.contains("hide") || lower.contains("secret") || lower.contains("privac") || lower.contains("clone")) {
-            return false;
-        }
-        return lower.contains("classroom") || 
-               lower.contains("canvas") || 
-               lower.contains("blackboard") || 
-               lower.contains("schoology") || 
-               lower.contains("quizlet") || 
-               lower.contains("anki") || 
-               lower.contains("desmos") || 
-               lower.contains("geogebra") || 
-               lower.contains("calculator") || 
-               lower.contains("docs.editors") || 
-               (lower.contains("google") && lower.contains("docs")) || 
-               lower.contains("photomath") || 
-               lower.contains("wolfram") ||
-               lower.contains("adobe.reader") ||
-               lower.contains("camscanner") ||
-               lower.contains("scanner") ||
-               lower.contains("translate") ||
-               lower.contains("deepl") ||
-               lower.contains("duolingo") ||
-               lower.contains("khanacademy") ||
-               lower.contains("symbolab") ||
-               lower.contains("mathway") ||
-               lower.contains("chegg") ||
-               lower.contains("termux") ||
-               lower.contains("pydroid") ||
-               lower.contains("skydrive") ||
-               lower.contains("dropbox") ||
-               lower.contains("readera") ||
-               lower.contains("wps");
-    }
 
     public static boolean isKeyboardPackage(Context context, String pkg) {
-        if (pkg == null) return false;
-        if (KNOWN_KEYBOARDS.contains(pkg)) return true;
-        String lower = pkg.toLowerCase(Locale.ROOT);
-        if (lower.contains("inputmethod") || 
-            lower.contains("honeyboard") || 
-            lower.contains("keyboard") || 
-            lower.contains("gboard") || 
-            lower.contains("swiftkey") || 
-            lower.contains(".ime")) {
-            return true;
-        }
-        if (context != null) {
-            try {
-                String defaultIme = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
-                if (defaultIme != null && defaultIme.startsWith(pkg + "/")) {
-                    return true;
-                }
-            } catch (Exception ignore) {}
-        }
-        return false;
+        return KnownSafe.isKeyboardPackage(context, pkg);
     }
 
     private boolean isKeyboardApp(String pkg) {
         if (pkg == null) return false;
-        if (dynamicKeyboardPackages.contains(pkg) || isKeyboardPackage(this, pkg)) {
-            return true;
-        }
-        return false;
+        return KnownSafe.isKeyboardPackage(this, pkg);
     }
 
-    private boolean isHiddenInfrastructureApp(String pkg) {
-        if (pkg == null) return false;
-        String lower = pkg.toLowerCase();
-        return lower.contains("cameraextension") ||
-               lower.contains("extensionproxy") ||
-               lower.contains("lenslauncher") ||
-               lower.contains("aperturelenslauncher") ||
-               lower.contains("opensourcemusicplayer") ||
-               lower.contains("androidopensourcemusicplayer");
-    }
+
 
     public static boolean isInOperatingHours(Context context, long effectiveNow) {
         if (context != null) {
@@ -727,8 +250,16 @@ public class LockAccessibilityService extends AccessibilityService {
         if (prefs == null) {
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         }
-        String schedulesJson = prefs.getString("schedules_json", null);
+        return hasActiveSchedules(prefs);
+    }
+
+    public static boolean hasActiveSchedules(SharedPreferences preferences) {
+        if (preferences == null) return false;
+        String schedulesJson = preferences.getString("schedules_json", null);
         if (schedulesJson == null || schedulesJson.trim().isEmpty()) return false;
+        if (schedulesJson.contains("\"isActive\":true") || schedulesJson.contains("\"isActive\": true")) {
+            return true;
+        }
         try {
             org.json.JSONArray arr = new org.json.JSONArray(schedulesJson);
             for (int i = 0; i < arr.length(); i++) {
@@ -741,12 +272,82 @@ public class LockAccessibilityService extends AccessibilityService {
         return false;
     }
 
+    private static long sLastSirenCheckTime = 0L;
+    private static boolean sCachedIsSirenDefault = false;
+
+    public static boolean isSirenDefaultLauncher(Context context) {
+        long now = System.currentTimeMillis();
+        if (sLastSirenCheckTime > now + 60000L) {
+            return sCachedIsSirenDefault;
+        }
+        if (context == null) return false;
+        if (now - sLastSirenCheckTime < 1000L) {
+            return sCachedIsSirenDefault;
+        }
+        try {
+            PackageManager pm = context.getPackageManager();
+            if (pm != null) {
+                Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+                homeIntent.addCategory(Intent.CATEGORY_HOME);
+                ResolveInfo defaultHome = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY);
+                if (defaultHome != null && defaultHome.activityInfo != null) {
+                    sCachedIsSirenDefault = LauncherStateManager.SIREN_PACKAGE.equals(defaultHome.activityInfo.packageName);
+                    sLastSirenCheckTime = now;
+                    return sCachedIsSirenDefault;
+                }
+            }
+        } catch (Exception ignore) {}
+        sCachedIsSirenDefault = false;
+        sLastSirenCheckTime = now;
+        return false;
+    }
+
+    public static void setCachedIsSirenDefaultForTesting(Boolean value) {
+        if (value == null) {
+            sLastSirenCheckTime = 0L;
+            sCachedIsSirenDefault = false;
+        } else {
+            sCachedIsSirenDefault = value;
+            sLastSirenCheckTime = System.currentTimeMillis() + 3600000L;
+        }
+    }
+
+    public boolean isHomeChangeInterceptorActive() {
+        if (prefs == null) {
+            prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        }
+        return isHomeChangeInterceptorActive(this, prefs);
+    }
+
+    public static boolean isHomeChangeInterceptorActive(Context context, SharedPreferences preferences) {
+        // Condition 1: SIREN must be detected as the OS default home launcher
+        if (!isSirenDefaultLauncher(context)) {
+            return false;
+        }
+
+        // Condition 2: Active schedule, lockdown, or consequence
+        if (preferences == null) return false;
+
+        boolean isLockdownActive = preferences.getBoolean("lockdown_active", false);
+        boolean isConsequenceActive = preferences.getBoolean("consequence_active", false);
+
+        long timeOffset = preferences.getLong("simulated_time_offset", 0L);
+        long effectiveNow = System.currentTimeMillis() + timeOffset;
+        boolean inOperatingHours = isClockInOperatingHours(effectiveNow);
+        boolean isHardcore = "hardcore".equalsIgnoreCase(preferences.getString("operating_mode", "safemode"));
+        boolean isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours);
+
+        boolean hasSchedules = hasActiveSchedules(preferences);
+
+        return isLockdownActive || isConsequenceEnforcing || hasSchedules;
+    }
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
 
-        // Ultra-Fast Path: Master Veto Default Home Launcher role & switch attempt (0ms latency, pre-emptive)
-        if (isFastHomeRoleEvent(event)) {
+        // Ultra-Fast Path: Master Veto Default Home Launcher role & switch attempt (ONLY if SIREN is default AND session active)
+        if (isHomeChangeInterceptorActive() && isFastHomeRoleEvent(event)) {
             AccessibilityNodeInfo source = event.getSource();
             evictHomeLauncherChange(source);
             if (source != null) {
@@ -902,6 +503,14 @@ public class LockAccessibilityService extends AccessibilityService {
                 }
 
                 if (isBrowserPackage(currentFg)) {
+                    if (AppClassifier.isPortalSuperApp(currentFg)) {
+                        String subCls = lastBrowserEventClass;
+                        if (AppClassifier.isDistractingSubActivity(currentFg, subCls)) {
+                            Log.w(TAG, "Caught distracting sub-activity on window change in portal app " + currentFg + " (" + subCls + ") -> Auto-Back");
+                            remediateDistractingSubActivity(currentFg, subCls);
+                            return;
+                        }
+                    }
                     AccessibilityNodeInfo root = getRootInActiveWindow();
                     if (root != null) {
                         try {
@@ -957,6 +566,16 @@ public class LockAccessibilityService extends AccessibilityService {
             if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
                 return;
+            }
+
+            // Sub-Function Remediation for Portal Super-Apps (Baidu Reels, Phoenix, UC)
+            if (AppClassifier.isPortalSuperApp(pkg)) {
+                String subCls = event.getClassName() != null ? event.getClassName().toString() : lastBrowserEventClass;
+                if (AppClassifier.isDistractingSubActivity(pkg, subCls)) {
+                    Log.w(TAG, "Caught distracting sub-activity in portal app " + pkg + " (" + subCls + ") -> Auto-Back");
+                    remediateDistractingSubActivity(pkg, subCls);
+                    return;
+                }
             }
             boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
                                     eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED);
@@ -1029,36 +648,12 @@ public class LockAccessibilityService extends AccessibilityService {
     private long lastBrowserRemediationTime = 0L;
     private String lastRemediatedUrl = null;
 
-    private static final Set<String> KNOWN_BROWSER_PACKAGES = new HashSet<>(Arrays.asList(
-        "com.android.chrome",
-        "com.chrome.beta",
-        "com.chrome.dev",
-        "com.chrome.canary",
-        "com.sec.android.app.sbrowser",
-        "com.sec.android.app.sbrowser.beta",
-        "org.mozilla.firefox",
-        "org.mozilla.firefox_beta",
-        "org.mozilla.fenix",
-        "com.brave.browser",
-        "com.microsoft.emmx",
-        "com.opera.browser",
-        "com.opera.mini.native",
-        "com.duckduckgo.mobile.android",
-        "com.vivaldi.browser",
-        "mark.via.gp",
-        "idm.internet.download.manager"
-    ));
-
-    // Web distraction, gaming domains, and academic safe-lists are centralized in WebBlocklistConstants.java
-
     public static boolean isBrowserPackage(String pkg) {
-        if (pkg == null) return false;
-        // Master Veto: Proxy browsers, cloud renderers, and onion bypasses are NEVER treated as standard browsers
-        if (KnownDistracting.isKnownDistracting(pkg)) return false;
-        if (KNOWN_BROWSER_PACKAGES.contains(pkg)) return true;
-        if (pkg.startsWith("idm.internet.download.manager")) return true; // Covers 1DM, 1DM+, 1DM Lite
-        String lower = pkg.toLowerCase(Locale.US);
-        return lower.contains("browser") || lower.contains("chrome") || lower.contains("firefox");
+        return AppClassifier.isBrowserPackage(pkg);
+    }
+
+    public boolean isBrowserPackage(String pkg, String appLabel) {
+        return AppClassifier.isBrowserPackage(this, pkg, appLabel);
     }
 
     public boolean isGeminiAllowed() {
@@ -1224,7 +819,7 @@ public class LockAccessibilityService extends AccessibilityService {
                host.equals("duckduckgo.com") || host.equals("www.duckduckgo.com") ||
                host.equals("search.yahoo.com") || host.equals("ecosia.org") || host.equals("www.ecosia.org") ||
                host.equals("qwant.com") || host.equals("www.qwant.com") ||
-               host.equals("baidu.com") || host.equals("www.baidu.com") ||
+               host.equals("baidu.com") || host.equals("www.baidu.com") || host.equals("m.baidu.com") || host.endsWith(".baidu.com") ||
                host.equals("yandex.com") || host.equals("www.yandex.com") ||
                host.equals("startpage.com") || host.equals("www.startpage.com");
     }
@@ -1288,7 +883,7 @@ public class LockAccessibilityService extends AccessibilityService {
             }
             if (lowerUrl.contains("bing.com/search") || lowerUrl.contains("duckduckgo.com") ||
                 lowerUrl.contains("search.yahoo.com") || lowerUrl.contains("ecosia.org/search") ||
-                lowerUrl.contains("qwant.com") || lowerUrl.contains("baidu.com/s") ||
+                lowerUrl.contains("qwant.com") || lowerUrl.contains("baidu.com") || lowerUrl.contains("m.baidu.com") ||
                 lowerUrl.contains("yandex.com/search") || lowerUrl.contains("startpage.com")) {
                 return true;
             }
@@ -1488,6 +1083,44 @@ public class LockAccessibilityService extends AccessibilityService {
         Log.w(TAG, "remediateBlockedBrowserTab: home button unavailable, falling back to reused safe tab intent");
         navigateBrowserToSafeBlank(pkg);
         consecutiveBlockedUrlHits = 0;
+    }
+
+    private long lastSubActivityRemediationTime = 0L;
+    private int consecutiveSubActivityHits = 0;
+    private String lastRemediatedSubActivity = null;
+
+    private void remediateDistractingSubActivity(String pkg, String activityCls) {
+        long now = System.currentTimeMillis();
+        if (now - lastSubActivityRemediationTime < 600L && activityCls != null && activityCls.equals(lastRemediatedSubActivity)) {
+            return; // Debounce rapid accessibility events while back transition is in flight
+        }
+
+        if (activityCls != null && activityCls.equals(lastRemediatedSubActivity) && (now - lastSubActivityRemediationTime < 3500L)) {
+            consecutiveSubActivityHits++;
+        } else {
+            consecutiveSubActivityHits = 1;
+        }
+
+        lastSubActivityRemediationTime = now;
+        lastRemediatedSubActivity = activityCls;
+
+        Log.w(TAG, "remediateDistractingSubActivity on " + pkg + " (" + activityCls + ") hits=" + consecutiveSubActivityHits);
+
+        // Educational Toast notice informing student
+        new Handler(Looper.getMainLooper()).post(() -> {
+            Toast.makeText(getApplicationContext(), "⚠️ Short videos / reels are restricted during focus lockdown.", Toast.LENGTH_SHORT).show();
+        });
+
+        // If repeated persistent attempts (> 3 rapid clicks into reels), bring up lock overlay
+        if (consecutiveSubActivityHits > 3) {
+            Log.w(TAG, "Persistent reels bypass attempt detected in " + pkg + " -> asserting QIEZKA lock");
+            enforceBlock(pkg);
+            return;
+        }
+
+        // Auto-Back: Instantly closes VideoTabActivity / feed flow and returns to search interface
+        boolean backed = performGlobalAction(GLOBAL_ACTION_BACK);
+        Log.i(TAG, "remediateDistractingSubActivity: executed Auto-Back -> " + backed);
     }
 
     private boolean closeCustomTab(AccessibilityNodeInfo passedRoot, String pkg) {
@@ -1853,16 +1486,14 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         } catch (Exception ignore) {}
 
-        // STAGE 1 — MASTER VETO GATE: Anti-Tamper Shield (Android Settings, MIUI Security, OEM Phone Managers)
-        if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel)) return true;
+        // STAGE 1 — MASTER VETO GATE: Strict Anti-Tamper, Bloatware & Evasion Shield
+        if (AppClassifier.isStage1Vetoed(pkg, appLabel)) return true;
 
-        // STAGE 1 — MASTER VETO GATE: Hardware Bloatware & Game Boosters (Joyose, GameCenter, PalmStore, Glance)
-        if (AppClassifier.isStage1Bloat(pkg, appLabel)) return true;
-
-        if (isBrowserPackage(pkg)) return false;
+        // STAGE 2 — Branch 1: Web Browsers (Passed Stage 1, allowed at package level for WebClassifier inspection)
+        if (isBrowserPackage(pkg, appLabel)) return false;
         if (isKeyboardApp(pkg)) return false;
         if (isLauncherApp(this, pkg)) return false;
-        if (KnownSafe.isCameraApp(this, pkg, appLabel) || dynamicExemptPackages.contains(pkg)) return false;
+        if (KnownSafe.isCameraApp(this, pkg, appLabel)) return false;
 
         // Gemini / Robin active inside Google App
         if (pkg.equals("com.google.android.googlequicksearchbox") && isGeminiActive(pkg, lastBrowserEventClass, null)) {
@@ -2084,6 +1715,13 @@ public class LockAccessibilityService extends AccessibilityService {
                             }
                             if (!isSystemOrLauncher(rootPkg)) {
                                 if (isBrowserPackage(rootPkg)) {
+                                    if (AppClassifier.isPortalSuperApp(rootPkg)) {
+                                        String subCls = lastBrowserEventClass;
+                                        if (AppClassifier.isDistractingSubActivity(rootPkg, subCls)) {
+                                            remediateDistractingSubActivity(rootPkg, subCls);
+                                            return;
+                                        }
+                                    }
                                     inspectBrowserWindow(activeRoot, rootPkg, true);
                                 } else if (isPackageBlocked(rootPkg)) {
                                     enforceBlock(rootPkg);
@@ -2105,6 +1743,13 @@ public class LockAccessibilityService extends AccessibilityService {
             String currentForegroundPkg = detectCurrentForegroundPackage();
             if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
                 if (isBrowserPackage(currentForegroundPkg)) {
+                    if (AppClassifier.isPortalSuperApp(currentForegroundPkg)) {
+                        String subCls = lastBrowserEventClass;
+                        if (AppClassifier.isDistractingSubActivity(currentForegroundPkg, subCls)) {
+                            remediateDistractingSubActivity(currentForegroundPkg, subCls);
+                            return;
+                        }
+                    }
                     AccessibilityNodeInfo browserRoot = getRootInActiveWindow();
                     if (browserRoot != null) {
                         try {
@@ -2244,23 +1889,15 @@ public class LockAccessibilityService extends AccessibilityService {
             if (windows != null && !windows.isEmpty()) {
                 for (AccessibilityWindowInfo w : windows) {
                     if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            CharSequence wt = w.getTitle();
-                            if (wt != null) {
-                                String titleStr = wt.toString();
-                                if (isHomeAppSelectionTitle(titleStr)) {
-                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: " + titleStr);
-                                    lastForegroundPackage = "com.android.permissioncontroller";
-                                    return "com.android.permissioncontroller";
-                                }
-                            }
-                        }
                         AccessibilityNodeInfo root = w.getRoot();
                         if (root != null) {
                             try {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
+                                    if (isSystemOrLauncher(pkg) || pkg.equals(getPackageName()) || "com.android.systemui".equals(pkg)) {
+                                        continue;
+                                    }
                                     if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
                                         lastForegroundPackage = "com.google.android.apps.bard";
                                         return "com.google.android.apps.bard";
@@ -2272,6 +1909,17 @@ public class LockAccessibilityService extends AccessibilityService {
                                 }
                             } finally {
                                 root.recycle();
+                            }
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            CharSequence wt = w.getTitle();
+                            if (wt != null) {
+                                String titleStr = wt.toString();
+                                if (isHomeChangeInterceptorActive() && isHomeAppSelectionTitle(titleStr)) {
+                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: " + titleStr);
+                                    lastForegroundPackage = "com.android.permissioncontroller";
+                                    return "com.android.permissioncontroller";
+                                }
                             }
                         }
                     }
@@ -2306,23 +1954,15 @@ public class LockAccessibilityService extends AccessibilityService {
                 // First pass: Active or Focused application window
                 for (AccessibilityWindowInfo w : windows) {
                     if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive() || w.isFocused())) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            CharSequence wt = w.getTitle();
-                            if (wt != null) {
-                                String titleStr = wt.toString();
-                                if (isHomeAppSelectionTitle(titleStr)) {
-                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: " + titleStr);
-                                    lastForegroundPackage = "com.android.permissioncontroller";
-                                    return "com.android.permissioncontroller";
-                                }
-                            }
-                        }
                         AccessibilityNodeInfo root = w.getRoot();
                         if (root != null) {
                             try {
                                 CharSequence p = root.getPackageName();
                                 if (p != null) {
                                     String pkg = p.toString();
+                                    if (isSystemOrLauncher(pkg) || pkg.equals(getPackageName()) || "com.android.systemui".equals(pkg)) {
+                                        continue;
+                                    }
                                     if ("com.google.android.googlequicksearchbox".equals(pkg) && isGeminiActive(pkg, null, root) && !isGeminiAllowed()) {
                                         lastForegroundPackage = "com.google.android.apps.bard";
                                         return "com.google.android.apps.bard";
@@ -2334,6 +1974,17 @@ public class LockAccessibilityService extends AccessibilityService {
                                 }
                             } finally {
                                 root.recycle();
+                            }
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            CharSequence wt = w.getTitle();
+                            if (wt != null) {
+                                String titleStr = wt.toString();
+                                if (isHomeChangeInterceptorActive() && isHomeAppSelectionTitle(titleStr)) {
+                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: " + titleStr);
+                                    lastForegroundPackage = "com.android.permissioncontroller";
+                                    return "com.android.permissioncontroller";
+                                }
                             }
                         }
                     }
@@ -2535,30 +2186,17 @@ public class LockAccessibilityService extends AccessibilityService {
         CharSequence clsChar = event.getClassName();
         String clsStr = clsChar != null ? clsChar.toString().toLowerCase(Locale.US) : "";
 
-        // 1. Direct class name match (sub-microsecond memory check)
+        // 1. Direct Activity class name match (sub-microsecond memory check, 100% language-independent)
+        // These are exact system activity classes dedicated to Default Home App / Role selection across AOSP, Pixel, and OEM ROMs
         if (clsStr.contains("requestroleactivity") || clsStr.contains("defaultappactivity") ||
-            clsStr.contains("homesettingsactivity") || clsStr.contains("rolesearchactivity") ||
-            clsStr.contains("specialappaccessactivity") ||
-            (clsStr.contains("resolveractivity") && !clsStr.contains("chooseractivity"))) {
+            clsStr.contains("homesettingsactivity") || clsStr.contains("defaulthomepicker") ||
+            clsStr.contains("rolesearchactivity") || clsStr.contains("specialappaccessactivity")) {
             return true;
         }
 
-        // 2. PermissionController or Android role/dialog event
-        if (pkgStr.contains("permissioncontroller") || pkgStr.equals("android") || pkgStr.contains("settings")) {
-            if (clsStr.contains("role") || clsStr.contains("alertdialog") || clsStr.contains("dialog")) {
-                List<CharSequence> texts = event.getText();
-                if (texts != null) {
-                    for (CharSequence t : texts) {
-                        if (t != null && isHomeAppSelectionTitle(t.toString())) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            // Fast-click defense: If any view is clicked inside permissioncontroller while role activity is active
-            if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_CLICKED && pkgStr.contains("permissioncontroller")) {
-                return true;
-            }
+        // 2. Fast-click defense: User taps any view inside permissioncontroller while role UI is active
+        if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_CLICKED && pkgStr.contains("permissioncontroller")) {
+            return true;
         }
 
         // 3. Proactive tap interception: User taps "Not set as default" or "Nova is not default launcher" in launcher settings
@@ -2592,7 +2230,20 @@ public class LockAccessibilityService extends AccessibilityService {
      * Stage 1 Master Veto Gate: Home Launcher Selection Dialog -> DISMISS & EVICT TO QIEZKA
      */
     private boolean interceptHomeLauncherChangeAttempt(AccessibilityEvent event, AccessibilityNodeInfo providedRoot, String pkg) {
+        // Master Gate: ONLY activate interceptor if SIREN is default launcher AND a session/schedule is active
+        if (!isHomeChangeInterceptorActive()) {
+            return false;
+        }
+
         String lowerPkg = pkg != null ? pkg.toLowerCase(Locale.US) : "";
+        if (lowerPkg.isEmpty() && event != null && event.getPackageName() != null) {
+            lowerPkg = event.getPackageName().toString().toLowerCase(Locale.US);
+        }
+
+        // PRE-FILTER: Never intercept our own app, SystemUI, or any installed launcher!
+        if (isLauncherApp(this, lowerPkg) || lowerPkg.equals(getPackageName()) || lowerPkg.equals("com.android.systemui")) {
+            return false;
+        }
 
         String classStr = "";
         if (event != null && event.getClassName() != null) {
@@ -2601,11 +2252,10 @@ public class LockAccessibilityService extends AccessibilityService {
             classStr = providedRoot.getClassName().toString().toLowerCase(Locale.US);
         }
 
-        // 1. Fast Event-level class checks (0ms - instant memory evaluation)
+        // 1. Fast Event-level class checks (0ms - instant memory evaluation, 100% language-independent)
         if (classStr.contains("defaultappactivity") || classStr.contains("requestroleactivity") || 
-            classStr.contains("homesettingsactivity") || classStr.contains("rolesearchactivity") ||
-            classStr.contains("specialappaccessactivity") ||
-            (classStr.contains("resolveractivity") && !classStr.contains("chooseractivity"))) {
+            classStr.contains("homesettingsactivity") || classStr.contains("defaulthomepicker") ||
+            classStr.contains("rolesearchactivity") || classStr.contains("specialappaccessactivity")) {
             AccessibilityNodeInfo rootToDismiss = providedRoot != null ? providedRoot : (event != null ? event.getSource() : null);
             evictHomeLauncherChange(rootToDismiss);
             return true;
@@ -2618,20 +2268,22 @@ public class LockAccessibilityService extends AccessibilityService {
                 if (windows != null) {
                     for (AccessibilityWindowInfo w : windows) {
                         if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive() || w.isFocused())) {
-                            CharSequence wt = w.getTitle();
-                            if (wt != null && isHomeAppSelectionTitle(wt.toString())) {
-                                AccessibilityNodeInfo wRoot = w.getRoot();
-                                evictHomeLauncherChange(wRoot);
-                                if (wRoot != null) {
-                                    try { wRoot.recycle(); } catch (Exception ignore) {}
-                                }
-                                return true;
-                            }
                             AccessibilityNodeInfo wRoot = w.getRoot();
                             if (wRoot != null) {
                                 try {
                                     CharSequence wp = wRoot.getPackageName();
-                                    if (wp != null && isHomeAppSelectionPackageOrRoot(wp.toString(), wRoot)) {
+                                    if (wp != null) {
+                                        String wpStr = wp.toString().toLowerCase(Locale.US);
+                                        if (isLauncherApp(this, wpStr) || wpStr.equals(getPackageName()) || wpStr.equals("com.android.systemui")) {
+                                            continue;
+                                        }
+                                        if (isHomeAppSelectionPackageOrRoot(wpStr, wRoot)) {
+                                            evictHomeLauncherChange(wRoot);
+                                            return true;
+                                        }
+                                    }
+                                    CharSequence wt = w.getTitle();
+                                    if (wt != null && isHomeAppSelectionTitle(wt.toString())) {
                                         evictHomeLauncherChange(wRoot);
                                         return true;
                                     }
@@ -2660,6 +2312,9 @@ public class LockAccessibilityService extends AccessibilityService {
 
             CharSequence rootPkg = root.getPackageName();
             String effectivePkg = rootPkg != null ? rootPkg.toString() : lowerPkg;
+            if (isLauncherApp(this, effectivePkg) || effectivePkg.equals(getPackageName()) || effectivePkg.equals("com.android.systemui")) {
+                return false;
+            }
 
             if (isHomeAppSelectionPackageOrRoot(effectivePkg, root)) {
                 evictHomeLauncherChange(root);
@@ -2692,12 +2347,22 @@ public class LockAccessibilityService extends AccessibilityService {
     private boolean isHomeAppSelectionPackageOrRoot(String pkg, AccessibilityNodeInfo root) {
         if (pkg == null || root == null) return false;
         String lower = pkg.toLowerCase(Locale.US);
-        if (!lower.contains("permissioncontroller") && !lower.contains("settings") && !lower.equals("android")) {
+        if (!lower.contains("permissioncontroller") && !lower.contains("settings")) {
             return false;
         }
 
         try {
-            // Check title text in permissioncontroller role UI
+            // 1. Check exact activity class name on root if available (language-independent)
+            CharSequence rootClass = root.getClassName();
+            if (rootClass != null) {
+                String rc = rootClass.toString().toLowerCase(Locale.US);
+                if (rc.contains("requestroleactivity") || rc.contains("defaultappactivity") ||
+                    rc.contains("homesettingsactivity") || rc.contains("defaulthomepicker")) {
+                    return true;
+                }
+            }
+
+            // 2. Check title text in permissioncontroller role UI
             List<AccessibilityNodeInfo> titleNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/title");
             if (titleNodes != null && !titleNodes.isEmpty()) {
                 for (AccessibilityNodeInfo t : titleNodes) {
@@ -2707,9 +2372,20 @@ public class LockAccessibilityService extends AccessibilityService {
                     }
                 }
             }
-            // Check for list of launchers in permissioncontroller
+
+            // 3. Check candidate items in permissioncontroller list against installed Home Launchers
+            // (100% language-independent: detects launcher packages and brand names in any locale)
             List<AccessibilityNodeInfo> listNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/list");
             if (listNodes != null && !listNodes.isEmpty()) {
+                List<AccessibilityNodeInfo> titles = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/title");
+                if (titles != null && !titles.isEmpty()) {
+                    for (AccessibilityNodeInfo t : titles) {
+                        CharSequence txt = t.getText();
+                        if (txt != null && isInstalledLauncherCandidate(txt.toString())) {
+                            return true;
+                        }
+                    }
+                }
                 List<AccessibilityNodeInfo> btn1 = root.findAccessibilityNodeInfosByViewId("android:id/button1");
                 if (btn1 != null && !btn1.isEmpty()) {
                     for (AccessibilityNodeInfo b : btn1) {
@@ -2719,16 +2395,6 @@ public class LockAccessibilityService extends AccessibilityService {
                         }
                     }
                 }
-            }
-            // Substring search on texts
-            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText("Default home app");
-            if (nodes != null && !nodes.isEmpty()) return true;
-            nodes = root.findAccessibilityNodeInfosByText("Default home");
-            if (nodes != null && !nodes.isEmpty()) return true;
-            nodes = root.findAccessibilityNodeInfosByText("Set as default");
-            if (nodes != null && !nodes.isEmpty()) {
-                List<AccessibilityNodeInfo> homeNodes = root.findAccessibilityNodeInfosByText("home");
-                if (homeNodes != null && !homeNodes.isEmpty()) return true;
             }
         } catch (Exception ignore) {}
         return false;
@@ -2820,15 +2486,36 @@ public class LockAccessibilityService extends AccessibilityService {
         launchLockOverlay();
     }
 
+    public static boolean isInstalledLauncherCandidate(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        String lower = text.trim().toLowerCase(Locale.US);
+        for (String label : dynamicLauncherLabels) {
+            if (!label.isEmpty() && (lower.equals(label) || lower.contains(label) || label.contains(lower))) {
+                return true;
+            }
+        }
+        for (String pkg : dynamicLauncherPackages) {
+            if (!pkg.isEmpty() && lower.contains(pkg.toLowerCase(Locale.US))) {
+                return true;
+            }
+        }
+        return lower.contains("launcher") || lower.contains("lawnchair") || lower.contains("trebuchet") ||
+               lower.contains("pixel launcher") || lower.contains("one ui") || lower.contains("homeproxy");
+    }
+
     public static boolean isHomeAppSelectionTitle(String title) {
         if (title == null) return false;
         String lower = title.trim().toLowerCase(Locale.US);
-        return lower.equals("default home app") || lower.contains("default home") ||
-               lower.contains("choose home") || lower.contains("select a home") ||
-               lower.contains("use as home") || lower.equals("home app") ||
-               lower.contains("requestroleactivity") || lower.contains("defaultappactivity") ||
+        // 1. Activity class name signatures (100% language-independent)
+        if (lower.contains("requestroleactivity") || lower.contains("defaultappactivity") ||
+            lower.contains("homesettingsactivity") || lower.contains("defaulthomepicker") ||
+            lower.contains("rolesearchactivity") || lower.contains("specialappaccessactivity")) {
+            return true;
+        }
+        // 2. Generic home role tokens
+        return lower.contains("default home") || lower.contains("home app") ||
                (lower.contains("default") && lower.contains("home")) ||
-               (lower.contains("home") && lower.contains("launcher"));
+               lower.equals("home launcher");
     }
 
 
