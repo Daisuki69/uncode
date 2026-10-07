@@ -235,8 +235,97 @@ object KnownDistracting {
         "com.github.metacubex.clash.meta",
         "io.nekohasekai.sfa",
         "com.github.shadowsocks",
-        "com.quickq.android"
-    )
+        "com.quickq.android",
+
+        // ── Online Shopping & E-Commerce Trap Applications ──
+        // Southeast Asia
+        "com.shopee.ph",
+        "com.shopee.id",
+        "com.shopee.my",
+        "com.shopee.sg",
+        "com.shopee.vn",
+        "com.shopee.th",
+        "com.shopee.tw",
+        "com.shopee.br",
+        "com.shopee.mx",
+        "com.shopee.co",
+        "com.shopee.cl",
+        "com.lazada.android",
+        "com.tokopedia.tkpd",
+        "com.tokopedia.sellerapp",
+        "com.bukalapak.android",
+        "com.blibli.android",
+        "vn.tiki.app.tikiandroid",
+        "com.sendo",
+        "com.carousell.carousell",
+        // East Asia (Korea, China, Japan)
+        "kr.co.coupang.ecommerce",
+        "kr.co.coupang.eats",
+        "com.elevenst",
+        "com.gmarket.market",
+        "com.ebay.kr.gmarket",
+        "com.auction.bill",
+        "com.ssg.serviceapp.android.activity",
+        "com.emart.emartmall",
+        "com.lotte",
+        "com.drise.kurly",
+        "com.musinsa.store",
+        "com.ably",
+        "com.croquis.zigzag",
+        "com.kream.kream",
+        "com.oliveyoung",
+        "com.taobao.taobao",
+        "com.taobao.live",
+        "com.taobao.litetao",
+        "com.tmall.wireless",
+        "com.jingdong.app.mall",
+        "com.xunmeng.pinduoduo",
+        "com.achievo.vipshop",
+        "com.alibaba.intl.android.apps.poseidon",
+        "com.alibaba.wireless",
+        "jp.co.rakuten.android",
+        "com.mercariapp.mercari",
+        "jp.co.yahoo.android.yshopping",
+        // Global & Americas / Europe
+        "com.amazon.mshop.android.shopping",
+        "com.amazon.mshop.android",
+        "in.amazon.mshop.android.shopping",
+        "com.ebay.mobile",
+        "com.ebay.gumtree.au",
+        "com.ebay.kleinanzeigen",
+        "com.zzkko",                                 // SHEIN
+        "com.einnovation.temu",                      // Temu
+        "com.alibaba.aliexpresshd",                  // AliExpress
+        "ru.aliexpress.buyer",
+        "com.walmart.android",
+        "com.target.ui",
+        "com.bestbuy.android",
+        "com.etsy.android",
+        "com.contextlogic.wish",
+        "com.dhgate.buyer",
+        "com.asos.app",
+        "de.zalando.mobile",
+        "com.farfetch.farfetchshop",
+        "com.poshmark.app",
+        "fr.vinted",
+        "com.depop",
+        // South Asia, Middle East & Latin America
+        "com.flipkart.android",
+        "com.myntra.android",
+        "com.meesho.supply",
+        "com.ril.ajio",
+        "com.fsn.nykaa",
+        "com.tul.tatacliq",
+        "com.noon.buyer",
+        "com.trendyol.stage",
+        "com.hepsiburada",
+        "com.mercadolibre",
+        "com.luizalabs.mlapp",
+        "com.novapontocom.casasbahia",
+        "ru.wildberries.work",
+        "ru.ozon.app.android",
+        "ru.yandex.market"
+    ).map { it.lowercase(Locale.ROOT) }.toHashSet()
 
     /**
      * Primary fast-path lookup to determine if a package is an explicitly known distracting app.
@@ -342,7 +431,28 @@ object KnownDistracting {
                lower.contains("psiphon") ||
                lower.contains("torproject") ||
                lower.contains("cloudmosa") ||
-               lower.contains(".aloha.")
+               lower.contains(".aloha.") ||
+               // ── Online Shopping & E-Commerce Package Signatures ──
+               lower.contains(".shopee.") ||
+               lower.contains(".lazada.") ||
+               lower.contains(".temu.") ||
+               lower.contains(".aliexpress.") ||
+               lower.contains(".shein.") ||
+               lower.contains(".taobao.") ||
+               lower.contains(".tmall.") ||
+               lower.contains(".coupang.") ||
+               lower.contains(".tokopedia.") ||
+               lower.contains(".bukalapak.") ||
+               lower.contains(".carousell.") ||
+               lower.contains(".flipkart.") ||
+               lower.contains(".pinduoduo.") ||
+               lower.contains(".mercari.") ||
+               lower.contains(".rakuten.") ||
+               lower.contains(".poshmark.") ||
+               lower.contains(".vinted.") ||
+               lower.contains(".shopping.") ||
+               lower.contains(".ecommerce.") ||
+               lower.contains(".marketplace.")
     }
 
     private fun hasDistractingLabelSignature(lowerLabel: String): Boolean {
@@ -409,6 +519,30 @@ object KnownDistracting {
                lowerLabel.contains("unblock") ||
                lowerLabel.contains("tunnel") ||
                lowerLabel.contains("tor browser") ||
-               lowerLabel.contains("onion browser")
+               lowerLabel.contains("onion browser") ||
+               // ── Online Shopping & E-Commerce App Labels ──
+               lowerLabel.contains("shopee") ||
+               lowerLabel.contains("lazada") ||
+               lowerLabel.contains("shein") ||
+               lowerLabel.contains("temu") ||
+               lowerLabel.contains("aliexpress") ||
+               lowerLabel.contains("taobao") ||
+               lowerLabel.contains("tokopedia") ||
+               lowerLabel.contains("bukalapak") ||
+               lowerLabel.contains("carousell") ||
+               lowerLabel.contains("coupang") ||
+               lowerLabel.contains("flipkart") ||
+               lowerLabel.contains("pinduoduo") ||
+               lowerLabel.contains("mercari") ||
+               lowerLabel.contains("shopping") ||
+               lowerLabel.contains("e-commerce") ||
+               lowerLabel.contains("marketplace") ||
+               lowerLabel.contains("쇼핑") ||
+               lowerLabel.contains("스토어") ||
+               lowerLabel.contains("마켓") ||
+               lowerLabel.contains("商城") ||
+               lowerLabel.contains("购物") ||
+               lowerLabel.contains("ショッピング") ||
+               lowerLabel.contains("belanja")
     }
 }

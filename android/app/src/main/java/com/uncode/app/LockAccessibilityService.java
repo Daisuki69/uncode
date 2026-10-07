@@ -1231,6 +1231,16 @@ public class LockAccessibilityService extends AccessibilityService {
             }
         }
 
+        // Link Context Menu Guard:
+        // When the user long-presses a hyperlink (on a web page, in search results, or in CustomTabs),
+        // the browser or search app displays a Link Context Menu / Bottom Sheet (e.g. "Open in new tab", "Copy link address", "Share link").
+        // The user is previewing or copying link actions and has NOT navigated to the destination URL.
+        // We must NEVER remediate (Auto-Back) based on link preview context menus!
+        if (isLinkContextMenu(root, pkg)) {
+            Log.d(TAG, "inspectBrowserWindow: ignoring link context menu preview overlay for " + pkg);
+            return;
+        }
+
         try {
             // Dedicated Handling: Portal Super-Apps (Baidu, NAVER)
             if (AppClassifier.isPortalSuperApp(pkg)) {
@@ -1694,6 +1704,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     private String extractUrlFromBrowser(AccessibilityNodeInfo root, String pkg) {
         if (root == null) return null;
+        if (isLinkContextMenu(root, pkg)) return null;
 
         // Layer 1: Input Focus Guard. If the address bar or search input is actively focused by the user,
         // typing or autocomplete is in progress. Flowchart: ALLOW_SEARCH (100% immune, uninterrupted).
@@ -1894,10 +1905,94 @@ public class LockAccessibilityService extends AccessibilityService {
         return clean.contains(".") || lower.startsWith("http://") || lower.startsWith("https://") || clean.contains("/");
     }
 
+    private static void recycleNodes(List<AccessibilityNodeInfo> nodes) {
+        if (nodes != null) {
+            for (AccessibilityNodeInfo n : nodes) {
+                if (n != null) {
+                    try { n.recycle(); } catch (Exception ignore) {}
+                }
+            }
+        }
+    }
+
+    /**
+     * Determines whether the given root or window represents a browser or search link context menu overlay.
+     * When long-pressing a hyperlink, browsers and search apps display an action/preview menu (e.g. "Open in new tab",
+     * "Copy link address", "Share link"). These overlays are previews, not active page navigation.
+     */
+    public static boolean isLinkContextMenu(AccessibilityNodeInfo root, String pkg) {
+        if (root == null) return false;
+        try {
+            CharSequence resId = root.getViewIdResourceName();
+            if (resId != null) {
+                String idStr = resId.toString();
+                if (idStr.endsWith(":id/context_menu_layout") || idStr.endsWith(":id/context_menu_frame") ||
+                    idStr.endsWith(":id/context_menu_list_view") || idStr.endsWith(":id/menu_header_url") ||
+                    idStr.endsWith(":id/menu_header_alt_text") || idStr.endsWith(":id/title_and_url") ||
+                    idStr.endsWith(":id/context_menu_dialog") || idStr.endsWith(":id/link_context_menu") ||
+                    idStr.endsWith(":id/mozac_browser_menu_list")) {
+                    return true;
+                }
+            }
+
+            if (pkg != null) {
+                String[] pkgIds = {
+                    pkg + ":id/context_menu_layout",
+                    pkg + ":id/menu_header_url",
+                    pkg + ":id/context_menu_frame",
+                    pkg + ":id/context_menu_dialog",
+                    pkg + ":id/link_context_menu"
+                };
+                for (String pId : pkgIds) {
+                    List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(pId);
+                    if (nodes != null && !nodes.isEmpty()) {
+                        recycleNodes(nodes);
+                        return true;
+                    }
+                }
+            }
+
+            String[] chromeIds = {
+                "com.android.chrome:id/context_menu_layout",
+                "com.android.chrome:id/menu_header_url",
+                "org.chromium.chrome:id/context_menu_layout",
+                "org.chromium.chrome:id/menu_header_url"
+            };
+            for (String cId : chromeIds) {
+                List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(cId);
+                if (nodes != null && !nodes.isEmpty()) {
+                    recycleNodes(nodes);
+                    return true;
+                }
+            }
+
+            // Universal semantic action check for search and browser link menus
+            List<AccessibilityNodeInfo> openNodes = root.findAccessibilityNodeInfosByText("Open in new tab");
+            if (openNodes == null || openNodes.isEmpty()) {
+                openNodes = root.findAccessibilityNodeInfosByText("Open in browser");
+            }
+            if (openNodes != null && !openNodes.isEmpty()) {
+                recycleNodes(openNodes);
+                String[] actionTexts = {"Copy link address", "Copy link text", "Copy link", "Share link"};
+                for (String action : actionTexts) {
+                    List<AccessibilityNodeInfo> actionNodes = root.findAccessibilityNodeInfosByText(action);
+                    if (actionNodes != null && !actionNodes.isEmpty()) {
+                        recycleNodes(actionNodes);
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
     private String findUrlInHierarchy(AccessibilityNodeInfo node, int depth) {
         if (node == null || depth > 8) return null;
 
         String resId = node.getViewIdResourceName();
+        if (resId != null && resId.toLowerCase(Locale.US).contains("context_menu")) {
+            return null; // Skip context menu overlays
+        }
         boolean isAddressOrInput = false;
         if (resId != null) {
             String lowerResId = resId.toLowerCase(Locale.US);

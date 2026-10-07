@@ -1020,7 +1020,7 @@ export function Dashboard({
         {isAppSelectorOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4" style={{ paddingBottom: 'calc(1rem + var(--safe-bottom))', paddingTop: 'calc(1rem + var(--safe-top))' }}>
           <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-3xl p-6 max-w-lg w-full flex flex-col shadow-2xl overflow-hidden max-h-[85vh]">
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex justify-between items-center mb-4">
                 <div>
                   <h3 className="text-xl font-black text-gray-900">Select Allowed Apps</h3>
                   <p className="text-sm text-gray-500 mt-1">Choose apps to whitelist during system lock</p>
@@ -1028,6 +1028,35 @@ export function Dashboard({
                 <button onClick={() => setIsAppSelectorOpen(false)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
                   <X className="w-5 h-5 text-gray-600" />
                 </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 mb-4 pb-3 border-b border-gray-100">
+                <span className="text-xs font-bold text-gray-500">
+                  {availableApps.filter(simApp => !isAppBlacklisted(simApp.id) && !(simApp.isHardcoded || simApp.isLauncher)).filter(simApp => (settings.allowedApps || []).some(a => a.id === simApp.id)).length} of {availableApps.filter(simApp => !isAppBlacklisted(simApp.id) && !(simApp.isHardcoded || simApp.isLauncher)).length} Selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (!onSettingsChange) return;
+                      const validCandidates = availableApps.filter(
+                        simApp => !isAppBlacklisted(simApp.id) && !(simApp.isHardcoded || simApp.isLauncher)
+                      );
+                      onSettingsChange({ allowedApps: validCandidates });
+                    }}
+                    className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!onSettingsChange) return;
+                      onSettingsChange({ allowedApps: [] });
+                    }}
+                    className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-red-600 transition-colors"
+                  >
+                    Deselect All
+                  </button>
+                </div>
               </div>
               
               {isLoadingApps ? (

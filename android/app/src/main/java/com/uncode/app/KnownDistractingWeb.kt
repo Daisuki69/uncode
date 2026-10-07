@@ -309,11 +309,27 @@ object KnownDistractingWeb {
     // ── 11. Online Shopping & E-Commerce Trap Domains ──
     @JvmField
     val SHOPPING_DOMAINS: Set<String> = hashSetOf(
+        // Southeast Asia
         "shopee.com", "shopee.ph", "shopee.sg", "shopee.my", "shopee.co.id", "shopee.vn", "shopee.th", "shopee.tw", "shopee.com.br", "shopee.com.mx", "shopee.com.co", "shopee.cl",
         "lazada.com", "lazada.com.ph", "lazada.sg", "lazada.com.my", "lazada.co.id", "lazada.vn", "lazada.co.th",
-        "shein.com", "temu.com", "aliexpress.com", "taobao.com", "tmall.com", "jd.com",
-        "amazon.com", "ebay.com", "walmart.com", "target.com", "etsy.com", "bestbuy.com",
-        "tokopedia.com", "bukalapak.com", "blibli.com", "tiki.vn", "sendo.vn", "carousell.com", "carousell.ph"
+        "tokopedia.com", "bukalapak.com", "blibli.com", "tiki.vn", "sendo.vn", "carousell.com", "carousell.ph",
+        // NAVER E-Commerce & Shopping Portal
+        "shopping.naver.com", "m.shopping.naver.com", "cr.shopping.naver.com", "order.pay.naver.com", "pay.naver.com", "smartstore.naver.com",
+        // Baidu E-Commerce & Mall
+        "mall.baidu.com", "youxuan.baidu.com", "duxiaodian.baidu.com",
+        // East Asia (Korea, China, Japan)
+        "coupang.com", "m.coupang.com", "11st.co.kr", "gmarket.co.kr", "auction.co.kr", "ssg.com", "lotteon.com", "tmon.co.kr", "wemakeprice.com", "kurly.com", "musinsa.com", "ably.co.kr", "zigzag.kr", "kream.co.kr", "oliveyoung.co.kr",
+        "taobao.com", "tmall.com", "jd.com", "pinduoduo.com", "yangkeduo.com", "vip.com", "suning.com", "dangdang.com",
+        "rakuten.co.jp", "mercari.com", "shopping.yahoo.co.jp",
+        // Global, Americas & Europe
+        "shein.com", "temu.com", "aliexpress.com", "aliexpress.us", "aliexpress.ru",
+        "amazon.com", "amazon.co.uk", "amazon.de", "amazon.co.jp", "amazon.in",
+        "ebay.com", "walmart.com", "target.com", "etsy.com", "bestbuy.com", "wish.com", "dhgate.com",
+        "asos.com", "zalando.com", "farfetch.com", "poshmark.com", "vinted.com", "depop.com",
+        // South Asia, Middle East, LatAm, Eastern Europe
+        "flipkart.com", "myntra.com", "meesho.com", "ajio.com", "nykaa.com", "tatacliq.com", "noon.com",
+        "mercadolivre.com.br", "mercadolibre.com", "magazineluiza.com.br", "casasbahia.com.br",
+        "trendyol.com", "hepsiburada.com", "wildberries.ru", "ozon.ru", "market.yandex.ru"
     )
 
     // ── 12. Restricted gTLDs ──
@@ -419,7 +435,9 @@ object KnownDistractingWeb {
     )
 
     private val SHOPPING_SIGNATURES: Array<String> = arrayOf(
-        "shopee", "lazada", "shein", "temu", "aliexpress", "tokopedia", "bukalapak"
+        "shopee", "lazada", "shein", "temu", "aliexpress", "tokopedia", "bukalapak", "carousell",
+        "shopping.naver", "smartstore.naver", "coupang", "11st.co", "gmarket", "auction.co",
+        "pinduoduo", "mercari", "rakuten", "poshmark", "flipkart", "myntra", "youxuan.baidu", "mall.baidu"
     )
 
     // ── Entry Point ──

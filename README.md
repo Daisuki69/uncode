@@ -3946,7 +3946,79 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Expected Result*: All unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors.
       10. **User Rule 2 Compliance Check**:
           - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
-          - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Browser & Search Hyperlink Long-Press Context Menu Immunity (Patch 26.9 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - *Premature Auto-Back on Hyperlink Long-Press*:
+      - User observed that while browsing on permitted websites (e.g. Wikipedia) or searching on Google/search engines, long-pressing a hyperlink pointing to a known distracting destination (such as `tiktok.com`, `instagram.com`, or `shopee.ph`) caused QIEZKA to intercept the action and trigger an Auto-Back (`GLOBAL_ACTION_BACK`), dismissing the menu or kicking the user out of their session.
+    - *Live WindowManager Forensics via ADB*:
+      - Investigation on test device (`192.168.1.47:43113`) revealed that long-pressing a hyperlink in Google Chrome generates a secondary overlay sub-window:
+        `Window #8 Window{e46c921 u0 com.android.chrome/com.google.android.apps.chrome.Main ty=APPLICATION fl=DIM_BEHIND}`
+        sitting directly above the base browsing window (`Window #9 ty=BASE_APPLICATION`).
+      - WindowManager transferred focus to Window #8 (`mCurrentFocus=Window{e46c921...}`).
+      - Node inspection of `menu_ui.xml` confirmed Window #8 is the native Link Context Menu:
+        - Layout: `com.android.chrome:id/context_menu_layout`
+        - Frame: `com.android.chrome:id/context_menu_frame`
+        - List: `com.android.chrome:id/context_menu_list_view`
+        - Header URL: `com.android.chrome:id/menu_header_url` (displaying destination URL, e.g. `tiktok.com`)
+        - Header Alt Text: `com.android.chrome:id/menu_header_alt_text` (e.g. `TikTok`)
+        - Actions: `"Open in new tab"`, `"Copy link address"`, `"Copy link text"`, `"Share link"`, `"Preview page"`.
+    - *The DOM Classification Trap*:
+      - When Window #8 gained focus, `getRootInActiveWindow()` returned Window #8.
+      - Because address bar Omnibox nodes are absent in the context menu window (`url == null`), `extractUrlFromBrowser()` returned `null`.
+      - Flowchart Node D routed to Node F: `WebClassifier.classifyDom(root)`.
+      - The DOM crawler scanned all nodes in Window #8, encountered `menu_header_url` containing `tiktok.com`, and because `academicScore == 0`, returned `ClassificationResult.blocked("TikTok")`.
+      - `inspectBrowserWindow()` invoked `remediateBlockedBrowserTab()` $\rightarrow$ `performGlobalAction(GLOBAL_ACTION_BACK)`!
+    - *Preview vs. Navigation Separation*:
+      - Long-pressing a link is an exploratory preview / metadata action on the *current* page (copying the URL, copying link text, or sharing). The user has **not navigated** to the destination page. Intercepting context menus on safe pages violates the core invariant that current page browsing remains uninterrupted until actual navigation occurs.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Link Context Menu Detection Engine (`LockAccessibilityService.java`)**:
+      - Implemented `isLinkContextMenu(root, pkg)` querying:
+        1. Context menu layout and frame view IDs: `:id/context_menu_layout`, `:id/context_menu_frame`, `:id/context_menu_list_view`, `:id/menu_header_url`, `:id/menu_header_alt_text`, `:id/title_and_url`, `:id/context_menu_dialog`, `:id/link_context_menu`, `:id/mozac_browser_menu_list`.
+        2. Universal semantic action check: matches `"Open in new tab"` / `"Open in browser"` alongside `"Copy link address"`, `"Copy link text"`, `"Copy link"`, or `"Share link"`.
+      - Added `recycleNodes()` to guarantee 0 memory leaks across high-frequency accessibility tree node searches.
+    - **Service & URL Extraction Guards (`LockAccessibilityService.java`)**:
+      - At the top of `inspectBrowserWindow()`, added `if (isLinkContextMenu(root, pkg)) return;`, cleanly bypassing remediation while link action overlays are displayed.
+      - In `extractUrlFromBrowser()`, added `if (isLinkContextMenu(root, pkg)) return null;` ensuring context menu header URLs are never treated as the browser's active address bar.
+      - In `findUrlInHierarchy()`, added an explicit check skipping nodes containing `"context_menu"`.
+    - **DOM Classifier & Subtree Traversal Guards (`WebClassifier.java`)**:
+      - In `classifyDom()` and `classifyInAppWeb()`, added `if (isLinkContextMenu(root)) return ClassificationResult.allowed();` so native browser dialogs are never treated as web page content.
+      - In `inspectDom()`, added `isLinkContextMenuSubtree(node)`: when crawling DOM trees, skips the entire context menu subtree, ensuring preview URLs in headers are never evaluated as distracting content of the underlying page.
+    - **Zero Navigation Bypass Assurance**:
+      - If the user actually taps **"Open in new tab"** or clicks the link directly, the browser dismisses the menu and genuinely navigates to `tiktok.com`. The Omnibox address bar updates, `extractUrlFromBrowser()` extracts `tiktok.com`, and Stage 2 Flowchart Node E / Node O immediately intercepts it with Auto-Back and VPN DNS filtering sinkholes the connection.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.inspectBrowserWindow()`: Web container audit pipeline.
+      - `LockAccessibilityService.extractUrlFromBrowser()`: Address bar extractor.
+      - `WebClassifier.classifyDom()` & `classifyInAppWeb()`: DOM evaluators for web containers.
+      - `WebClassifier.inspectDom()`: Recursive node crawler for DOM distraction tokens.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Wikipedia Long-Press on Distracting Link Verification**:
+         - *Action*: Open Chrome -> navigate to `https://en.wikipedia.org/wiki/TikTok` -> find a hyperlink pointing to `tiktok.com` -> long-press the hyperlink.
+         - *Expected Result*: Chrome displays the link context menu bottom sheet ("Open in new tab", "Copy link address", "Copy link text", "Share link") without triggering Auto-Back. The context menu stays open and does not dismiss.
+      2. **Context Menu Copy / Share Action Verification**:
+         - *Action*: In the open context menu, tap "Copy link address" or "Copy link text".
+         - *Expected Result*: The link address/text is copied to clipboard. Context menu dismisses cleanly. Wikipedia remains visible and uninterrupted.
+      3. **Actual Navigation Interception Verification (Open in New Tab)**:
+         - *Action*: Long-press a link to `tiktok.com` -> tap "Open in new tab" -> switch to the new tab (or tap link directly).
+         - *Expected Result*: Chrome navigates to `tiktok.com`. QIEZKA immediately intercepts the destination navigation: `extractUrlFromBrowser` detects `tiktok.com` and Auto-Back (`remediateBlockedBrowserTab`) executes promptly, closing the tab.
+      4. **Google Search Results Page Long-Press Verification**:
+         - *Action*: Search `tiktok download` in Chrome or Google Search -> on the search results page, long-press the search result link pointing to `tiktok.com`.
+         - *Expected Result*: Search result context menu opens cleanly without Auto-Back. User can inspect or copy link without eviction.
+      5. **Generic Non-Academic Webpage Long-Press Verification**:
+         - *Action*: Open an unclassified blog/article (e.g. `medium.com` or news article) -> long-press a link to a social media / shopping site (`instagram.com`, `shopee.ph`).
+         - *Expected Result*: Context menu appears smoothly and does not trigger Auto-Back.
+      6. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL in 50s`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      7. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
 
 - **PWA & TWA Universal Web Container Exemption, Manifest Host Resolution & Shopping Category Expansion (Patch 26.9 Follow-Up)**:
   - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
@@ -4148,6 +4220,139 @@ for a genuine distracting app successfully disguises, will be tested and hardene
       5. **Legitimate Academic Reading Invariant**:
          - *Action*: Open Wikipedia (e.g. article on "Scientific Hypothesis" or "Operating System").
          - *Expected Result*: Academic immunity allows uninterrupted reading without false-positive blocks.
+      6. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      7. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Global & Regional Native E-Commerce Shopping Engine and NAVER/Baidu Portal In-App Shopping Protection (Patch 26.11 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - *User Mandate to Restrict Online Shopping Platforms during Focus Sessions*:
+      - E-commerce apps and web marketplaces (Shopee, Lazada, Tokopedia, Coupang, Taobao, Temu, SHEIN, Amazon, AliExpress, etc.) utilize aggressive algorithmic gamification, flash sales, personalized deal feeds, and push triggers designed to induce impulsive browsing and break academic focus.
+      - User confirmed proceeding with full e-commerce restrictions during active focus sessions to eliminate shopping distractions completely.
+    - *NAVER InAppBrowser Shopping Vulnerability via Address-Bar-Less Web Container*:
+      - Live on-device investigation revealed that navigating to NAVER (`com.nhn.android.search`) and opening its shopping section (`N배송`, `N+ 스토어`, `shopping.naver.com`) launched inside `InAppBrowserActivity` with no standard address bar (`url == null`).
+      - Previous `WebClassifier.classifyInAppWeb()` and `inspectDom()` only audited for video feeds, shorts, adult content, and piracy, completely omitting shopping tokens. As a result, NAVER Shopping returned `allowed()` and permitted unrestricted shopping browsing.
+    - *Baidu Searchbox Shopping Architecture & Proactive Web Storefront Protection*:
+      - On-device investigation of Baidu (`com.baidu.searchbox`) confirmed that its bottom navigation tabs are Search, Video, Voice, Novel, and Me (no dedicated shopping tab).
+      - However, Baidu hosts web-based e-commerce storefronts (`mall.baidu.com`, `youxuan.baidu.com`, `duxiaodian.baidu.com`) which required proactive domain-level and DOM-level classification to prevent web shopping bypasses.
+    - *Native Shopping App Coverage Expansion*:
+      - Prior to this patch, only a few global shopping packages were cataloged. Comprehensive coverage was required across Southeast Asia (Shopee, Lazada, Tokopedia, Bukalapak, Blibli, Tiki, Sendo, Carousell), East Asia (Coupang, 11st, Gmarket, Auction, SSG, Lotte ON, Market Kurly, Musinsa, Ably, Zigzag, Kream, Olive Young in South Korea; Taobao, Tmall, JD, Pinduoduo, Vipshop in China; Rakuten, Mercari, Yahoo Shopping in Japan), Global (Amazon, eBay, SHEIN, Temu, AliExpress, Walmart, Target, Best Buy, Etsy, Wish, DHgate, ASOS, Zalando, Farfetch, Poshmark, Vinted, Depop), South Asia (Flipkart, Myntra, Meesho, Ajio, Nykaa, Tata CLiQ), Middle East (Noon, Trendyol, Hepsiburada), and Latin America (Mercado Libre, Magalu, Casas Bahia).
+  - **Concrete Architectural Fixes Implemented**:
+    - **Comprehensive Native Shopping App Blocklist & Signatures (`KnownDistracting.kt`)**:
+      - Added 70+ native shopping app packages across all major global and regional markets to `KNOWN_DISTRACTING_PACKAGES`.
+      - Added shopping package substring signatures (`.shopping.`, `.ecommerce.`, `.store.`, `.marketplace.`, `.shop.`, `.mall.`, `.boutique.`, `.supermarket.`, `.grocery.`) to `hasDistractingPackageSignature()`.
+      - Added multilingual shopping label signatures (`shopee`, `lazada`, `shein`, `temu`, `aliexpress`, `taobao`, `tokopedia`, `bukalapak`, `carousell`, `coupang`, `flipkart`, `pinduoduo`, `mercari`, `shopping`, `e-commerce`, `쇼핑`, `마켓`, `스토어`, `이커머스`, `商城`, `购物`, `淘宝`, `京东`, `拼多多`, `ショッピング`, `belanja`) to `hasDistractingLabelSignature()`.
+    - **Local Semantic App Classifier Heuristics (`AppClassifier.java`)**:
+      - Added shopping keywords to `NEGATIVE_LABEL_KEYWORDS` across English, Korean, Chinese, and Southeast Asian languages.
+      - Added package substring patterns (`.shopping`, `.ecommerce`, `.marketplace`, `.store`, `.mall`, `.shop.`) to `NEGATIVE_PKG_SUBSTRINGS`.
+    - **Expanded Web Shopping Domain Registry (`KnownDistractingWeb.kt`)**:
+      - Added NAVER Shopping subdomains (`shopping.naver.com`, `m.shopping.naver.com`, `cr.shopping.naver.com`, `order.pay.naver.com`, `pay.naver.com`, `smartstore.naver.com`) and Baidu storefronts (`mall.baidu.com`, `youxuan.baidu.com`, `duxiaodian.baidu.com`) to `SHOPPING_DOMAINS`.
+      - Added regional Korean, Chinese, Japanese, Southeast Asian, Indian, and Global e-commerce domains to `SHOPPING_DOMAINS` and `SHOPPING_SIGNATURES`.
+    - **In-App Web View & Real-Time DOM Shopping Token Inspection (`WebClassifier.java`)**:
+      - Added `DOM_SHOPPING_TOKENS` containing multi-lingual shopping tokens (Korean: `장바구니`, `마이쇼핑`, `오늘배송`, `n배송`, `구매하기`, `주문/결제`; Chinese: `购物车`, `立即购买`, `加入购物车`, `我的订单`, `店铺`, `包邮`; Southeast Asian: `keranjang`, `beli sekarang`, `tambah ke troli`, `thêm vào giỏ hàng`, `keranjang belanja`; English: `add to cart`, `buy now`, `shopping cart`, `checkout`, `flash deal`, `free shipping`).
+      - Added window and WebView title inspection in `classifyInAppWeb()` to detect shopping titles (e.g. `N배송`, `네이버 쇼핑`, `네이버+ 스토어`, `Shopee`, `Lazada`, `Taobao`) even when URL is hidden (`url == null`).
+      - In `inspectDom()`, actively tallies shopping tokens during DOM traversal and triggers `blocked(REASON_SHOPPING)` when threshold is met, executing instantaneous Node H Auto-Back (`remediateBlockedBrowserTab` with `GLOBAL_ACTION_BACK`).
+    - **Search Query & Portal Service Immunity Preserved**:
+      - Standard NAVER search engine queries and SERPs (`: 네이버 검색`, `: 네이버 통합검색`, `search.naver.com`) fast-path to `allowed()` and remain 100% research immune.
+      - Baidu standard search and SERPs fast-path to `allowed()` and remain 100% research immune.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`KnownDistracting.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistracting.kt)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`KnownDistractingWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistractingWeb.kt)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.isStage1Vetoed()`: Queries `KnownDistracting.isKnownDistracting()` for Stage 1 master veto against hostile/distracting apps.
+      - `AppClassifier.classify()`: Uses negative label and package keywords for offline classification of unlisted apps.
+      - `WebClassifier.classifyDomain()`: Evaluates domain against `KnownDistractingWeb.isKnownDistractingWeb()` and `SHOPPING_DOMAINS`.
+      - `WebClassifier.classifyInAppWeb()`: Audits WebView/window titles in super app browsers (NAVER, Baidu) for shopping keywords.
+      - `WebClassifier.inspectDom()`: Performs accessibility node traversal checking `DOM_SHOPPING_TOKENS`.
+      - `LockAccessibilityService.onAccessibilityEvent()`: Directs window state events to `inspectBrowserWindow()` and `remediateBlockedBrowserTab()`.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **NAVER In-App Shopping Remediation Verification**:
+         - *Action*: Launch NAVER (`com.nhn.android.search`), tap on the shopping section (`N배송` or `네이버+ 스토어` or `shopping.naver.com`).
+         - *Expected Result*: Window title (`N배송 : 네이버+ 스토어`) or DOM shopping tokens trigger `blocked(REASON_SHOPPING)`. QIEZKA immediately issues `GLOBAL_ACTION_BACK`, closing the shopping view and returning to the NAVER home screen.
+      2. **NAVER Search & SERP Immunity Verification**:
+         - *Action*: Open NAVER, search for an academic query (e.g. `"양자역학 원리"` or `"미적분학"`).
+         - *Expected Result*: Search query and SERP results page load freely without interruption. Fast-path allows browsing knowledge and study content uninterrupted.
+      3. **Native Shopping App Blocking Verification**:
+         - *Action*: Launch a native shopping app (e.g., Shopee, Lazada, Coupang, Amazon, Temu, or SHEIN).
+         - *Expected Result*: App is recognized in Stage 1 Master Veto Gate via package ID or semantic signature. QIEZKA immediately blocks the app with the lock overlay.
+      4. **Baidu Search Immunity Invariant**:
+         - *Action*: Open Baidu (`com.baidu.searchbox`), perform a search query (e.g. `"高等数学"` or `"量子力学"`).
+         - *Expected Result*: Search query and SERP are recognized as search immune (`isBrowserSearch == true`). Browsing results is uninterrupted.
+      5. **Baidu Web Shopping Domain Remediation Verification**:
+         - *Action*: In a browser or within Baidu, navigate to `mall.baidu.com` or `youxuan.baidu.com`.
+         - *Expected Result*: Domain is identified under `SHOPPING_DOMAINS` and immediately evicted via Auto-Back (`GLOBAL_ACTION_BACK`).
+      6. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      7. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Universal Passed Apps Auto-Population, Whitelist Strictness Controls & PWA/TWA Shortcut Stripping (Patch 26.12 Follow-Up)**:
+  - **Why It Was Mandated (User Request & Architectural Invariants)**:
+    - *Whitelist Population Gap for Clean Third-Party Tools*:
+      - Previously, `LockPlugin.getInstalledApps()` marked `isAutoAllowed = true` strictly for messaging apps (`isMessaging`) and recognized student apps (`isStudentApp`).
+      - Verified safe utilities that passed all 5 classification layers (calculators, PDF readers, notes, offline translation tools, file managers, CEU student portal, Anki, audio tools, camera) were returned with `isAutoAllowed = false`, omitting them from initial custom allowed apps (`settings.allowedApps`). Users had to manually open the app selector modal and tap every individual tool.
+      - User requested that all apps that successfully pass classification gates be automatically added to the user-configurable allowed apps, allowing users to then refine them if they want an even stricter focus lockdown.
+    - *PWA, TWA & WebAPK Shortcut Leaks into Native Whitelist*:
+      - Progressive Web Apps (PWAs), Trusted Web Activities (TWAs, e.g. `id.kisskh.twa`), and Chromium WebAPKs (e.g. `org.chromium.webapk.*`, Shopee WebAPK) declare `Intent.CATEGORY_LAUNCHER`, causing Android PackageManager to return them as launcher activities.
+      - Because `AppClassifier.isBrowserPackage()` classified them as web containers, they bypassed Stage 2 package blocking and leaked into `getInstalledApps()`, displaying web shortcut icons in the native Allowed Apps list.
+      - Standalone web containers are inspected dynamically at the URL and DOM level by `LockAccessibilityService` and `WebClassifier`, not by native package whitelisting. Having web shortcuts in the native app whitelist cluttered the UI and created conflicting mental models.
+  - **Concrete Architectural Fixes Implemented**:
+    - **PWA, TWA & WebAPK Dedicated Detection & Stripping (`AppClassifier.java` & `blacklistedApps.ts`)**:
+      - Added `AppClassifier.isPwaOrWebApk(String pkg)` identifying Chromium WebAPKs (`org.chromium.webapk.*`, `*.webapk.*`, `.webapk`), TWAs (`*.twa`, `.twa`), and standalone PWAs (`*.pwa`, `.pwa`).
+      - In `LockPlugin.getInstalledApps()`, early-filtered `AppClassifier.isPwaOrWebApk(pkg)` with `continue;` so web container shortcuts are completely omitted from native candidate queries.
+      - In `LockPlugin.startLockdown()`, sanitized `allowedAppIds` ensuring no PWA/WebAPK package enters the native accessibility whitelist.
+      - In `src/constants/blacklistedApps.ts`, added `isPwaOrWebApk()` and integrated it into `isAppBlacklisted()` to guarantee frontend components strictly reject any cached or simulated PWA/WebAPK packages.
+    - **Universal Passed Apps Auto-Population (`LockPlugin.java` & `src/App.tsx`)**:
+      - In `LockPlugin.java`, updated `isAutoAllowed = !isHardcoded && !isLauncher;`. All non-hardcoded, non-launcher apps that passed all classification checks are marked `isAutoAllowed: true`.
+      - In `src/types.ts`, added `allowedAppsVersion?: number;` to `AppSettings`.
+      - In `src/App.tsx`, implemented version 2 migration (`allowedAppsVersion: 2`): automatically populates all passed installed apps into `settings.allowedApps` on initial load or upgrade, while stripping any blacklisted or PWA/WebAPK shortcuts.
+    - **Refinement Controls in Management UI (`Dashboard.tsx`)**:
+      - In the "Select Allowed Apps" modal, added **"Select All"** (whitelists all passed apps) and **"Deselect All"** (clears custom allowed apps for ultra-strict lockdown sessions) quick-action controls, alongside a live selection counter.
+      - Maintained individual app card "X" removal buttons on the Dashboard so users can instantly delete unwanted allowed apps to make lockdowns stricter.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`android/app/src/main/java/com/uncode/app/LockPlugin.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java)
+      - [`src/types.ts`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/types.ts)
+      - [`src/constants/blacklistedApps.ts`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/constants/blacklistedApps.ts)
+      - [`src/App.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx)
+      - [`src/components/Dashboard.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/Dashboard.tsx)
+      - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockPlugin.getInstalledApps()`: Primary source of candidate applications for React frontend.
+      - `LockPlugin.startLockdown()` & `syncSchedules()`: Whitelist ingestion for native lock enforcement.
+      - `Dashboard.tsx`: Renders allowed app cards and the "Select Allowed Apps" modal.
+      - `App.tsx`: Startup initialization and settings persistence in `localStorage`.
+      - `LockScreen.tsx`: Renders allowed apps during active lock sessions.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **All Passed Apps Auto-Population Verification**:
+         - *Action*: Launch QIEZKA on device (`192.168.1.47:43113`). Navigate to Dashboard.
+         - *Expected Result*: Under "Allowed Applications", all clean installed apps (Calculator, Notes, PDF viewer, Camera, File Manager, Anki, etc.) are automatically populated in the custom allowed section. Hardcoded system apps remain under "Always Allowed by System".
+      2. **PWA, TWA & WebAPK Icon App Exclusion Verification**:
+         - *Action*: Inspect the Dashboard "Allowed Applications" list and the "Add App" modal on a device with installed WebAPKs (e.g. Shopee WebAPK `org.chromium.webapk.a803cdaf2d8785085_v2`) or TWAs (e.g. KissKH `id.kisskh.twa`).
+         - *Expected Result*: Neither Shopee WebAPK nor KissKH TWA appears in the Allowed Apps list or in the "Select Allowed Apps" modal. Only true native applications are listed.
+      3. **Refining Allowed Apps to Be Stricter (Dashboard & Modal)**:
+         - *Action*:
+           a. Click the "X" button on any allowed app card (e.g. Camera or Music) on Dashboard. Verify it is immediately removed from the active allowed list.
+           b. Tap "Add App" to open the selector modal. Tap "Deselect All" to remove all custom apps, then manually select only 1 or 2 essential study tools (e.g. Calculator and Anki).
+         - *Expected Result*: The allowed apps list immediately updates to reflect the stricter selection.
+      4. **Lockdown Enforcement with Refined Whitelist**:
+         - *Action*: Start a lockdown session with the refined whitelist. Attempt to open a removed app (e.g. Camera) vs an allowed app (e.g. Calculator).
+         - *Expected Result*: The removed app is blocked by the QIEZKA lock overlay; the kept app launches freely.
+      5. **PWA / WebAPK Web Protection Immunity Invariant**:
+         - *Action*: Launch Shopee WebAPK or KissKH TWA from the Android home launcher during lockdown.
+         - *Expected Result*: Although excluded from the native Allowed Apps UI, the web container is audited dynamically by `LockAccessibilityService` and `WebClassifier`. Host/DOM detection triggers Auto-Back (`GLOBAL_ACTION_BACK`) remediation without crashing or conferring false immunity.
       6. **Automated Unit Testing & Verification**:
          - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
          - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).

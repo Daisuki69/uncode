@@ -54,6 +54,7 @@ export interface AppSettings {
   uiWidth?: string;
   allowedApps?: AllowedApp[];
   allowedAppsInitialized?: boolean;
+  allowedAppsVersion?: number;
   consequenceActive?: boolean;
   consequenceScheduleId?: string;
   operatingMode?: 'safemode' | 'hardcore';

@@ -273,6 +273,22 @@ public final class AppClassifier {
     }
 
     /**
+     * Checks if a package is a Progressive Web App (PWA), Trusted Web Activity (TWA),
+     * or Chromium WebAPK container shortcut.
+     */
+    public static boolean isPwaOrWebApk(String pkg) {
+        if (pkg == null || pkg.trim().isEmpty()) return false;
+        String lower = pkg.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("org.chromium.webapk.") ||
+               lower.contains(".webapk") ||
+               lower.endsWith(".webapk") ||
+               lower.contains(".twa") ||
+               lower.endsWith(".twa") ||
+               lower.contains(".pwa") ||
+               lower.endsWith(".pwa");
+    }
+
+    /**
      * Curated Allowed Portal Super-Apps. Exactly two official super-apps are permitted during lockdown:
      * 1. Baidu Search & Portal App (China Gaokao/Kaoyan search & study)
      * 2. NAVER Search & Portal App (South Korea Suneung/CSAT search & study)
@@ -631,7 +647,12 @@ public final class AppClassifier {
         "kissasian", "bilibili", "loklok", "cloudstream", "stremio", "onstream",
 
         // Social Feeds, Video & Forum Distractions
-        "tiktok", "tik tok", "douyin", "reddit"
+        "tiktok", "tik tok", "douyin", "reddit",
+
+        // Online Shopping & E-Commerce Trap Applications
+        "shopping", "online shopping", "ecommerce", "e-commerce", "shopee", "lazada", "shein", "temu",
+        "aliexpress", "taobao", "tmall", "amazon shopping", "ebay", "tokopedia", "bukalapak", "coupang",
+        "11st", "gmarket", "carousell", "pinduoduo", "mercari", "rakuten shopping", "flipkart"
     };
 
     private static final String[] NEGATIVE_PKG_SUBSTRINGS = {
@@ -655,7 +676,10 @@ public final class AppClassifier {
         ".musically.", ".trill.", ".aweme.",
         // Stage 1 Bloatware & Game Booster Signatures (UAD-NG Ground Truth)
         "joyose", "gamecenter", "gamebooster", "gamemode", "gamehome", "gamespace",
-        "shortvideo", "mipicks", "palmstore", "glance"
+        "shortvideo", "mipicks", "palmstore", "glance",
+        // Online Shopping & E-Commerce Package Signatures
+        ".shopping.", ".shopee.", ".lazada.", ".temu.", ".shein.", ".aliexpress.", ".taobao.",
+        ".tmall.", ".coupang.", ".tokopedia.", ".bukalapak.", ".carousell.", ".flipkart.", ".pinduoduo."
     };
 
     /**

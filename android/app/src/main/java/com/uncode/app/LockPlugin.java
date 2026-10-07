@@ -160,6 +160,7 @@ public class LockPlugin extends Plugin {
                 for (int i = 0; i < allowedAppIds.length(); i++) {
                     String appId = allowedAppIds.getString(i);
                     if (appId != null && !AppClassifier.isSettingsOrDeviceManager(appId, null) &&
+                        !AppClassifier.isPwaOrWebApk(appId) &&
                         !UnifiedPolicyRegistry.isPackageRegisteredInAnyService(appId) &&
                         !appId.equals("com.google.android.googlequicksearchbox")) {
                         whitelist.add(appId);
@@ -803,8 +804,9 @@ public class LockPlugin extends Plugin {
                     if (AppClassifier.isSettingsOrDeviceManager(pkg, null) || 
                         AppClassifier.isStage1Bloat(pkg, null) || 
                         AppClassifier.isForbiddenDistraction(getActivity(), pkg) ||
+                        AppClassifier.isPwaOrWebApk(pkg) ||
                         KnownDistracting.isKnownDistracting(pkg)) {
-                        continue; // Strictly omit anti-tamper, bloatware, games, and social media from candidate selection
+                        continue; // Strictly omit anti-tamper, bloatware, games, PWAs/WebAPKs, and social media from candidate selection
                     }
                     boolean isBaselineSafe = KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg);
                     if (!isBaselineSafe && (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) || isAiAppKeywords(pkg, null))) {
@@ -823,6 +825,7 @@ public class LockPlugin extends Plugin {
                         }
                         if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || 
                             AppClassifier.isStage1Bloat(pkg, appLabel) || 
+                            AppClassifier.isPwaOrWebApk(pkg) ||
                             KnownDistracting.isKnownDistracting(pkg, appLabel) || 
                             (!isBaselineSafe && isAiAppKeywords(pkg, appLabel))) {
                             continue;
@@ -876,7 +879,7 @@ public class LockPlugin extends Plugin {
                         else if (isStudentApp) iconName = "BookOpen";
                         else if (isMessaging || isSimOrCarrier) iconName = "MessageSquare";
 
-                        boolean isAutoAllowed = !isHardcoded && !isLauncher && (isMessaging || isStudentApp);
+                        boolean isAutoAllowed = !isHardcoded && !isLauncher;
 
                         app.put("iconName", iconName);
                         app.put("isHardcoded", isHardcoded);
