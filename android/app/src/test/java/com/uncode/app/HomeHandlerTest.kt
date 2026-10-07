@@ -308,6 +308,16 @@ class HomeHandlerTest {
         assertFalse(AppClassifier.isBrowserPackage("com.facebook.katana"))
         assertFalse(AppClassifier.isBrowserPackage(null))
 
+        // 2b. AppClassifier.isPwaOrWebApk
+        assertTrue(AppClassifier.isPwaOrWebApk("org.chromium.webapk.a803cdaf2d8785085_v2"))
+        assertTrue(AppClassifier.isPwaOrWebApk("com.sec.android.app.sbrowser.webapk.wb123"))
+        assertTrue(AppClassifier.isPwaOrWebApk("id.kisskh.twa"))
+        assertTrue(AppClassifier.isPwaOrWebApk("com.example.app.pwa"))
+        assertFalse(AppClassifier.isPwaOrWebApk("com.android.chrome"))
+        assertFalse(AppClassifier.isPwaOrWebApk("com.google.android.calculator"))
+        assertFalse(AppClassifier.isPwaOrWebApk("com.whatsapp"))
+        assertFalse(AppClassifier.isPwaOrWebApk(null))
+
         // Shopping domain checks
         assertTrue(KnownDistractingWeb.isKnownDistractingWeb("https://shopee.ph"))
         assertTrue(KnownDistractingWeb.isKnownDistractingWeb("https://shopee.com/cart"))

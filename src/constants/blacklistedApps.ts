@@ -64,5 +64,27 @@ export function isAppBlacklisted(packageId?: string | null): boolean {
     return true;
   }
 
+  // PWAs, TWAs, and WebAPK web shortcuts are inspected at runtime via WebClassifier, not native app whitelist
+  if (isPwaOrWebApk(lower)) {
+    return true;
+  }
+
   return false;
 }
+
+/**
+ * Checks if a package ID is a Progressive Web App (PWA), Trusted Web Activity (TWA),
+ * or Chromium WebAPK shortcut application.
+ */
+export function isPwaOrWebApk(packageId?: string | null): boolean {
+  if (!packageId) return false;
+  const lower = packageId.trim().toLowerCase();
+  return lower.startsWith('org.chromium.webapk.') ||
+         lower.includes('.webapk') ||
+         lower.endsWith('.webapk') ||
+         lower.includes('.twa') ||
+         lower.endsWith('.twa') ||
+         lower.includes('.pwa') ||
+         lower.endsWith('.pwa');
+}
+

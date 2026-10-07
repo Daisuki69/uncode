@@ -218,6 +218,23 @@ public final class WebClassifier {
         "watch history", "sign in now to save your watch history", "kisskh"
     };
 
+    // ── Real-time Shopping & E-Commerce DOM Triggers ──
+    private static final String[] DOM_SHOPPING_TOKENS = {
+        // English / International
+        "add to cart", "buy now", "shopping cart", "proceed to checkout", "flash sale",
+        "free shipping", "order total", "my orders", "place order", "track order",
+        // Korean (NAVER Shopping, Coupang, 11st, Gmarket, etc.)
+        "장바구니", "구매하기", "바로구매", "마이쇼핑", "네이버쇼핑", "n배송",
+        "오늘배송", "새벽배송", "쇼핑&페이", "쇼핑앤페이", "스마트스토어", "주문/결제",
+        "주문 결제", "배송지 및 상품", "초고속 쇼핑", "네이버+ 스토어", "n+ 스토어",
+        "슈퍼특가", "쇼핑라이브",
+        // Chinese (Baidu Mall, Taobao, JD, Pinduoduo)
+        "加入购物车", "立即购买", "购物车", "我的订单", "去结算", "确认订单", "商品详情", "拼单",
+        "百度优选", "度小店",
+        // Southeast Asian
+        "dagdag sa cart", "bilhin ngayon", "troli belanja", "beli sekarang", "keranjang belanja"
+    };
+
     // ── Academic Promotion Keywords (Protects research papers & study guides) ──
     private static final String[] ACADEMIC_PROMOTION_KEYWORDS = {
         "curriculum", "syllabus", "coursework", "lecture notes", "homework",
@@ -237,6 +254,92 @@ public final class WebClassifier {
             Log.d(TAG, "WebClassifier decision cache cleared");
         } catch (Throwable ignore) {}
     }
+
+    private static void recycleNodes(List<AccessibilityNodeInfo> nodes) {
+        if (nodes != null) {
+            for (AccessibilityNodeInfo n : nodes) {
+                if (n != null) {
+                    try { n.recycle(); } catch (Exception ignore) {}
+                }
+            }
+        }
+    }
+
+    /**
+     * Determines whether the given root or window represents a browser or search link context menu overlay.
+     * When long-pressing a hyperlink, browsers and search apps display an action/preview menu (e.g. "Open in new tab",
+     * "Copy link address", "Share link"). These overlays are previews, not active page navigation.
+     */
+    public static boolean isLinkContextMenu(AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        try {
+            CharSequence resId = root.getViewIdResourceName();
+            if (resId != null) {
+                String idStr = resId.toString();
+                if (idStr.endsWith(":id/context_menu_layout") || idStr.endsWith(":id/context_menu_frame") ||
+                    idStr.endsWith(":id/context_menu_list_view") || idStr.endsWith(":id/menu_header_url") ||
+                    idStr.endsWith(":id/title_and_url") || idStr.endsWith(":id/context_menu_dialog") ||
+                    idStr.endsWith(":id/link_context_menu") || idStr.endsWith(":id/mozac_browser_menu_list")) {
+                    return true;
+                }
+            }
+
+            // Chromium family standard context menu IDs
+            String[] queryIds = {
+                "com.android.chrome:id/context_menu_layout",
+                "com.android.chrome:id/menu_header_url",
+                "org.chromium.chrome:id/context_menu_layout",
+                "org.chromium.chrome:id/menu_header_url"
+            };
+            for (String qId : queryIds) {
+                List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(qId);
+                if (nodes != null && !nodes.isEmpty()) {
+                    recycleNodes(nodes);
+                    return true;
+                }
+            }
+
+            // Semantic check for browser/search link action menus
+            List<AccessibilityNodeInfo> openNodes = root.findAccessibilityNodeInfosByText("Open in new tab");
+            if (openNodes == null || openNodes.isEmpty()) {
+                openNodes = root.findAccessibilityNodeInfosByText("Open in browser");
+            }
+            if (openNodes != null && !openNodes.isEmpty()) {
+                recycleNodes(openNodes);
+                String[] actionTexts = {"Copy link address", "Copy link text", "Copy link", "Share link"};
+                for (String action : actionTexts) {
+                    List<AccessibilityNodeInfo> actionNodes = root.findAccessibilityNodeInfosByText(action);
+                    if (actionNodes != null && !actionNodes.isEmpty()) {
+                        recycleNodes(actionNodes);
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
+    /**
+     * Checks if a specific node is a link context menu container or header view.
+     */
+    public static boolean isLinkContextMenuSubtree(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        try {
+            CharSequence resId = node.getViewIdResourceName();
+            if (resId != null) {
+                String idStr = resId.toString();
+                if (idStr.endsWith(":id/context_menu_layout") || idStr.endsWith(":id/context_menu_frame") ||
+                    idStr.endsWith(":id/context_menu_list_view") || idStr.endsWith(":id/menu_header_url") ||
+                    idStr.endsWith(":id/menu_header_alt_text") || idStr.endsWith(":id/title_and_url") ||
+                    idStr.endsWith(":id/context_menu_dialog") || idStr.endsWith(":id/link_context_menu") ||
+                    idStr.endsWith(":id/mozac_browser_menu_list")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
 
     /**
      * Single Gate: Determines whether the given string represents an actual destination website URL.
@@ -345,6 +448,11 @@ public final class WebClassifier {
     public static ClassificationResult classifyDom(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
         if (root == null) return ClassificationResult.allowed();
 
+        // Guard: Link Context Menus are native browser action overlays, not page DOMs
+        if (isLinkContextMenu(root)) {
+            return ClassificationResult.allowed();
+        }
+
         // Guard: System Launchers / SystemUI must NEVER be audited as web containers
         CharSequence rootPkgCs = root.getPackageName();
         if (rootPkgCs != null) {
@@ -417,6 +525,11 @@ public final class WebClassifier {
     public static ClassificationResult classifyInAppWeb(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
         if (root == null) return ClassificationResult.allowed();
 
+        // Guard: Link Context Menus are native browser action overlays, not in-app web content
+        if (isLinkContextMenu(root)) {
+            return ClassificationResult.allowed();
+        }
+
         // Guard: System Launchers / SystemUI must NEVER be audited as in-app web views
         CharSequence rootPkgCs = root.getPackageName();
         if (rootPkgCs != null) {
@@ -442,6 +555,9 @@ public final class WebClassifier {
                     }
                     if (KnownDistractingWeb.isKnownDistractingWeb(title)) {
                         return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(title));
+                    }
+                    if (title.contains("스토어") || title.contains("쇼핑") || title.contains("smartstore") || title.contains("shopping.naver")) {
+                        return ClassificationResult.blocked("Online shopping portal detected: " + title);
                     }
                     if (!allowYoutube) {
                         String lowerTitle = title.toLowerCase(Locale.ROOT);
@@ -790,6 +906,10 @@ public final class WebClassifier {
         if (node == null || depth > MAX_DOM_DEPTH || stats.totalNodesScanned >= MAX_NODE_SCAN_COUNT) {
             return ClassificationResult.allowed();
         }
+        if (isLinkContextMenuSubtree(node)) {
+            // Skip link context menu subtree so header preview URLs and alt text are never scanned as page content
+            return ClassificationResult.allowed();
+        }
         stats.totalNodesScanned++;
 
         CharSequence textSeq = node.getText();
@@ -846,6 +966,13 @@ public final class WebClassifier {
             for (String pTok : DOM_PIRACY_TOKENS) {
                 if (val.contains(pTok) && stats.academicScore < 3) {
                     return ClassificationResult.blocked("Piracy/short-drama streaming player detected: " + pTok);
+                }
+            }
+
+            // Real-time Shopping DOM triggers
+            for (String shTok : DOM_SHOPPING_TOKENS) {
+                if (val.contains(shTok) && stats.academicScore < 3) {
+                    return ClassificationResult.blocked("Online shopping and e-commerce portal detected: " + shTok);
                 }
             }
 

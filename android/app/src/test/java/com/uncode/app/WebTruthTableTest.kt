@@ -375,4 +375,82 @@ class WebTruthTableTest {
         val inAppRes = WebClassifier.classifyInAppWeb(null, false, null)
         assertFalse(inAppRes.isBlocked)
     }
+
+    @Test
+    fun testLinkContextMenuImmunity() {
+        // Link Context Menus are preview overlays / action sheets and must never be classified as web page DOMs
+        assertFalse(WebClassifier.isLinkContextMenu(null))
+        assertFalse(WebClassifier.isLinkContextMenuSubtree(null))
+        assertFalse(LockAccessibilityService.isLinkContextMenu(null, "com.android.chrome"))
+
+        // Null root for DOM classification returns allowed
+        val domRes = WebClassifier.classifyDom(null, false, emptySet())
+        assertFalse(domRes.isBlocked)
+
+        val inAppRes = WebClassifier.classifyInAppWeb(null, false, emptySet())
+        assertFalse(inAppRes.isBlocked)
+    }
+
+    @Test
+    fun testShoppingAppAndWebClassification() {
+        // 1. Native shopping app package IDs are classified as distracting in KnownDistracting
+        assertTrue(KnownDistracting.isKnownDistracting("com.shopee.ph"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.shopee.id"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.shopee.my"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.lazada.android"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.tokopedia.tkpd"))
+        assertTrue(KnownDistracting.isKnownDistracting("kr.co.coupang.ecommerce"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.elevenst"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.gmarket.market"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.ebay.kr.gmarket"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.taobao.taobao"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.jingdong.app.mall"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.xunmeng.pinduoduo"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.einnovation.temu"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.zzkko"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.alibaba.aliexpresshd"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.amazon.mShop.android.shopping"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.ebay.mobile"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.flipkart.android"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.mercadolibre"))
+
+        // 2. Package signature and Label signature detection for unknown shopping apps
+        assertTrue(KnownDistracting.isKnownDistracting("com.example.shopping.mall"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.unknown.ecommerce.app"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.random.store", "Flash Deal Shopping Store"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.generic.market", "Online Marketplace"))
+        assertTrue(KnownDistracting.isKnownDistracting("kr.random.store", "온라인 쇼핑몰"))
+
+        // 3. Stage 1 Master Veto Gate verifies native shopping packages
+        assertTrue(AppClassifier.isStage1Vetoed("com.shopee.ph", "Shopee"))
+        assertTrue(AppClassifier.isStage1Vetoed("kr.co.coupang.ecommerce", "쿠팡"))
+        assertTrue(AppClassifier.isStage1Vetoed("com.amazon.mShop.android.shopping", "Amazon Shopping"))
+
+        // 4. Web shopping domains in KnownDistractingWeb
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("shopping.naver.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("m.shopping.naver.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("smartstore.naver.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("mall.baidu.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("youxuan.baidu.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("coupang.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("shopee.ph"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("lazada.com.ph"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("amazon.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("ebay.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("temu.com"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("shein.com"))
+
+        // 5. Portals themselves remain unblocked for search / main service
+        assertFalse(WebClassifier.classifyDomain("naver.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("search.naver.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("baidu.com", false, null).isBlocked)
+
+        // 6. Shopping subdomains are blocked by WebClassifier
+        assertTrue(WebClassifier.classifyDomain("shopping.naver.com", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("m.shopping.naver.com", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("mall.baidu.com", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("youxuan.baidu.com", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("www.coupang.com", false, null).isBlocked)
+    }
 }
+

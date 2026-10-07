@@ -294,10 +294,9 @@ export default function App() {
         }
       }
 
-      // Check cached installed apps for initial messaging app auto-population if needed
-      if (!loadedSettings.allowedAppsInitialized && installedApps.length > 0) {
+      // Check cached installed apps for initial allowed apps auto-population if needed
+      if ((!loadedSettings.allowedAppsInitialized || loadedSettings.allowedAppsVersion !== 2) && installedApps.length > 0) {
         const autoApps = installedApps.filter(a => 
-          (a.isAutoAllowed || a.isMessaging) && 
           !isAppBlacklisted(a.id) && 
           !a.isLauncher &&
           !a.isHardcoded
@@ -306,6 +305,7 @@ export default function App() {
           loadedSettings.allowedApps = autoApps;
         }
         loadedSettings.allowedAppsInitialized = true;
+        loadedSettings.allowedAppsVersion = 2;
       }
 
       setSettings(loadedSettings);
@@ -394,21 +394,26 @@ export default function App() {
           try { localStorage.setItem('studom_installed_apps', JSON.stringify(installed)); } catch {}
 
           setSettings(prev => {
-            if (!prev.allowedAppsInitialized) {
-              const initialCustom = installed.filter(a => 
-                (a.isAutoAllowed || a.isMessaging) && 
+            if (!prev.allowedAppsInitialized || prev.allowedAppsVersion !== 2) {
+              const allPassed = installed.filter(a => 
                 !a.isHardcoded && 
                 !a.isLauncher &&
                 !isAppBlacklisted(a.id)
               );
-              const combined = [...(prev.allowedApps || [])];
-              for (const a of initialCustom) {
+              const existingClean = (prev.allowedApps || []).filter(a => 
+                !a.isHardcoded && 
+                !a.isLauncher && 
+                !isAppBlacklisted(a.id)
+              );
+              const combined = [...existingClean];
+              for (const a of allPassed) {
                 if (!combined.some(c => c.id === a.id)) combined.push(a);
               }
               return {
                 ...prev,
                 allowedApps: combined,
-                allowedAppsInitialized: true
+                allowedAppsInitialized: true,
+                allowedAppsVersion: 2
               };
             }
             return prev;
@@ -738,12 +743,12 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
 
   const handleCompleteOnboarding = async (config?: Partial<AppSettings>) => {
     let initialAllowed = (settings.allowedApps || []).filter(a => !isAppBlacklisted(a.id) && !a.isHardcoded && !a.isLauncher);
-    if (!settings.allowedAppsInitialized) {
+    if (!settings.allowedAppsInitialized || settings.allowedAppsVersion !== 2) {
       try {
         const installed = installedApps.length > 0 ? installedApps : await getInstalledApps();
-        const autoAllowedApps = (installed || []).filter(a => (a.isAutoAllowed || a.isMessaging) && !a.isHardcoded && !a.isLauncher && !isAppBlacklisted(a.id));
+        const allPassedApps = (installed || []).filter(a => !a.isHardcoded && !a.isLauncher && !isAppBlacklisted(a.id));
         const combined = [...initialAllowed];
-        for (const a of autoAllowedApps) {
+        for (const a of allPassedApps) {
           if (!combined.some(c => c.id === a.id)) combined.push(a);
         }
         if (combined.length > 0) {
@@ -758,7 +763,8 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
       onboardingComplete: true, 
       role, 
       allowedApps: initialAllowed, 
-      allowedAppsInitialized: true 
+      allowedAppsInitialized: true,
+      allowedAppsVersion: 2
     }));
 
     if (config?.operatingMode) {
