@@ -306,7 +306,17 @@ object KnownDistractingWeb {
         "uniswap.org", "sushiswap.com", "jupiter.ag", "dextools.io", "coingecko.com", "coinmarketcap.com"
     )
 
-    // ── 11. Restricted gTLDs ──
+    // ── 11. Online Shopping & E-Commerce Trap Domains ──
+    @JvmField
+    val SHOPPING_DOMAINS: Set<String> = hashSetOf(
+        "shopee.com", "shopee.ph", "shopee.sg", "shopee.my", "shopee.co.id", "shopee.vn", "shopee.th", "shopee.tw", "shopee.com.br", "shopee.com.mx", "shopee.com.co", "shopee.cl",
+        "lazada.com", "lazada.com.ph", "lazada.sg", "lazada.com.my", "lazada.co.id", "lazada.vn", "lazada.co.th",
+        "shein.com", "temu.com", "aliexpress.com", "taobao.com", "tmall.com", "jd.com",
+        "amazon.com", "ebay.com", "walmart.com", "target.com", "etsy.com", "bestbuy.com",
+        "tokopedia.com", "bukalapak.com", "blibli.com", "tiki.vn", "sendo.vn", "carousell.com", "carousell.ph"
+    )
+
+    // ── 12. Restricted gTLDs ──
     private val RESTRICTED_GTLDS: Array<String> = arrayOf(
         ".casino", ".bet", ".poker", ".adult", ".porn", ".xxx", ".sex", ".cam", ".dating", ".vodka", ".bingo"
     )
@@ -383,7 +393,7 @@ object KnownDistractingWeb {
         "mangapill", "mangago", "novelupdates", "lightnovelpub", "wuxiaworld", "attacker.tv",
         "divxcrave", "swatchseries", "cmovies", "rarbg", "torrentday", "iptorrents",
         "sereal.plus", "flexitv", "meloshort", "shotshort", "stardust.tv", "playlet",
-        "baidu.com/video", "m.baidu.com/video"
+        "baidu.com/video", "m.baidu.com/video", "kisskh"
     )
 
     private val DATING_SIGNATURES: Array<String> = arrayOf(
@@ -406,6 +416,10 @@ object KnownDistractingWeb {
     private val CRYPTO_SPECULATION_SIGNATURES: Array<String> = arrayOf(
         "pump.fun", "dexscreener.com", "birdeye.so", "raydium.io", "pancakeswap.finance",
         "uniswap", "sushiswap", "jupiter.ag", "dextools.io", "coingecko", "coinmarketcap"
+    )
+
+    private val SHOPPING_SIGNATURES: Array<String> = arrayOf(
+        "shopee", "lazada", "shein", "temu", "aliexpress", "tokopedia", "bukalapak"
     )
 
     // ── Entry Point ──
@@ -440,6 +454,7 @@ object KnownDistractingWeb {
         if (WebBlocklistConstants.matchesDomainSet(clean, DATING_AND_CHAT_DOMAINS)) return true
         if (WebBlocklistConstants.matchesDomainSet(clean, TIME_WASTER_DOMAINS)) return true
         if (WebBlocklistConstants.matchesDomainSet(clean, CRYPTO_SPECULATION_DOMAINS)) return true
+        if (WebBlocklistConstants.matchesDomainSet(clean, SHOPPING_DOMAINS)) return true
 
         // Web gaming signatures & path patterns
         if (hasGamingUrlSignatures(clean)) return true
@@ -452,6 +467,7 @@ object KnownDistractingWeb {
         for (d in DATING_SIGNATURES) { if (clean.contains(d)) return true }
         for (t in TIME_WASTER_SIGNATURES) { if (clean.contains(t)) return true }
         for (c in CRYPTO_SPECULATION_SIGNATURES) { if (clean.contains(c)) return true }
+        for (sh in SHOPPING_SIGNATURES) { if (clean.contains(sh)) return true }
 
         // Restricted gTLDs
         for (gtld in RESTRICTED_GTLDS) {
@@ -502,6 +518,9 @@ object KnownDistractingWeb {
         }
         if (WebBlocklistConstants.matchesDomainSet(clean, CRYPTO_SPECULATION_DOMAINS)) {
             return "Crypto speculation portal blocked during focus mode"
+        }
+        if (WebBlocklistConstants.matchesDomainSet(clean, SHOPPING_DOMAINS)) {
+            return "Online shopping and e-commerce portal blocked during focus mode"
         }
         val host = WebBlocklistConstants.extractHost(clean)
         for (gtld in RESTRICTED_GTLDS) {

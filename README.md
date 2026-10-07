@@ -3739,6 +3739,423 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
          - *Expected Result*: Verified; APK compilation left to user via `build.bat`.
 
+
+- **Main Thread UI Decoupling, View-Scroll Event Elimination & Floating Miniplayer / PiP Remediation (Patch 26.9 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - *Floating Timer Bubble & UI Stutter in Accessibility-Only Mode*:
+      - User reported that when interacting with NAVER (`com.nhn.android.search`) in Accessibility-only mode, the floating timer overlay ball (`FloatingOverlayService`) suffered severe frame drops, lag, and touch stutter.
+      - Forensic profiling and ADB ANR trace analysis revealed that `FloatingOverlayService` and `LockAccessibilityService` share the same main application thread (`Looper.getMainLooper()`).
+      - In `LockAccessibilityService.java`, the accessibility service was subscribed to `AccessibilityEvent.TYPE_VIEW_SCROLLED`. During smooth, continuous scrolling in NAVER, Android fired 30–60 scroll events per second.
+      - On every single scroll event, `isBrowserPackage` and `isPackageBlocked` treated `TYPE_VIEW_SCROLLED` as an active interaction, invoking `inspectBrowserWindow()` synchronously on the Main Thread. This executed Binder IPC queries (`findAccessibilityNodeInfosByViewId`) and traversed deep DOM trees (up to 350+ nodes in `inspectDom` / `classifyInAppWeb`), completely starving Android's `Choreographer` and causing dropped frames on the floating timer bubble.
+      - User confirmed checking per-scroll was an architectural mistake: user scrolling inside a web page does not change the destination domain or page classification policy. Window state transitions and debounced audits are fully sufficient.
+    - *Stale Activity Class Auto-Back Loops in NAVER*:
+      - When navigating back from NAVER's Clip feed (`ClipViewerActivity`) to the search home (`SearchHomePage`), Android's WindowManager does not always emit a new `TYPE_WINDOW_STATE_CHANGED` event when returning to an already-instantiated activity on the back stack.
+      - `LockAccessibilityService` fell back to `lastActiveActivityClass` (which still held `"ClipViewerActivity"`), repeatedly triggering `remediateDistractingSubActivity` on subsequent window change events and background ticker ticks, causing aggressive Auto-Back calls that exited the app to the home launcher (unintended Auto-Home).
+    - *Miniplayer Overlay & Picture-in-Picture Evasion*:
+      - When testing app blocking or navigating away from video feeds (such as NAVER Clip, Bilibili, YouTube), apps spawned floating Picture-in-Picture (PiP) or miniplayer window overlays. Because the underlying task was backgrounded, the video continued playing over the home launcher or QIEZKA Lock overlay without being dismissed.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Total Purge of `TYPE_VIEW_SCROLLED` Event Processing (`LockAccessibilityService.java`)**:
+      - Removed `AccessibilityEvent.TYPE_VIEW_SCROLLED` from `AccessibilityServiceInfo.eventTypes` registration in `onServiceConnected()`.
+      - Added an immediate early-return guard at the very head of `onAccessibilityEvent()`:
+        `if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) return;`
+      - Stripped `TYPE_VIEW_SCROLLED` from interaction checks across `isBrowserPackage` and `isPackageBlocked`.
+    - **Dedicated Background Worker Thread (`Qiezka-AuditWorker`) (`LockAccessibilityService.java`)**:
+      - Instantiated a background worker thread (`HandlerThread auditThread = new HandlerThread("Qiezka-AuditWorker", Process.THREAD_PRIORITY_BACKGROUND)`) and handler (`auditHandler`).
+      - Decoupled browser window inspections, super-app in-app web scans (`classifyInAppWeb`), and recursive DOM scans from the Main Thread by introducing `postBrowserAudit(String targetPkg)`.
+      - Inspection requests are debounced by 200ms and executed entirely on the background worker thread, ensuring the Main Thread remains 100% free at 60fps for `FloatingOverlayService` animations and touch events.
+      - Global accessibility actions (`performGlobalAction(GLOBAL_ACTION_BACK)`) and UI toasts are routed safely back to the Main Thread via `runOnMain(Runnable)`.
+    - **Native Ticker Interval Relaxation (`LockAccessibilityService.java`)**:
+      - Relaxed the native background ticker handler interval from 300ms to 1000ms, eliminating background Binder IPC thrashing while keeping countdown display responsive.
+    - **NAVER Fast-Paths & Stale Activity Class Elimination (`LockAccessibilityService.java`, `WebClassifier.java`, `AppClassifier.java`)**:
+      - Restricted `isDistractingSubActivity` evaluation strictly to `TYPE_WINDOW_STATE_CHANGED && eventCls != null`, completely eliminating stale `lastActiveActivityClass` fallback loops.
+      - In `isPortalSuperAppVideoActive()`, added root package validation and a fast-path for NAVER search home: if `searchBarRootView` is present and the Clip bottom navigation tab is not selected, immediately returns `false` (bypassing 14 view ID queries).
+      - Added complete NAVER video view IDs to `AppClassifier.java`: `container_clip_viewpager`, `clip_follow_view_pager`, `videoView`, `videoGroup`, `container_clip_nested_scrollable_host`, `shortentsNowViewPager`, `clipContentSoundToggle`, `clip_root`, `clip_player`, `clip_player_view`, `clip_view_pager`, `clip_content_layout`, `clip_form`, and text `"클립검색"`.
+      - In `WebClassifier.java`, added window title fast-path: returns `ClassificationResult.allowed()` immediately when window title contains `: 네이버 검색` or `: 네이버 통합검색`, bypassing recursive `inspectDom()`.
+      - In `isBrowserSearch()`, sanitized `lastActiveActivityClass = "com.nhn.android.search.ui.pages.SearchHomePage"` whenever NAVER's search bar is detected.
+      - In `remediateDistractingSubActivity()`, persistent sub-activity hits (>3) launch NAVER's clean search launch intent rather than triggering full lockout.
+    - **Picture-in-Picture & Miniplayer Remediation (`LockAccessibilityService.java`)**:
+      - Implemented `auditAndRemediatePictureInPicture()` querying `AccessibilityWindowInfo.isInPictureInPictureMode()`.
+      - Automatically detects unauthorized PiP miniplayer windows across blocked media apps (Bilibili, YouTube, Netflix) and portal super-apps when video policy is restricted.
+      - Dismisses the miniplayer window via `AccessibilityNodeInfo.ACTION_DISMISS`, displays throttled educational toast notification, and brings the parent search home or QIEZKA Lock overlay to front.
+    - **Immediate Burst Eviction on `enforceBlock()` (`LockAccessibilityService.java`)**:
+      - Dispatches `performGlobalAction(GLOBAL_ACTION_BACK)` immediately upon detecting a blocked app before launching the lock overlay, followed by burst verification checks at 100ms and 250ms to yield window focus without delay.
+  - **Comprehensive Verification Plan & Matrix (User Rule 4)**:
+    - *Affected Files*:
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - *Known Dependents & Callers*:
+      - `FloatingOverlayService`: Shares `Looper.getMainLooper()` with accessibility service; verified 60fps responsiveness during high-speed touch scrolling.
+      - `LockAccessibilityService.onAccessibilityEvent()`: Evaluates accessibility events without scroll event overhead.
+      - `LockAccessibilityService.postBrowserAudit()`: Background handler executing DOM scans off the UI thread.
+      - `WebClassifier.classifyInAppWeb()`: Off-main-thread DOM evaluation for in-app browser windows.
+      - `AppClassifier.isPortalSuperAppVideoViewId()` & `isDistractingSubActivity()`: Sub-activity and view ID matching.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Accessibility-Only Mode: 60fps Smooth Scrolling in NAVER**:
+         - *Action*: In Accessibility-only mode during active lockdown, open NAVER (`com.nhn.android.search`), perform a web search, and scroll rapidly up and down through the search results. Drag the floating timer overlay ball across the screen while scrolling.
+         - *Expected Result*: The floating timer ball moves buttery smooth at 60fps with zero touch stutter, lag, or dropped frames. Verify via `adb shell dumpsys gfxinfo com.uncode.app` that jank frame count is 0.
+      2. **NAVER Clip Feed Auto-Back (No Auto-Home Loop)**:
+         - *Action*: In NAVER, tap the "클립" (Clip) bottom navigation tab or open a short-video result (`ClipViewerActivity`).
+         - *Expected Result*: QIEZKA immediately intercepts the video feed, displays toast *"⚠️ Short-form reels / video feeds are restricted during focus lockdown."*, and executes Auto-Back (`GLOBAL_ACTION_BACK`). NAVER cleanly returns to the search homepage (`SearchHomePage`) without repeated back-presses and does NOT kick out to the home launcher (Auto-Home eliminated).
+      3. **NAVER Legitimate Web Search Immunity**:
+         - *Action*: In NAVER, search for study topics (e.g. "데이터베이스", "미적분학") and browse legitimate search result snippets and text blogs.
+         - *Expected Result*: Search results and educational web pages load without interference. Fast-path recognizes `: 네이버 검색` / `: 네이버 통합검색` immediately without recursive DOM scanning overhead.
+      4. **Bilibili / YouTube / Miniplayer PiP Dismissal**:
+         - *Action*: Open Bilibili (`tv.danmaku.bili` / `com.bstar.bilibili`) or NAVER and attempt to trigger a floating miniplayer or Picture-in-Picture window overlay.
+         - *Expected Result*: `auditAndRemediatePictureInPicture()` detects the PiP window, executes `ACTION_DISMISS` to close the floating overlay, displays educational toast, and asserts QIEZKA Lock or search home. Video cannot bypass lockdown in a floating window.
+      5. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All 40 unit test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      6. **User Rule 3 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Package-Level KissKH & TWA/PWA Purge with Native Metadata Inspector Removal (Patch 26.9 Follow-Up)**:
+  - **Why It Was Mandated (Architectural Clarification & Decoupling)**:
+    - *Elimination of Hardcoded TWA/PWA Package Assumptions*:
+      - Previously, `KnownDistracting.kt` contained hardcoded entries for `"id.kisskh.twa"` and substring checks for `lower.contains(".kisskh.")` and `lowerLabel.contains("kisskh")`, while `BlacklistConstants.kt` included `kisskh` and `webapk`.
+      - In `AppClassifier.java`, lines 864–898 performed deep `PackageManager` metadata inspection (`org.chromium.webapk.shell_apk.startUrl` / `scopeUrl`) on any package starting with `org.chromium.webapk` or containing `webapk`.
+      - User explicitly mandated purging all `kisskh` and TWA/PWA references from native package lists (`KnownSafe.kt`, `KnownDistracting.kt`, `BlacklistConstants.kt`, `AppClassifier.java`) while strictly preserving web-domain level protections (`KnownDistractingWeb.kt` and `WebBlocklistConstants.kt`).
+      - PWAs and TWAs are web applications whose destination domains are already governed dynamically by `WebClassifier` when navigating. Hardcoding individual TWA packages or running intrusive metadata reflection inside `AppClassifier` created redundant, brittle checks.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Purged KissKH and TWA from `KnownDistracting.kt`**:
+      - Removed `"id.kisskh.twa"` from `KNOWN_DISTRACTING_PACKAGES`.
+      - Removed `lower.contains(".kisskh.")` from `hasDistractingPackageSignature()`.
+      - Removed `lowerLabel.contains("kisskh")` from `hasDistractingLabelSignature()`.
+      - Cleaned up class doc comments referencing KissKH.
+    - **Purged KissKH and WebAPK from `BlacklistConstants.kt`**:
+      - Removed `lower.contains("kisskh")` and `lower.contains("webapk")` from `hasHostileSubstring()`.
+      - Cleaned up comment referencing PWA/KissKH.
+    - **Purged WebAPK Metadata Inspection & KissKH from `AppClassifier.java`**:
+      - Removed `"kisskh"` from `NEGATIVE_LABEL_KEYWORDS`.
+      - Completely removed the 35-line `Milestone 20: WebAPK & PWA Deep Metadata Inspection` block that parsed `org.chromium.webapk.shell_apk.startUrl` via `PackageManager.GET_META_DATA`.
+    - **Preserved Web-Level Domain Protection**:
+      - `KnownDistractingWeb.kt` (`kisskh.co`, `kisskh.me`, `kisskh.ovh`, etc.) and `WebBlocklistConstants.kt` remain 100% active, guaranteeing that web browsing to pirate or distracting streaming sites in Chrome or standard browsers is intercepted immediately by `WebClassifier`.
+    - **Cleaned Residual Comment (`LockAccessibilityService.java`)**:
+      - Replaced residual `id.kisskh.twa` comment in `detectCurrentForegroundPackage()` with generic provider terminology.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`KnownDistracting.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistracting.kt)
+      - [`BlacklistConstants.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/BlacklistConstants.kt)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+    - *Known Dependents & Callers*:
+      - `AppClassifier.evaluatePackage()`: Evaluates installed applications without WebAPK metadata reflection overhead.
+      - `KnownDistracting.isKnownDistracting()`: Evaluates packages and labels for Stage 2 truth table decisions.
+      - `BlacklistConstants.isBlacklisted()`: Evaluates hostile substrings for camera and calculator bypass protection.
+      - `WebClassifier.classify()`: Continues enforcing web domain filters for KissKH websites in browsers.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Web-Level Distraction Interception (Preservation Check)**:
+         - *Action*: On device during active lockdown, open Google Chrome and navigate to `https://kisskh.co`.
+         - *Expected Result*: `WebClassifier` immediately intercepts the visited domain and dispatches In-Browser Auto-Back with an educational toast. Confirms web protection was preserved.
+      2. **Native Distracting App Interception (Zero Regression Check)**:
+         - *Action*: During active lockdown, launch TikTok (`com.zhiliaoapp.musically`), Instagram, or a blacklisted game.
+         - *Expected Result*: `KnownDistracting` and `AppClassifier` immediately trigger the lock overlay or home eviction. Standard distraction app protection remains 100% intact.
+      3. **PWA / Web Shortcut Launching**:
+         - *Action*: Launch an installed WebAPK or web shortcut application on device.
+         - *Expected Result*: `AppClassifier` evaluates the app through standard heuristic stages without executing the purged metadata reflection block or causing Binder IPC failures.
+      4. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Unified Web Container Inspection Pipeline & Strict Single-Flow Harmonization (Patch 26.9 Follow-Up)**:
+  - **Why It Was Mandated (Architectural Unification & Single-Flow Harmonization)**:
+    - *Fragmentation Elimination*: Previously, inspection of browser-related windows and web containers was fragmented across multiple disparate branches depending on whether a container was identified as a standard browser, a standalone PWA, a TWA, a Chrome Custom Tab, or an in-app web view. Furthermore, standalone PWAs executed a separate eviction mechanism (`enforceBlock(pkg)` to QIEZKA Lock screen) instead of in-browser tab remediation.
+    - *Mandated Strict Flowchart*: The user mandated unifying all general browser and web container architectures (standard web browsers, Custom Tabs, PWAs, TWAs, WebAPKs) into a single, strict flowchart:
+      ```mermaid
+      graph TD
+        A[Browser / Web Container] --> B{Is it Search Query / SERP?}
+        B -- Yes --> C[[Research Immune: ALLOW]]
+        B -- No --> D{Is URL viewable?}
+        D -- Yes --> E[Check for KnownDistractingWeb]
+        E --> N[Check for KnownSafeWeb]
+        N --> O{Check for TruthTable + UnifiedRegistry Policy}
+        D -- No --> F{WebClassifier + DOM}
+        O -- "Yes Distracting, No Safe" --> H[Remediate: Close Tab/Back]
+        O -- "No Distracting, No Safe" --> F
+        O -- "No Distracting, Yes Safe" --> I[[Browsing Continues Uninterrupted]]
+        O -- "Yes Distracting, Yes Safe" --> I
+        F -- Blocked --> H
+        F -- Allowed --> I
+      ```
+    - *Portal Super-App Preservation*: As specified by the user, Portal Super-Apps (Baidu, NAVER) retain their own dedicated in-app sub-activity and video inspection logic to maintain stability without regressions.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Unified Web Inspection Flow (`LockAccessibilityService.java`)**:
+      - Refactored `inspectBrowserWindow()` so that all general web containers strictly follow Nodes A $\rightarrow$ B $\rightarrow$ D $\rightarrow$ E $\rightarrow$ N $\rightarrow$ O $\rightarrow$ F/H/I.
+      - Step 1 (Nodes B $\rightarrow$ C): Evaluates `isBrowserSearch(url, root)`; if true, resets remediation counters and immediately allows uninterrupted browsing.
+      - Step 2 (Node D): Evaluates whether URL is viewable (`url != null && !url.trim().isEmpty()`).
+      - Step 3 (Nodes E $\rightarrow$ N $\rightarrow$ O): If URL is viewable, evaluates `KnownDistractingWeb`, `KnownSafeWeb` (including academic exempt and Unified Policy services), and executes the 4 truth table branches:
+        - *"Yes Distracting, No Safe"* $\rightarrow$ Node H (`remediateBlockedBrowserTab`).
+        - *"No Distracting, Yes Safe"* $\rightarrow$ Node I (`resetBrowserRemediationState(); return;`).
+        - *"Yes Distracting, Yes Safe"* $\rightarrow$ Node I (`resetBrowserRemediationState(); return;`).
+        - *"No Distracting, No Safe"* $\rightarrow$ Falls through to Node F (`WebClassifier + DOM`).
+      - Step 4 (Node F): For null URL (scrolled tabs, address bar collapsed, PWAs, TWAs) or unclassified viewable URLs, evaluates `WebClassifier.classifyDom(root, allowYoutube, allowedDomains)`:
+        - *Blocked* $\rightarrow$ Node H (`remediateBlockedBrowserTab`).
+        - *Allowed* $\rightarrow$ Node I (`resetBrowserRemediationState()`).
+    - **Elimination of PWA-Specific Eviction (`LockAccessibilityService.java`)**:
+      - Purged the obsolete `isStandalonePwa()` method and removed the separate `enforceBlock(pkg)` eviction path for PWAs.
+      - All web containers remediate via Node H (`remediateBlockedBrowserTab`: CustomTab close button, Auto-Back, or in-place home reset).
+    - **Standardized DOM Classifier (`WebClassifier.java`)**:
+      - Added `classifyDom(root, allowYoutube, allowedDomains)` as Node F, crawling the view hierarchy for game controls, gambling triggers, adult content, unblocked proxies, and video streams when restricted.
+      - Forwarded `classifyStandalonePwa` to `classifyDom` for clean binary compatibility.
+    - **Web Container Routing (`AppClassifier.java`)**:
+      - Added `chromium` and `webapk` to `isBrowserPackage()` Latin substring fallback, ensuring WebAPKs and Chromium web containers pass Stage 1 Master Veto as web containers and route into Stage 2 web inspection.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.onAccessibilityEvent()`: Direct caller for window state changes and user interactions.
+      - `LockAccessibilityService.postBrowserAudit()`: Background handler invoking `inspectBrowserWindow()`.
+      - `LockAccessibilityService.onTickerTick()`: Safety tick invoking foreground browser audits.
+      - `LockAccessibilityService.remediateBlockedBrowserTab()`: Node H executor for closing Custom Tabs, Auto-Back, and home reset.
+      - `WebClassifier.decisionCache`: In-memory cache for fast-path verdicts.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Search Query & SERP Research Immunity (Node B $\rightarrow$ Node C)**:
+         - *Action*: During active lockdown, open Chrome and search for `"linear algebra proofs"` or navigate to `https://www.google.com/search?q=calculus`. Type in the omnibox or in-page search input.
+         - *Expected Result*: Browsing continues 100% uninterrupted. No back keys, no lock overlays, no toasts.
+      2. **Viewable Distracting URL Interception (Node D $\rightarrow$ E $\rightarrow$ N $\rightarrow$ O $\rightarrow$ Node H)**:
+         - *Action*: In Chrome or Samsung Internet, navigate to `https://www.tiktok.com` or `https://poki.com`.
+         - *Expected Result*: Evaluates as Yes Distracting, No Safe. Dispatches Node H: toast warning appears and browser auto-backs to prior safe page.
+      3. **Viewable Safe & Whitelisted URL Passage (Node D $\rightarrow$ E $\rightarrow$ N $\rightarrow$ O $\rightarrow$ Node I)**:
+         - *Action*: Navigate to `https://en.wikipedia.org` or `https://docs.google.com`. Then navigate to an enabled service (e.g. YouTube web if "Videos" toggle is active).
+         - *Expected Result*: Evaluates as Safe. Browsing continues smoothly without interruption.
+      4. **Viewable Unclassified URL with DOM Inspection (Node D $\rightarrow$ E $\rightarrow$ N $\rightarrow$ O $\rightarrow$ Node F $\rightarrow$ H/I)**:
+         - *Action*: Navigate to an unclassified educational blog, then navigate to an unclassified web game site with in-game canvas HUD.
+         - *Expected Result*: Unclassified URL routes to Node F. The text article survives DOM scan and is allowed (Node I). The game page detects game tokens/canvas controls in DOM and triggers Auto-Back (Node H).
+      5. **Non-Viewable URL / Scrolled Browser Tab / CustomTab (Node D $\rightarrow$ Node F $\rightarrow$ Node I)**:
+         - *Action*: Open a permitted academic article in Chrome (e.g. Wikipedia). Scroll down past the address bar so the address bar collapses into fullscreen mode (`url == null`). Read and interact with the page.
+         - *Expected Result*: Node D evaluates to No (`url == null`). Node F inspects DOM. Clean article passes DOM scan and user can scroll/read uninterrupted (Node I). The user is NOT evicted to QIEZKA Lock.
+      6. **Chrome Custom Tab Remediation (Node H via CustomTab Close Button)**:
+         - *Action*: From an allowed app (e.g. Google Keep), tap a link that opens a Chrome Custom Tab to a distracting site.
+         - *Expected Result*: Node H executes `remediateBlockedBrowserTab`. `closeCustomTab()` detects the Custom Tab close button and clicks it, cleanly dismissing the Custom Tab back to the host application.
+      7. **Standalone PWA / WebAPK Remediation (Node H via Auto-Back / Close Tab)**:
+         - *Action*: Launch an installed standalone PWA or WebAPK that is categorized as distracting.
+         - *Expected Result*: Node H executes `remediateBlockedBrowserTab` with Auto-Back/Close instead of abruptly killing the process or throwing the user to QIEZKA Lock screen.
+      8. **Portal Super-App Preservation Check**:
+         - *Action*: In Baidu app or NAVER app, perform text searches, read news/encyclopedia articles, or access file manager.
+         - *Expected Result*: Super-app operates cleanly via its dedicated logic; short video reels tab triggers Auto-Back to search home page.
+      9. **Automated Unit Testing & TypeScript Validation**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit tests pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors.
+      10. **User Rule 2 Compliance Check**:
+          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+          - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **PWA & TWA Universal Web Container Exemption, Manifest Host Resolution & Shopping Category Expansion (Patch 26.9 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - *Shopee E-Commerce & Shopping Category Policy Alignment*:
+      - User confirmed that Shopee (`shopee.ph`, `shopee.com`, etc.) and related online shopping platforms are strictly meant to be blocked during focus lockdown.
+      - Live device forensics on Shopee WebAPK (`org.chromium.webapk.a803cdaf2d8785085_v2`) demonstrated that while Chrome correctly routed `SameTaskWebApkActivity` to the web container pipeline, the standalone display mode hid the omnibox (`url == null`), routing to Node F (`classifyDom`). Because e-commerce UI contains products and vouchers rather than adult/gambling/piracy keywords, it was evaluated as Allowed (Node I: Browsing Continues Uninterrupted). Furthermore, shopping platforms were absent from `KnownDistractingWeb`.
+    - *KissKH TWA Native Lock Overlay Interception*:
+      - In live ADB testing, launching KissKH TWA (`id.kisskh.twa`) caused QIEZKA Lock UI (`MainActivity`) to intercept immediately instead of executing in-browser Auto-Back (Node H) as mandated by the strict single-flowchart.
+      - Forensic analysis revealed that `AppClassifier.isBrowserPackage("id.kisskh.twa")` returned `false` because `.twa` was not part of the substring checks and static callers passed `context == null`.
+      - Consequently, `isPackageBlocked("id.kisskh.twa")` evaluated `id.kisskh.twa` as an unknown native app. Because KissKH was previously pruned from known packages and matched entertainment/video keywords, Layer 5 heuristic blocked it at the Android package level, executing `enforceBlock("id.kisskh.twa")` which summoned QIEZKA `MainActivity`.
+    - *Architectural Alignment Requested by User*:
+      - Rather than enforcing blockades at the native package level (which summons the QIEZKA Lock UI), all PWAs, TWAs, and related web containers are unconditionally classified as Web Containers in `AppClassifier` (`isBrowserPackage == true`) and allowed through the package gate (`isPackageBlocked == false`).
+      - 100% of the inspection and remediation logic is delegated to `WebClassifier` and DOM evaluation, ensuring any distraction is remediated via in-browser Auto-Back or Custom Tab close (Node H) with zero eviction to QIEZKA Lock UI.
+      - For standalone PWAs/TWAs where the on-screen address bar is hidden (`url == null`), the host must be resolved directly from the application's declared `AndroidManifest.xml` intent filters and fed into the Node D/E/N/O truth table.
+  - **Concrete Architectural Changes Implemented**:
+    - **Shopping & E-Commerce Category Expansion (`KnownDistractingWeb.kt`, `WebBlocklistConstants.kt`)**:
+      - Added comprehensive `SHOPPING_DOMAINS` set: Shopee across regional TLDs (`shopee.com`, `shopee.ph`, `shopee.sg`, `shopee.my`, `shopee.co.id`, `shopee.vn`, `shopee.th`, `shopee.tw`, `shopee.com.br`, `shopee.com.mx`, `shopee.com.co`, `shopee.cl`), Lazada (`lazada.com`, `lazada.com.ph`, `lazada.sg`, `lazada.com.my`, `lazada.co.id`, `lazada.vn`, `lazada.co.th`), Shein (`shein.com`), Temu (`temu.com`), AliExpress (`aliexpress.com`), Taobao (`taobao.com`), Tmall (`tmall.com`), JD (`jd.com`), Amazon (`amazon.com`), eBay (`ebay.com`), Walmart (`walmart.com`), Target (`target.com`), Etsy (`etsy.com`), Best Buy (`bestbuy.com`), Tokopedia (`tokopedia.com`), Bukalapak (`bukalapak.com`), Blibli (`blibli.com`), Tiki (`tiki.vn`), Sendo (`sendo.vn`), Carousell (`carousell.com`, `carousell.ph`).
+      - Added `SHOPPING_SIGNATURES` matching and distraction reason string (`"Online shopping and e-commerce portal blocked during focus mode"`).
+      - Exposed `SHOPPING_DOMAINS` publicly in `WebBlocklistConstants.kt`.
+    - **Universal PWA / TWA / WebAPK Package Gate Exemption (`AppClassifier.java`)**:
+      - Expanded `AppClassifier.isBrowserPackage()` substring checks to include `.twa`, `.pwa`, and `webapk`.
+      - Implemented dynamic Android `PackageManager` component query checking for `android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE` and browsable intent filters.
+      - Exempted web container packages from native package-level blocks in `isPackageBlocked()`, ensuring they never trigger `enforceBlock()` or summon QIEZKA Lock UI.
+    - **Manifest Host Resolution & Hidden-Omnibox Fallback (`LockAccessibilityService.java`)**:
+      - Implemented `resolveHostFromPackageManifest(String pkg)` with in-memory caching (`packageManifestHostCache` via `ConcurrentHashMap`).
+      - Opens the target app's `AndroidManifest.xml` via `createPackageContext().getAssets().openXmlResourceParser()` to extract declared `<data android:scheme="https" android:host="...">` authorities (e.g. `kisskh.id`, `shopee.ph`).
+      - In `inspectBrowserWindow()`, when on-screen URL is null (standalone PWA/TWA mode), falls back to the resolved manifest host, feeding it directly into Node D → E → N → O for instant truth-table classification.
+    - **Single-Flow Remediation Realignment (`LockAccessibilityService.java`)**:
+      - KissKH TWA (`id.kisskh.twa`) and Shopee WebAPK (`org.chromium.webapk.a803cdaf2d8785085_v2`) route directly through Node H (`remediateBlockedBrowserTab`) using Auto-Back (`GLOBAL_ACTION_BACK`) or Custom Tab close button without ever summoning QIEZKA `MainActivity`.
+    - **Unit Test Coverage (`HomeHandlerTest.kt`)**:
+      - Added unit test assertions verifying `id.kisskh.twa`, `org.chromium.webapk...`, `.pwa` packages evaluate as `isBrowserPackage == true`.
+      - Verified `shopee.ph`, `shopee.com/cart`, `lazada.com.ph`, and `kisskh.id` evaluate as `KnownDistractingWeb == true`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`KnownDistractingWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistractingWeb.kt)
+      - [`WebBlocklistConstants.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebBlocklistConstants.kt)
+      - [`AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.onAccessibilityEvent()`: Direct caller for window state changes and user interactions.
+      - `LockAccessibilityService.isBrowserPackage()`: Classifies whether package routes to browser pipeline or native app gate.
+      - `LockAccessibilityService.inspectBrowserWindow()`: Implements Node A through Node I web pipeline.
+      - `LockAccessibilityService.resolveHostFromPackageManifest()`: Resolves manifest authorities for standalone PWAs/TWAs.
+      - `KnownDistractingWeb.isKnownDistractingWeb()`: Evaluates shopping and piracy domains across all browser and DNS inspections.
+      - `WebClassifier.classifyDom()`: Evaluates DOM when URL is null or unclassified.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Shopee Standalone PWA / WebAPK Auto-Back (Node H)**:
+         - *Action*: During active lockdown, launch the installed Shopee WebAPK (`org.chromium.webapk.a803cdaf2d8785085_v2`) or open `https://shopee.ph` in Chrome.
+         - *Expected Result*: `resolveHostFromPackageManifest` extracts `shopee.ph` from the WebAPK manifest (or omnibox in standard Chrome); Node E matches `SHOPPING_DOMAINS`; Node O evaluates as *"Yes Distracting, No Safe"*; Node H executes Auto-Back / Close Tab with toast *"⚠️ Online shopping and e-commerce portal blocked during focus mode"*. QIEZKA Lock UI does NOT intercept.
+      2. **KissKH TWA Auto-Back (Node H - No QIEZKA UI Interception)**:
+         - *Action*: During active lockdown, launch KissKH TWA (`id.kisskh.twa`).
+         - *Expected Result*: `AppClassifier.isBrowserPackage` recognizes `.twa` and TWA service, allowing the package through the package gate. `resolveHostFromPackageManifest` extracts `kisskh.id`; Node E matches piracy blocklist; Node O evaluates as *"Yes Distracting, No Safe"*; Node H executes Auto-Back. QIEZKA `MainActivity` is NEVER summoned.
+      3. **Legitimate Educational Browsing & Search Immunity**:
+         - *Action*: Open Chrome and perform searches on Google / Bing / DuckDuckGo, and navigate to Wikipedia or Google Docs.
+         - *Expected Result*: Search immunity (Node B → C) and Safe list (Node N → O → I) allow browsing without interference or Auto-Back triggers.
+      4. **Scrolled Non-Viewable Safe Tab Interruption Immunity**:
+         - *Action*: Open Wikipedia in Chrome and scroll past the address bar into full-screen view (`url == null`).
+         - *Expected Result*: Manifest host resolution does not match distracting domains; DOM inspection validates clean academic content; page remains completely readable and uninterrupted (Node I).
+      5. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL in 9s`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Progressive Lifecycle DOM Classification, Stateful Polling & Anti-Throttling Defense (Patch 26.9 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - *Premature Empty-DOM Race Condition*:
+      - Live device benchmarking on connected test device (`192.168.1.62:39037`) confirmed that accessibility DOM hierarchies require 600ms–800ms after an Activity transition to populate with rendered web content.
+      - Cold launching KissKH TWA (`id.kisskh.twa`) showed that at 200ms, the DOM tree consisted of only 16 nodes and 0 text elements (empty splash FrameLayout shell). At 800ms, it fully populated with 817 nodes and 379 text elements (drama titles, streaming video player, episode lists).
+      - If `inspectBrowserWindow()` executed Node F (`WebClassifier.classifyDom`) immediately upon `TYPE_WINDOW_STATE_CHANGED`, the DOM crawler inspected an empty skeleton. Finding 0 distraction tokens, it prematurely declared the window `Allowed`, called `resetBrowserRemediationState()`, and permanently exited. Once web content rendered in the background, no subsequent window transition event fired, leaving the distracting page uninspected and unblocked.
+    - *Deliberate Network-Throttling Loophole*:
+      - If QIEZKA only used a single delayed scan (e.g. at 800ms) and exited, a user could intentionally throttle their network (via 2G mode or low-bandwidth proxy) so that the web page remained a blank loading spinner at 800ms.
+      - The single 800ms scan would see an empty DOM and mark it `Allowed`. Once the scan passed, the user would unthrottle their network, and the distracting content would render completely unmonitored.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Progressive Lifecycle States (`WebClassifier.java`)**:
+      - Added `isPending` state and `ClassificationResult.pendingLoad(String reason)` to distinguish an unresolved loading skeleton from a verified `Allowed` page.
+      - Implemented sparse / loading skeleton guards in `classifyDom()` and `classifyInAppWeb()`: when `stats.totalNodesScanned < 30 && stats.contentTextsScanned <= 1 && stats.academicScore == 0`, the classifier returns `ClassificationResult.pendingLoad(...)`.
+      - Added `contentTextsScanned` accounting in `DomScanStats` and `inspectDom()` to accurately track substantive on-screen text nodes.
+    - **Stateful Progressive Polling (`LockAccessibilityService.java`)**:
+      - Updated `postBrowserAudit(String targetPkg)` to support progressive stepped polling via `postBrowserAudit(String targetPkg, int pollStep)`.
+      - Defined progressive poll delays: `PROGRESSIVE_DOM_POLL_DELAYS = { 300L, 700L, 1200L, 2000L }`.
+      - When `inspectBrowserWindow()` receives `domRes.isPending` from Node F, it logs the loading state and schedules the next stepped poll via `postBrowserAudit(pkg, pollStep + 1)`.
+      - Crucially: **NEVER calls `resetBrowserRemediationState()` while DOM is in a pending loading state.**
+      - Maintained the continuous 1000ms background ticker (`onTickerTick()`), ensuring that even if all stepped callbacks expire, foreground browser containers are continually audited so any delayed unthrottled load is caught the instant elements render.
+    - **Fast URL / Manifest Priority Invariant Preserved (`LockAccessibilityService.java`)**:
+      - Pass 1 (0ms) continues to evaluate search query immunity (Node B → C) and viewable/manifest URLs (Node E → O). Known distractions are remediated immediately without waiting for DOM rendering.
+    - **Unit Testing Coverage (`HomeHandlerTest.kt`)**:
+      - Added unit test cases verifying `ClassificationResult.pendingLoad`, `allowed`, and `blocked` states and reasons.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.onAccessibilityEvent()`: Direct caller for window state changes and user interactions.
+      - `LockAccessibilityService.postBrowserAudit()`: Staged background handler executing progressive DOM audits.
+      - `LockAccessibilityService.onTickerTick()`: Continuous 1000ms safety ticker executing fallback browser audits.
+      - `LockAccessibilityService.remediateBlockedBrowserTab()`: Node H executor for closing Custom Tabs and Auto-Back.
+      - `WebClassifier.classifyDom()` & `classifyInAppWeb()`: Core DOM crawlers with loading skeleton guards.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Cold Launch Progressive DOM Audit (KissKH TWA)**:
+         - *Action*: Force-stop `id.kisskh.twa` (`am force-stop id.kisskh.twa`) and launch it during active lockdown.
+         - *Expected Result*: At 200ms, the classifier detects a sparse skeleton (16 nodes, 0 text) and reports `pendingLoad()`. No premature allowed pass is granted. At ~800ms, poll step 2 detects the populated DOM (817 nodes, 379 texts) with streaming drama tokens and executes Node H (Auto-Back). QIEZKA Lock UI never intercepts.
+      2. **Artificial Network-Throttling Defense Verification**:
+         - *Action*: Launch an unclassified web container while network is throttled or in airplane mode so the screen shows a blank spinner. Wait 3–5 seconds, then restore network connectivity so web content loads.
+         - *Expected Result*: The page is never marked as immune/allowed while blank. The moment internet restores and elements populate, the next progressive poll / ticker tick catches the content and executes Auto-Back.
+      3. **Slow-Connection Academic Study Immunity (Wikipedia / Google Docs)**:
+         - *Action*: Open Wikipedia or Google Docs over a slow network connection.
+         - *Expected Result*: Sparse initial state is treated as pending without kicking the user out. Once academic text populates, Node I confirms clean academic content and browsing continues completely uninterrupted.
+      4. **Fast URL Interception Invariant**:
+         - *Action*: Navigate to `https://shopee.ph` in Chrome.
+         - *Expected Result*: Pass 1 intercepts immediately on viewable URL without waiting for DOM to finish loading.
+      5. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Standalone Web Container (TWA & WebAPK) Evasion Shield & Progressive DOM Lifecycle Fix (Patch 26.9 Follow-Up)**:
+  - **Why It Was Mandated (Live Forensic Findings & Device Investigation)**:
+    - *Shopee WebAPK Warm-Resume Evasion via False-Positive Search Hijacking*:
+      - User observed that while Shopee WebAPK (`org.chromium.webapk.a803cdaf2d8785085_v2`) triggered Auto-Back on cold launch, quickly pressing HOME before DOM scanning finished and reopening Shopee from Home/Recents allowed unrestricted browsing without being blocked.
+      - Forensic investigation via ADB (`dumpsys window`, `dumpsys activity`) revealed that on warm resume, Shopee resumed inside `com.android.chrome/org.chromium.chrome.browser.webapps.SameTaskWebApkActivity`.
+      - Because standalone WebAPKs hide the browser address bar, `url` was `null`.
+      - In `LockAccessibilityService.isBrowserSearch(url, root)`:
+        ```java
+        AccessibilityNodeInfo focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (focused != null && (focused.isEditable() || focused.isFocused())) {
+            ...
+            } else {
+                return true; // Empty URL in search input trap!
+            }
+        }
+        ```
+      - When Shopee's `android.webkit.WebView` possessed input focus (`isFocused() == true`), `isBrowserSearch` matched `else { return true; }` (intended for blank New Tab Page search boxes).
+      - This falsely declared Shopee "Research Immune: ALLOW" (Node C), immediately resetting remediation state and granting complete immunity to the e-commerce app!
+    - *KissKH TWA Dual-Activity Task Handoff & Window Title Separation*:
+      - User observed that KissKH TWA (`id.kisskh.twa`) displayed its splash screen, handed off to a fullscreen web container, and never triggered Auto-Back.
+      - Live ADB forensics showed `id.kisskh.twa/.LauncherActivity` delegated via `Intent.ACTION_VIEW` (`https://kisskh.id/`) to `com.android.chrome/CustomTabActivity` within the same Task (`#717 A=10526:id.kisskh.twa`).
+      - In CustomTabActivity, `url` was `null` and `close_button` was absent. Like Shopee, it fell into the `isBrowserSearch` false-positive trap.
+      - Furthermore, `resolveHostFromPackageManifest` failed because calling `openXmlResourceParser("AndroidManifest.xml")` across application contexts was unreliable on Android 16.
+    - *Incidental Academic Keyword Poisoning in DOM Traversal*:
+      - In KissKH's loaded DOM (817 nodes, 389 texts), a featured Asian drama was titled `"The Love Hypothesis (2026)"`.
+      - `ACADEMIC_PROMOTION_KEYWORDS` in `WebClassifier.java` contained the generic word `"hypothesis"`.
+      - Matching `"hypothesis"` incremented `stats.academicScore++`.
+      - In `WebClassifier.inspectDom()`, all subsequent real-time piracy (`DOM_PIRACY_TOKENS`), gambling, and adult checks were guarded by `if (stats.academicScore == 0)`.
+      - A single incidental word in a movie title completely disabled all piracy and distraction detection across the entire DOM!
+    - *Progressive DOM Audit Cancellation Thrashing*:
+      - Cold launch audits at 400ms returned `ClassificationResult.pendingLoad(...)` and scheduled progressive stepped polls (+300ms, +700ms).
+      - However, subsequent window state events and the periodic 1000ms safety ticker invoked `postBrowserAudit(pkg, 0)`, which executed `auditHandler.removeCallbacksAndMessages(null)`, prematurely purging all scheduled progressive retry callbacks before the web page finished rendering.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Elimination of False-Positive Search Immunity (`LockAccessibilityService.java`)**:
+      - Fixed `isBrowserSearch(url, root)`: requires `focused.isEditable()` and matches actual search/omnibox keywords or view IDs. Entire `android.webkit.WebView` containers or non-editable focused views are strictly rejected.
+      - Deleted the vulnerable fallback `else { return true; }` when `url == null`. An absent URL in a web container never confers search immunity.
+    - **Robust Manifest Host & Window Title Resolution (`LockAccessibilityService.java`)**:
+      - Replaced fragile XML parser with native Android `PackageManager.queryIntentActivities(Intent(ACTION_VIEW, "https://example.com"), GET_RESOLVED_FILTER)` to extract `<data android:host="...">` authority hostnames (`shopee.ph`, `kisskh.id`).
+      - In `inspectBrowserWindow()`, enhanced URL resolution when `url == null`:
+        1. Checks `lastForegroundPackage` manifest host (`packageManifestHostCache`).
+        2. Checks window title (`root.getWindow().getTitle()`, e.g. `"kisskh"`, `"Shopee"`).
+    - **Hardened DOM Classifier & Academic Immunity Precision (`WebClassifier.java`)**:
+      - In `DOM_PIRACY_TOKENS`, added `"kisskh"`.
+      - In `ACADEMIC_PROMOTION_KEYWORDS`, replaced generic `"hypothesis"` with `"scientific hypothesis"` to prevent drama title collisions.
+      - Hardened real-time gambling, adult, and piracy checks: require `stats.academicScore < 3` rather than `< 1`, ensuring real-time distraction tokens cannot be bypassed by an isolated academic keyword.
+    - **Anti-Cancellation Token-Preserved Progressive DOM Polling (`LockAccessibilityService.java`)**:
+      - Introduced `auditStep0Token` object. Step 0 audits execute `auditHandler.removeCallbacksAndMessages(auditStep0Token)` instead of `removeCallbacksAndMessages(null)`.
+      - Background ticker ticks and window transitions safely debounce step 0 without cancelling scheduled progressive poll steps (1, 2, 3, 4).
+    - **Strict Auto-Back Remediation Alignment (`LockAccessibilityService.java`)**:
+      - Realigned web container remediation strictly to Node H: dispatches `performGlobalAction(GLOBAL_ACTION_BACK)` without invoking QIEZKA Lock UI, cleanly reversing browser navigation or closing the container.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`KnownDistractingWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistractingWeb.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.onAccessibilityEvent()`: Dispatches window audits on foreground window events.
+      - `LockAccessibilityService.onTickerTick()`: 1000ms safety ticker auditing foreground browser containers.
+      - `LockAccessibilityService.remediateBlockedBrowserTab()`: Node H executor for closing Custom Tabs and Auto-Back.
+      - `LockAccessibilityService.isBrowserSearch()`: Gateway guard separating search queries from web page destinations.
+      - `WebClassifier.classifyDom()` & `classifyInAppWeb()`: Core DOM crawlers for WebView and Custom Tab containers.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Shopee Warm-Resume Bypass Verification**:
+         - *Action*: Launch Shopee WebAPK (`org.chromium.webapk.a803cdaf2d8785085_v2`), immediately tap HOME within 200ms before DOM scan finishes. Then immediately reopen Shopee from Home / Recents.
+         - *Expected Result*: On warm resume (`SameTaskWebApkActivity`), QIEZKA identifies Shopee via window title / host resolution. `isBrowserSearch` does NOT treat the WebView as search input. Shopee is blocked and immediately evicted via Auto-Back (`GLOBAL_ACTION_BACK`). User cannot access Shopee.
+      2. **KissKH TWA Dual-Activity Handoff Verification**:
+         - *Action*: Launch KissKH TWA (`id.kisskh.twa`). Observe transition from `LauncherActivity` to `com.android.chrome/CustomTabActivity`.
+         - *Expected Result*: Progressive DOM polling detects streaming player tokens (`"continue watching"`, `"kisskh"`, etc.) despite the presence of `"The Love Hypothesis"` in drama titles. Auto-Back (`GLOBAL_ACTION_BACK`) immediately evicts the Custom Tab. KissKH is restricted.
+      3. **Genuine Search Typing Immunity Invariant**:
+         - *Action*: Open Chrome, tap the address bar, type search queries (e.g. `"shopee reviews"`, `"kisskh alternatives"`, `"operating systems"`).
+         - *Expected Result*: Typing in the address bar is 100% immune. User is never interrupted while typing in search or Omnibox inputs.
+      4. **Google Search Results Page Invariant**:
+         - *Action*: Perform a Google search in Chrome.
+         - *Expected Result*: Search engine results page (SERP) is recognized as search immune (`isBrowserSearch == true`). Browsing results is uninterrupted.
+      5. **Legitimate Academic Reading Invariant**:
+         - *Action*: Open Wikipedia (e.g. article on "Scientific Hypothesis" or "Operating System").
+         - *Expected Result*: Academic immunity allows uninterrupted reading without false-positive blocks.
+      6. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      7. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks

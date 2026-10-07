@@ -16,17 +16,23 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 
 import android.widget.Toast;
+import android.content.res.XmlResourceParser;
+import org.xmlpull.v1.XmlPullParser;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.HandlerThread;
+import android.os.Process;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -76,6 +82,9 @@ public class LockAccessibilityService extends AccessibilityService {
     private String lastForegroundPackage = null;
     private String lastBlockedPackage = null;
     private final Set<String> firedWarningKeys = new HashSet<>();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private HandlerThread auditThread;
+    private Handler auditHandler;
     private final Handler tickerHandler = new Handler(Looper.getMainLooper());
     private final Runnable tickerRunnable = new Runnable() {
         @Override
@@ -85,7 +94,7 @@ public class LockAccessibilityService extends AccessibilityService {
             } catch (Exception e) {
                 Log.e(TAG, "Ticker error: " + e.getMessage());
             } finally {
-                tickerHandler.postDelayed(this, 300L);
+                tickerHandler.postDelayed(this, 1000L);
             }
         }
     };
@@ -95,6 +104,52 @@ public class LockAccessibilityService extends AccessibilityService {
         tickerHandler.post(tickerRunnable);
     }
 
+    private void runOnMain(Runnable r) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            r.run();
+        } else {
+            mainHandler.post(r);
+        }
+    }
+
+    private static final long[] PROGRESSIVE_DOM_POLL_DELAYS = { 300L, 700L, 1200L, 2000L };
+    private final Object auditStep0Token = new Object();
+
+    private void postBrowserAudit(String targetPkg) {
+        postBrowserAudit(targetPkg, 0);
+    }
+
+    private void postBrowserAudit(String targetPkg, int pollStep) {
+        if (auditHandler == null || targetPkg == null) return;
+        if (pollStep == 0) {
+            auditHandler.removeCallbacksAndMessages(auditStep0Token);
+            auditHandler.postAtTime(() -> executeBrowserAudit(targetPkg, 0), auditStep0Token, android.os.SystemClock.uptimeMillis());
+        } else {
+            long delay = (pollStep - 1 < PROGRESSIVE_DOM_POLL_DELAYS.length)
+                    ? PROGRESSIVE_DOM_POLL_DELAYS[pollStep - 1]
+                    : 1500L;
+            auditHandler.postDelayed(() -> executeBrowserAudit(targetPkg, pollStep), delay);
+        }
+    }
+
+    private void executeBrowserAudit(String targetPkg, int pollStep) {
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root != null) {
+                try {
+                    CharSequence rPkg = root.getPackageName();
+                    if (rPkg != null && isBrowserPackage(rPkg.toString(), null) && !isSystemOrLauncher(rPkg.toString())) {
+                        inspectBrowserWindow(root, targetPkg, false, pollStep);
+                    }
+                } finally {
+                    root.recycle();
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in background browser audit (step " + pollStep + "): " + e.getMessage());
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -102,8 +157,13 @@ public class LockAccessibilityService extends AccessibilityService {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         refreshDynamicExemptPackages();
         AppClassifier.refreshBrowserCache(this);
+
+        auditThread = new HandlerThread("Qiezka-AuditWorker", Process.THREAD_PRIORITY_BACKGROUND);
+        auditThread.start();
+        auditHandler = new Handler(auditThread.getLooper());
+
         startTicker();
-        Log.i(TAG, "LockAccessibilityService onCreate — ticker started");
+        Log.i(TAG, "LockAccessibilityService onCreate — ticker and audit worker started");
     }
 
     @Override
@@ -126,14 +186,19 @@ public class LockAccessibilityService extends AccessibilityService {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         AppClassifier.refreshBrowserCache(this);
 
+        if (auditThread == null || !auditThread.isAlive()) {
+            auditThread = new HandlerThread("Qiezka-AuditWorker", Process.THREAD_PRIORITY_BACKGROUND);
+            auditThread.start();
+            auditHandler = new Handler(auditThread.getLooper());
+        }
+
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.packageNames = null; // Watch all packages
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED |
                           AccessibilityEvent.TYPE_WINDOWS_CHANGED |
                           AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED |
                           AccessibilityEvent.TYPE_VIEW_CLICKED |
-                          AccessibilityEvent.TYPE_VIEW_FOCUSED |
-                          AccessibilityEvent.TYPE_VIEW_SCROLLED;
+                          AccessibilityEvent.TYPE_VIEW_FOCUSED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
         info.flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS |
                      AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS |
@@ -167,7 +232,13 @@ public class LockAccessibilityService extends AccessibilityService {
     public void onDestroy() {
         super.onDestroy();
         instance = null;
+        if (auditThread != null) {
+            auditThread.quitSafely();
+            auditThread = null;
+            auditHandler = null;
+        }
         tickerHandler.removeCallbacks(tickerRunnable);
+        Log.i(TAG, "LockAccessibilityService onDestroy");
     }
 
     /**
@@ -364,6 +435,11 @@ public class LockAccessibilityService extends AccessibilityService {
         // Track foreground app switches
         int eventType = event.getEventType();
 
+        // User Mandate: Scroll events must NEVER trigger inspections, DOM crawls, or app blocks
+        if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            return;
+        }
+
         // Flowchart Immunity: Long press gestures and in-page selections must NEVER trigger app blocks or evictions
         if (eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) {
             return;
@@ -392,6 +468,9 @@ public class LockAccessibilityService extends AccessibilityService {
                  eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED)) {
                 if (isGeminiActive(pkgStr, eventCls, event.getSource()) && !isGeminiAllowed()) {
                     lastForegroundPackage = "com.google.android.apps.bard";
+                } else if (isLauncherApp(this, pkgStr)) {
+                    // Navigated to Home/Launcher: update lastForegroundPackage to launcher so background browsers are not remembered as active
+                    lastForegroundPackage = pkgStr;
                 } else if (!isSystemOrLauncher(pkgStr, activeCls)) {
                     lastForegroundPackage = pkgStr;
                 }
@@ -531,23 +610,11 @@ public class LockAccessibilityService extends AccessibilityService {
                     return;
                 }
 
-                if (isBrowserPackage(currentFg)) {
-                    if (AppClassifier.isPortalSuperApp(currentFg)) {
-                        String subCls = lastActiveActivityClass;
-                        if (subCls != null && AppClassifier.isDistractingSubActivity(currentFg, subCls)) {
-                            Log.w(TAG, "Caught distracting sub-activity on window change in portal app " + currentFg + " (" + subCls + ") -> Auto-Back");
-                            remediateDistractingSubActivity(currentFg, subCls);
-                            return;
-                        }
-                    }
-                    AccessibilityNodeInfo root = getRootInActiveWindow();
-                    if (root != null) {
-                        try {
-                            inspectBrowserWindow(root, currentFg, false);
-                        } finally {
-                            root.recycle();
-                        }
-                    }
+                // Universal audit and remediation for unauthorized floating PiP / miniplayers
+                auditAndRemediatePictureInPicture();
+
+                if (isBrowserPackage(currentFg, null)) {
+                    postBrowserAudit(currentFg);
                     return;
                 } else if (isPackageBlocked(currentFg)) {
                     enforceBlock(currentFg);
@@ -590,49 +657,30 @@ public class LockAccessibilityService extends AccessibilityService {
         }
 
         // STAGE 2 — Branch 1: Web Browser Gate (URL / DOM Classifier & In-Browser Auto-Back)
-        if (isBrowserPackage(pkg)) {
+        if (isBrowserPackage(pkg, null)) {
             // Typing Immunity: Ignore keystrokes and text selection events while user is editing in address bars
             if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
                 return;
             }
 
-            // Sub-Function Remediation for Portal Super-Apps (Baidu Reels, Phoenix, UC)
+            // Sub-Function Remediation for Portal Super-Apps (Baidu Reels, Phoenix, UC, NAVER)
             if (AppClassifier.isPortalSuperApp(pkg)) {
-                String subCls = null;
                 if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
                     eventCls != null &&
                     !eventCls.startsWith("android.widget.") &&
                     !eventCls.startsWith("android.view.")) {
-                    subCls = eventCls;
-                } else if (lastActiveActivityClass != null) {
-                    subCls = lastActiveActivityClass;
-                }
-                if (subCls != null && AppClassifier.isDistractingSubActivity(pkg, subCls)) {
-                    Log.w(TAG, "Caught distracting sub-activity in portal app " + pkg + " (" + subCls + ") -> Auto-Back");
-                    remediateDistractingSubActivity(pkg, subCls);
-                    return;
-                }
-                if (isEnforcing && !isVideoPolicyAllowed()) {
-                    AccessibilityNodeInfo r = getRootInActiveWindow();
-                    if (r != null) {
-                        try {
-                            if (isPortalSuperAppVideoActive(r, pkg)) {
-                                Log.w(TAG, "Caught active video flow in portal app " + pkg + " while video policy is disabled -> Auto-Back");
-                                remediateDistractingSubActivity(pkg, "portal_video_flow");
-                                return;
-                            }
-                        } finally {
-                            r.recycle();
-                        }
+                    if (AppClassifier.isDistractingSubActivity(pkg, eventCls)) {
+                        Log.w(TAG, "Caught distracting sub-activity in portal app " + pkg + " (" + eventCls + ") -> Auto-Back");
+                        remediateDistractingSubActivity(pkg, eventCls);
+                        return;
                     }
                 }
             }
             boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
                                     eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED);
             boolean isInteraction = (eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED || 
-                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
-                                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED);
+                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED);
 
             boolean isVisibleOnScreen = false;
             AccessibilityNodeInfo source = event.getSource();
@@ -647,14 +695,7 @@ public class LockAccessibilityService extends AccessibilityService {
             String currentForeground = detectCurrentForegroundPackage();
             boolean isForegroundApp = pkg.equals(currentForeground);
             if (isTransition || isInteraction || isVisibleOnScreen || isForegroundApp) {
-                AccessibilityNodeInfo root = getRootInActiveWindow();
-                if (root != null) {
-                    try {
-                        inspectBrowserWindow(root, pkg, false);
-                    } finally {
-                        root.recycle();
-                    }
-                }
+                postBrowserAudit(pkg);
             }
             return;
         }
@@ -665,8 +706,7 @@ public class LockAccessibilityService extends AccessibilityService {
             boolean isTransition = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
                                     eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED);
             boolean isInteraction = (eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED || 
-                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
-                                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED);
+                                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED);
 
             // Direct inspection of event source node visibility on screen:
             boolean isVisibleOnScreen = false;
@@ -766,6 +806,8 @@ public class LockAccessibilityService extends AccessibilityService {
     public boolean isPortalSuperAppVideoActive(AccessibilityNodeInfo root, String pkg) {
         if (root == null || pkg == null) return false;
         if (!AppClassifier.isPortalSuperApp(pkg)) return false;
+        CharSequence rootPkgCs = root.getPackageName();
+        if (rootPkgCs != null && !pkg.equals(rootPkgCs.toString())) return false;
 
         if ("com.baidu.searchbox".equals(pkg)) {
             String[] baiduVideoIds = {
@@ -794,6 +836,29 @@ public class LockAccessibilityService extends AccessibilityService {
                 } catch (Exception ignore) {}
             }
         } else if ("com.nhn.android.search".equals(pkg)) {
+            // Fast-path: If NAVER is on SearchHomePage with searchBarRootView and Clip tab is not selected, skip scanning 14 video IDs
+            try {
+                List<AccessibilityNodeInfo> searchBar = root.findAccessibilityNodeInfosByViewId("com.nhn.android.search:id/searchBarRootView");
+                if (searchBar != null && !searchBar.isEmpty()) {
+                    boolean clipTabSelected = false;
+                    List<AccessibilityNodeInfo> clipTabNodes = root.findAccessibilityNodeInfosByText("클립");
+                    if (clipTabNodes != null && !clipTabNodes.isEmpty()) {
+                        for (AccessibilityNodeInfo n : clipTabNodes) {
+                            if (n != null) {
+                                CharSequence desc = n.getContentDescription();
+                                if (desc != null && desc.toString().contains("선택됨")) {
+                                    clipTabSelected = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!clipTabSelected) {
+                        return false; // Safe Search Home Page!
+                    }
+                }
+            } catch (Exception ignore) {}
+
             String[] naverVideoIds = {
                 "com.nhn.android.search:id/container_clip_viewpager",
                 "com.nhn.android.search:id/clip_follow_view_pager",
@@ -801,7 +866,14 @@ public class LockAccessibilityService extends AccessibilityService {
                 "com.nhn.android.search:id/videoGroup",
                 "com.nhn.android.search:id/container_clip_nested_scrollable_host",
                 "com.nhn.android.search:id/shortentsNowViewPager",
-                "com.nhn.android.search:id/clipContentSoundToggle"
+                "com.nhn.android.search:id/clipContentSoundToggle",
+                "com.nhn.android.search:id/clip_root",
+                "com.nhn.android.search:id/clip_player",
+                "com.nhn.android.search:id/clip_player_view",
+                "com.nhn.android.search:id/clip_view_pager",
+                "com.nhn.android.search:id/clip_content_layout",
+                "com.nhn.android.search:id/clip_form",
+                "clip_form"
             };
             for (String vidId : naverVideoIds) {
                 try {
@@ -838,6 +910,13 @@ public class LockAccessibilityService extends AccessibilityService {
                             }
                         }
                     }
+                }
+            } catch (Exception ignore) {}
+            // Check for in-app clip search results title
+            try {
+                List<AccessibilityNodeInfo> clipSearchNodes = root.findAccessibilityNodeInfosByText("클립검색");
+                if (clipSearchNodes != null && !clipSearchNodes.isEmpty()) {
+                    return true;
                 }
             } catch (Exception ignore) {}
         } else if ("com.transsion.phoenix".equals(pkg)) {
@@ -897,7 +976,7 @@ public class LockAccessibilityService extends AccessibilityService {
                 android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
                 if ((ai.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
                     (ai.flags & android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) {
-                    if (!isBrowserPackage(pkg) && !AppClassifier.isSettingsOrDeviceManager(pkg, null, activityCls) && !AppClassifier.isStage1Bloat(pkg, null)) {
+                    if (!isBrowserPackage(pkg, null) && !AppClassifier.isSettingsOrDeviceManager(pkg, null, activityCls) && !AppClassifier.isStage1Bloat(pkg, null)) {
                         return true;
                     }
                 }
@@ -966,33 +1045,6 @@ public class LockAccessibilityService extends AccessibilityService {
         return null;
     }
 
-    /**
-     * Inspects whether an active window or event in a browser package represents a standalone
-     * Progressive Web App (PWA) / WebAPK / TWA / CustomTab rather than normal browser tab navigation.
-     */
-    private boolean isStandalonePwa(String pkg, String eventClass, String windowTitle, AccessibilityNodeInfo root) {
-        if (pkg == null) return false;
-        // Known general web browsers are NEVER standalone PWAs during standard web browsing
-        if (isBrowserPackage(pkg)) {
-            if (eventClass != null) {
-                String lowerClass = eventClass.toLowerCase(Locale.US);
-                if (lowerClass.contains("webappactivity") || 
-                    lowerClass.contains("sametaskwebapkactivity") || 
-                    lowerClass.contains("webapplauncheractivity")) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        // Non-browser packages running custom tabs or WebAPKs
-        if (eventClass != null) {
-            String lowerClass = eventClass.toLowerCase(Locale.US);
-            if (lowerClass.contains("customtab") || lowerClass.contains("webapk") || lowerClass.contains("webapp")) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /**
      * Verifies if the active browser window/tab represents a Search Engine Results Page (SERP),
@@ -1045,7 +1097,7 @@ public class LockAccessibilityService extends AccessibilityService {
                 AccessibilityNodeInfo focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
                 if (focused != null) {
                     try {
-                        if (focused.isEditable() || focused.isFocused()) {
+                        if (focused.isEditable()) {
                             // If the focused input is the native browser address bar / search box, typing is 100% immune
                             if (isAddressBarNode(focused)) {
                                 return true; // Active Omnibox / address bar typing or autocomplete in progress
@@ -1056,9 +1108,6 @@ public class LockAccessibilityService extends AccessibilityService {
                                 if (isSearchEngineHost(host)) {
                                     return true;
                                 }
-                            } else {
-                                // URL is null (e.g. Chrome New Tab Page search input)
-                                return true;
                             }
                         }
                     } finally {
@@ -1117,6 +1166,7 @@ public class LockAccessibilityService extends AccessibilityService {
                                 searchBarNodes = root.findAccessibilityNodeInfosByViewId("com.nhn.android.search:id/searchBarView");
                             }
                             if (searchBarNodes != null && !searchBarNodes.isEmpty()) {
+                                lastActiveActivityClass = "com.nhn.android.search.ui.pages.SearchHomePage";
                                 return true; // Native NAVER search engine home / search portal
                             }
                         }
@@ -1141,44 +1191,133 @@ public class LockAccessibilityService extends AccessibilityService {
     }
 
     /**
-     * Unified Web Browser & PWA Inspection Pipeline (Flowchart Aligned).
+     * Unified Web Browser & Web Container Inspection Pipeline (Flowchart Aligned).
      *
      * Flow:
-     * 1. VERIFICATION: Is it a Browser Search?
-     *    - Search Engine Results Page (SERP), query typing, or active search input -> ALLOW_SEARCH.
-     *      Research is 100% immune; browsing including long press continues uninterrupted.
-     * 2. Extract URL (extractUrlFromBrowser):
-     *    - URL Found (Address bar visible - Standard Browser Tab):
-     *        a. Academic Safe-List check -> ALLOW_BROWSER
-     *        b. Evaluate WebClassifier.classify(url, root, allowYoutube)
-     *        c. Allowed -> ALLOW_BROWSER (normal browsing including long press continues uninterrupted)
-     *        d. Blocked (e.g. y8.com, TikTok) -> WEB_REMEDIATE (In-Browser Auto-Back / Home button).
-     *    - URL is Null (No address bar - Scrolled Tab / Standalone PWA / TWA):
-     *        a. Known general browser in standard browsing (scrolled tab, in-page popup, context menu) ->
-     *           ALLOW_BROWSER (never treated as PWA)
-     *        b. Actual standalone PWA / TWA / WebAPK ->
-     *           Walk Chromium Accessibility View Tree via WebClassifier.classifyStandalonePwa
-     *           If blocked -> enforceBlock(pkg) directly to QIEZKA Lock (no Back key)
+     * Node A: Browser / Web Container
+     * Node B: Is it Search Query / SERP?
+     *   - Yes -> Node C: Research Immune: ALLOW
+     *   - No  -> Node D: Is URL viewable?
+     * Node D:
+     *   - Yes -> Node E: Check for KnownDistractingWeb
+     *            -> Node N: Check for KnownSafeWeb
+     *            -> Node O: Check for TruthTable + UnifiedRegistry Policy:
+     *               - "Yes Distracting, No Safe" -> Node H: Remediate: Close Tab/Back
+     *               - "No Distracting, No Safe"  -> Node F: WebClassifier + DOM
+     *               - "No Distracting, Yes Safe" -> Node I: Browsing Continues Uninterrupted
+     *               - "Yes Distracting, Yes Safe" -> Node I: Browsing Continues Uninterrupted
+     *   - No  -> Node F: WebClassifier + DOM
+     * Node F: WebClassifier + DOM:
+     *   - Blocked -> Node H: Remediate: Close Tab/Back
+     *   - Allowed -> Node I: Browsing Continues Uninterrupted
      */
     private void inspectBrowserWindow(AccessibilityNodeInfo root, String pkg, boolean fromTicker) {
+        inspectBrowserWindow(root, pkg, fromTicker, 0);
+    }
+
+    private void inspectBrowserWindow(AccessibilityNodeInfo root, String pkg, boolean fromTicker, int pollStep) {
         if (root == null || pkg == null) return;
 
-        try {
-            String url = extractUrlFromBrowser(root, pkg);
+        // Launcher Immunity & Foreign Window Guard:
+        // The root window must never be audited as a browser window if it belongs to a launcher or SystemUI!
+        CharSequence rootPkgChar = root.getPackageName();
+        if (rootPkgChar != null) {
+            String rootPkg = rootPkgChar.toString();
+            if (isLauncherApp(this, rootPkg) || "com.android.systemui".equals(rootPkg)) {
+                return; // Home launcher & SystemUI are 100% exempt from browser DOM inspection
+            }
+            if (AppClassifier.isPortalSuperApp(pkg) && !rootPkg.equals(pkg)) {
+                return; // Mismatched window hierarchy cannot be a portal super-app web view
+            }
+        }
 
-            // Portal Super-App (Baidu, Phoenix, UC) In-App Video & Reels Remediation
-            if (AppClassifier.isPortalSuperApp(pkg) && !isVideoPolicyAllowed()) {
-                if (isPortalSuperAppVideoActive(root, pkg)) {
-                    Log.w(TAG, "inspectBrowserWindow: detected active video flow in portal superapp " + pkg + " while video policy is disabled -> Auto-Back");
-                    remediateDistractingSubActivity(pkg, "portal_video_flow");
+        try {
+            // Dedicated Handling: Portal Super-Apps (Baidu, NAVER)
+            if (AppClassifier.isPortalSuperApp(pkg)) {
+                if (!isVideoPolicyAllowed()) {
+                    if (isPortalSuperAppVideoActive(root, pkg)) {
+                        Log.w(TAG, "inspectBrowserWindow: detected active video flow in portal superapp " + pkg + " while video policy is disabled -> Auto-Back");
+                        remediateDistractingSubActivity(pkg, "portal_video_flow");
+                        return;
+                    }
+                }
+
+                String url = extractUrlFromBrowser(root, pkg);
+                if (isBrowserSearch(url, root)) {
+                    resetBrowserRemediationState();
                     return;
+                }
+
+                boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
+                Set<String> activeServices = prefs != null ? prefs.getStringSet("active_unified_services", new HashSet<>()) : new HashSet<>();
+                Set<String> allowedDomains = new HashSet<>(UnifiedPolicyRegistry.getDomainsForServices(activeServices));
+                if (prefs != null) {
+                    Set<String> customDomains = prefs.getStringSet("allowed_domains", null);
+                    if (customDomains != null) allowedDomains.addAll(customDomains);
+                }
+                if (allowYoutube) {
+                    UnifiedService yt = UnifiedPolicyRegistry.SERVICES.get("youtube");
+                    if (yt != null) allowedDomains.addAll(yt.getDomains());
+                }
+
+                if (url != null && !url.trim().isEmpty()) {
+                    if (WebBlocklistConstants.isAcademicExempt(url)) {
+                        resetBrowserRemediationState();
+                        return;
+                    }
+                    WebClassifier.ClassificationResult res = WebClassifier.classify(url, root, allowYoutube, allowedDomains);
+                    if (res.isBlocked) {
+                        remediateBlockedBrowserTab(pkg, url, res.reason, root);
+                    } else {
+                        resetBrowserRemediationState();
+                    }
+                } else {
+                    WebClassifier.ClassificationResult inAppRes = WebClassifier.classifyInAppWeb(root, allowYoutube, allowedDomains);
+                    if (inAppRes.isBlocked) {
+                        remediateBlockedBrowserTab(pkg, "in_app_web", inAppRes.reason, root);
+                    } else if (inAppRes.isPending) {
+                        Log.i(TAG, "inspectBrowserWindow: in-app DOM pending for " + pkg + ", scheduling poll step " + (pollStep + 1));
+                        if (pollStep < PROGRESSIVE_DOM_POLL_DELAYS.length) {
+                            postBrowserAudit(pkg, pollStep + 1);
+                        }
+                    } else {
+                        resetBrowserRemediationState();
+                    }
+                }
+                return;
+            }
+
+            // ── GENERAL WEB CONTAINERS: Chrome, Firefox, Custom Tabs, PWA, TWA, WebAPK ──
+            // Exactly follows the strict flowchart:
+            String url = extractUrlFromBrowser(root, pkg);
+            if (url == null || url.trim().isEmpty()) {
+                url = resolveHostFromPackageManifest(pkg);
+                if (url == null && rootPkgChar != null && !rootPkgChar.toString().equals(pkg)) {
+                    url = resolveHostFromPackageManifest(rootPkgChar.toString());
+                }
+                if (url == null && lastForegroundPackage != null && !lastForegroundPackage.equals(pkg) && !isSystemOrLauncher(lastForegroundPackage)) {
+                    url = resolveHostFromPackageManifest(lastForegroundPackage);
+                }
+                if (url == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    try {
+                        AccessibilityWindowInfo win = root.getWindow();
+                        if (win != null && win.getTitle() != null) {
+                            String winTitle = win.getTitle().toString().trim();
+                            if (!winTitle.isEmpty() && !winTitle.equalsIgnoreCase("Chrome") && !winTitle.equalsIgnoreCase("Browser") && !winTitle.equalsIgnoreCase("Navigation bar")) {
+                                if (KnownDistractingWeb.isKnownDistractingWeb(winTitle)) {
+                                    url = "https://" + winTitle.toLowerCase(Locale.US);
+                                }
+                            }
+                        }
+                    } catch (Exception ignore) {}
                 }
             }
 
-            // ── VERIFICATION: Is it a Browser Search? ──
+            // Node B: Is it Search Query / SERP?
             if (isBrowserSearch(url, root)) {
+                // Node C: Research Immune: ALLOW
                 resetBrowserRemediationState();
-                return; // ALLOW_SEARCH: Research is 100% immune, browsing continues uninterrupted
+                return;
             }
 
             boolean allowYoutube = prefs != null && prefs.getBoolean("allow_youtube", false);
@@ -1194,50 +1333,69 @@ public class LockAccessibilityService extends AccessibilityService {
                 if (yt != null) allowedDomains.addAll(yt.getDomains());
             }
 
-            if (url != null && !url.trim().isEmpty()) {
-                // ── BRANCH A: URL Found (Standard Browser Tab) ──
-                if (WebBlocklistConstants.isAcademicExempt(url)) {
-                    resetBrowserRemediationState();
-                    return; // Academic safe-list immunity
+            // Node D: Is URL viewable?
+            boolean isUrlViewable = (url != null && !url.trim().isEmpty());
+
+            if (isUrlViewable) {
+                String cleanUrl = url.trim().toLowerCase(Locale.US);
+
+                // Window title academic check (Chromium tabs / CustomTabs)
+                boolean isWindowTitleAcademic = false;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    try {
+                        AccessibilityWindowInfo win = root.getWindow();
+                        if (win != null && win.getTitle() != null && KnownSafeWeb.isAcademicExempt(win.getTitle().toString())) {
+                            isWindowTitleAcademic = true;
+                        }
+                    } catch (Exception ignore) {}
                 }
-                WebClassifier.ClassificationResult res = WebClassifier.classify(url, root, allowYoutube, allowedDomains);
-                if (res.isBlocked) {
-                    Log.w(TAG, "inspectBrowserWindow: blocked browser URL: " + url + " (" + res.reason + ")");
-                    remediateBlockedBrowserTab(pkg, url, res.reason, root);
-                } else {
+
+                // Node E: Check for KnownDistractingWeb
+                boolean isDistractingWeb = KnownDistractingWeb.isKnownDistractingWeb(cleanUrl);
+
+                // Node N: Check for KnownSafeWeb
+                boolean isSafeWeb = isWindowTitleAcademic ||
+                                    WebBlocklistConstants.isAcademicExempt(cleanUrl) ||
+                                    KnownSafeWeb.isAcademicExempt(cleanUrl) ||
+                                    KnownSafeWeb.isKnownSafeWeb(cleanUrl, allowedDomains);
+
+                // Node O: Check for TruthTable + UnifiedRegistry Policy
+                if (isDistractingWeb && !isSafeWeb) {
+                    // "Yes Distracting, No Safe" -> Node H: Remediate: Close Tab/Back
+                    String reason = KnownDistractingWeb.getDistractionReason(cleanUrl);
+                    Log.w(TAG, "inspectBrowserWindow: blocked browser URL: " + url + " (" + reason + ")");
+                    remediateBlockedBrowserTab(pkg, url, reason, root);
+                    return;
+                } else if (!isDistractingWeb && isSafeWeb) {
+                    // "No Distracting, Yes Safe" -> Node I: Browsing Continues Uninterrupted
                     resetBrowserRemediationState();
+                    return;
+                } else if (isDistractingWeb && isSafeWeb) {
+                    // "Yes Distracting, Yes Safe" -> Node I: Browsing Continues Uninterrupted
+                    resetBrowserRemediationState();
+                    return;
                 }
+
+                // "No Distracting, No Safe" -> Node F: WebClassifier + DOM
+                // Falls through to Node F below
+            }
+
+            // Node F: WebClassifier + DOM (evaluated for non-viewable URL OR unclassified viewable URL)
+            WebClassifier.ClassificationResult domRes = WebClassifier.classifyDom(root, allowYoutube, allowedDomains);
+            if (domRes.isBlocked) {
+                // F -- Blocked --> Node H: Remediate: Close Tab/Back
+                Log.w(TAG, "inspectBrowserWindow: DOM blocked web container: " + pkg + " (" + domRes.reason + ")");
+                remediateBlockedBrowserTab(pkg, url != null ? url : "web_container", domRes.reason, root);
+            } else if (domRes.isPending) {
+                // F -- Pending / Sparse Skeleton --> Schedule next progressive poll step
+                Log.i(TAG, "inspectBrowserWindow: DOM pending/loading for " + pkg + " (" + domRes.reason + "), scheduling poll step " + (pollStep + 1));
+                if (pollStep < PROGRESSIVE_DOM_POLL_DELAYS.length) {
+                    postBrowserAudit(pkg, pollStep + 1);
+                }
+                // Invariant: DO NOT call resetBrowserRemediationState() while DOM is still loading/unresolved!
             } else {
-                // ── BRANCH B: URL is Null (Scrolled Tab / In-Page Context Menu / PWA / TWA / Super-App In-App Web) ──
-                // Known general web browsers in standard browsing (scrolling down, in-page popups, context menus)
-                // must NEVER be treated as Standalone PWAs and must NEVER be evicted to QIEZKA Lock.
-                boolean isPwa = isStandalonePwa(pkg, lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass, null, root);
-                if (!isPwa && isBrowserPackage(pkg) && !AppClassifier.isPortalSuperApp(pkg)) {
-                    // Standard browser in-page interaction or scrolled state -> ALLOW_BROWSER
-                    return;
-                }
-
-                // Portal Super-Apps (Baidu, NAVER) browsing in-app web views where address bar is omitted:
-                if (AppClassifier.isPortalSuperApp(pkg)) {
-                    WebClassifier.ClassificationResult inAppRes = WebClassifier.classifyInAppWeb(root, allowYoutube, allowedDomains);
-                    if (inAppRes.isBlocked) {
-                        Log.w(TAG, "inspectBrowserWindow: blocked portal superapp in-app web page: " + pkg + " (" + inAppRes.reason + ") -> Auto-Back");
-                        remediateBlockedBrowserTab(pkg, "in_app_web", inAppRes.reason, root);
-                    } else {
-                        resetBrowserRemediationState();
-                    }
-                    return;
-                }
-
-                // Walk Chromium Accessibility View Tree for genuine standalone PWAs / WebAPKs
-                WebClassifier.ClassificationResult pwaRes = WebClassifier.classifyStandalonePwa(null, root, allowYoutube, allowedDomains);
-                if (pwaRes.isBlocked) {
-                    Log.w(TAG, "inspectBrowserWindow: caught blocked standalone PWA: " + pkg + " (" + pwaRes.reason + ")");
-                    // Flowchart: Block and Evict to QIEZKA (no Back key)
-                    enforceBlock(pkg);
-                } else {
-                    resetBrowserRemediationState();
-                }
+                // F -- Allowed --> Node I: Browsing Continues Uninterrupted
+                resetBrowserRemediationState();
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in inspectBrowserWindow: " + e.getMessage());
@@ -1328,12 +1486,25 @@ public class LockAccessibilityService extends AccessibilityService {
         // Reverses browser history to the prior safe page (e.g. GitHub, Wikipedia, Google, New Tab Page).
         // With 2200ms cooldown, Chrome has sufficient time to complete the back navigation without stutter.
         if (consecutiveBlockedUrlHits <= 2) {
-            boolean backed = performGlobalAction(GLOBAL_ACTION_BACK);
-            Log.i(TAG, "remediateBlockedBrowserTab: executed auto-back (hit " + consecutiveBlockedUrlHits + ") -> " + backed);
+            runOnMain(() -> performGlobalAction(GLOBAL_ACTION_BACK));
+            Log.i(TAG, "remediateBlockedBrowserTab: executed auto-back (hit " + consecutiveBlockedUrlHits + ")");
             return;
         }
 
-        // 4. Secondary Remediation: Repeat hit after multiple backs means no back history in this tab or JS trap — reset tab in-place via Home button
+        // 4. Secondary Remediation: Repeat hit after multiple backs means no back history in this tab or JS trap
+        if (AppClassifier.isPortalSuperApp(pkg)) {
+            Log.w(TAG, "remediateBlockedBrowserTab: repeat hit in portal superapp " + pkg + " -> cleanly resetting to home search page");
+            try {
+                Intent homeIntent = getPackageManager().getLaunchIntentForPackage(pkg);
+                if (homeIntent != null) {
+                    homeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    startActivity(homeIntent);
+                }
+            } catch (Exception ignore) {}
+            consecutiveBlockedUrlHits = 0;
+            return;
+        }
+
         Log.i(TAG, "remediateBlockedBrowserTab: repeat hit detected after auto-back, resetting tab in-place via home button");
         boolean homeClicked = clickBrowserHomeButton(root, pkg);
         if (homeClicked) {
@@ -1377,16 +1548,30 @@ public class LockAccessibilityService extends AccessibilityService {
             Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_SHORT).show();
         });
 
-        // If repeated persistent attempts (> 3 rapid clicks into reels), bring up lock overlay
+        // If repeated persistent attempts (> 3 rapid clicks into reels):
+        // For portal super-apps, NEVER lock out the entire app or kick to launcher; cleanly reset to search home page
         if (consecutiveSubActivityHits > 3) {
-            Log.w(TAG, "Persistent reels bypass attempt detected in " + pkg + " -> asserting QIEZKA lock");
-            enforceBlock(pkg);
-            return;
+            if (AppClassifier.isPortalSuperApp(pkg)) {
+                Log.w(TAG, "Persistent sub-activity in portal app " + pkg + " -> cleanly resetting to home search page");
+                try {
+                    Intent homeIntent = getPackageManager().getLaunchIntentForPackage(pkg);
+                    if (homeIntent != null) {
+                        homeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        startActivity(homeIntent);
+                    }
+                } catch (Exception ignore) {}
+                consecutiveSubActivityHits = 0;
+                return;
+            } else {
+                Log.w(TAG, "Persistent reels bypass attempt detected in " + pkg + " -> asserting QIEZKA lock");
+                enforceBlock(pkg);
+                return;
+            }
         }
 
         // Auto-Back: Instantly closes VideoTabActivity / feed flow and returns to search interface
-        boolean backed = performGlobalAction(GLOBAL_ACTION_BACK);
-        Log.i(TAG, "remediateDistractingSubActivity: executed Auto-Back -> " + backed);
+        runOnMain(() -> performGlobalAction(GLOBAL_ACTION_BACK));
+        Log.i(TAG, "remediateDistractingSubActivity: executed Auto-Back");
     }
 
     private boolean closeCustomTab(AccessibilityNodeInfo passedRoot, String pkg) {
@@ -1761,6 +1946,45 @@ public class LockAccessibilityService extends AccessibilityService {
         return null;
     }
 
+    private final Map<String, String> packageManifestHostCache = new ConcurrentHashMap<>();
+
+    private String resolveHostFromPackageManifest(String pkg) {
+        if (pkg == null || pkg.startsWith("com.android.") || pkg.startsWith("com.google.android.") ||
+            isLauncherApp(this, pkg) || "com.uncode.app".equals(pkg)) {
+            return null;
+        }
+        String cached = packageManifestHostCache.get(pkg);
+        if (cached != null) {
+            return cached.isEmpty() ? null : cached;
+        }
+
+        try {
+            PackageManager pm = getPackageManager();
+            if (pm != null) {
+                Intent viewIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"));
+                viewIntent.setPackage(pkg);
+                List<ResolveInfo> resolved = pm.queryIntentActivities(viewIntent, PackageManager.GET_RESOLVED_FILTER);
+                if (resolved != null) {
+                    for (ResolveInfo ri : resolved) {
+                        if (ri.filter != null && ri.filter.countDataAuthorities() > 0) {
+                            for (int i = 0; i < ri.filter.countDataAuthorities(); i++) {
+                                String host = ri.filter.getDataAuthority(i).getHost();
+                                if (host != null && !host.trim().isEmpty() && host.contains(".")) {
+                                    String resolvedUrl = "https://" + host.trim();
+                                    packageManifestHostCache.put(pkg, resolvedUrl);
+                                    return resolvedUrl;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+
+        packageManifestHostCache.put(pkg, "");
+        return null;
+    }
+
     public boolean isPackageBlocked(String pkg) {
         return isPackageBlocked(pkg, lastActiveActivityClass);
     }
@@ -2007,26 +2231,15 @@ public class LockAccessibilityService extends AccessibilityService {
 
                         // STAGE 2 & 3: Only when Lockdown or Consequence is Active
                         if (isEnforcing) {
+                            auditAndRemediatePictureInPicture();
                             if (isGeminiActive(rootPkg, null, activeRoot) && !isGeminiAllowed()) {
                                 Log.w(TAG, "Ticker: detected Gemini active in foreground while AI policy is disabled");
                                 enforceBlock("com.google.android.apps.bard");
                                 return;
                             }
                             if (!isSystemOrLauncher(rootPkg, activeCls)) {
-                                if (isBrowserPackage(rootPkg)) {
-                                    if (AppClassifier.isPortalSuperApp(rootPkg)) {
-                                        String subCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
-                                        if (AppClassifier.isDistractingSubActivity(rootPkg, subCls)) {
-                                            remediateDistractingSubActivity(rootPkg, subCls);
-                                            return;
-                                        }
-                                        if (!isVideoPolicyAllowed() && isPortalSuperAppVideoActive(activeRoot, rootPkg)) {
-                                            Log.w(TAG, "Ticker: detected active video flow in portal superapp " + rootPkg + " while video policy is disabled -> Auto-Back");
-                                            remediateDistractingSubActivity(rootPkg, "portal_video_flow");
-                                            return;
-                                        }
-                                    }
-                                    inspectBrowserWindow(activeRoot, rootPkg, true);
+                                if (isBrowserPackage(rootPkg, null)) {
+                                    postBrowserAudit(rootPkg);
                                 } else if (isPackageBlocked(rootPkg, activeCls)) {
                                     enforceBlock(rootPkg);
                                     return;
@@ -2044,24 +2257,12 @@ public class LockAccessibilityService extends AccessibilityService {
                 return; // Standby: normal apps allowed
             }
 
+            auditAndRemediatePictureInPicture();
+
             String currentForegroundPkg = detectCurrentForegroundPackage();
             if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && !currentForegroundPkg.equals(getPackageName())) {
-                if (isBrowserPackage(currentForegroundPkg)) {
-                    if (AppClassifier.isPortalSuperApp(currentForegroundPkg)) {
-                        String subCls = lastActiveActivityClass != null ? lastActiveActivityClass : lastBrowserEventClass;
-                        if (AppClassifier.isDistractingSubActivity(currentForegroundPkg, subCls)) {
-                            remediateDistractingSubActivity(currentForegroundPkg, subCls);
-                            return;
-                        }
-                    }
-                    AccessibilityNodeInfo browserRoot = getRootInActiveWindow();
-                    if (browserRoot != null) {
-                        try {
-                            inspectBrowserWindow(browserRoot, currentForegroundPkg, true);
-                        } finally {
-                            browserRoot.recycle();
-                        }
-                    }
+                if (isBrowserPackage(currentForegroundPkg, null)) {
+                    postBrowserAudit(currentForegroundPkg);
                 } else if (isPackageBlocked(currentForegroundPkg)) {
                     enforceBlock(currentForegroundPkg);
                 }
@@ -2159,18 +2360,115 @@ public class LockAccessibilityService extends AccessibilityService {
 
         Log.w(TAG, "enforceBlock on distracting app: " + pkg + " — directly bringing QIEZKA lock to front (no home redirection)");
         
+        // Immediately kick the distracting activity out of the foreground so WindowManager yields focus
+        performGlobalAction(GLOBAL_ACTION_BACK);
+
         // Directly bring QIEZKA lock screen to front immediately
         launchLockOverlay();
 
-        // Follow-up check to re-assert QIEZKA Lock overlay if another activity transitions in
+        // Follow-up burst check to re-assert QIEZKA Lock overlay if another activity transitions in
         tickerHandler.postDelayed(() -> {
             String fg = detectCurrentForegroundPackage();
             if (fg != null && !fg.equals(getPackageName()) && !isSystemOrLauncher(fg)) {
                 if (isPackageBlocked(fg)) {
+                    performGlobalAction(GLOBAL_ACTION_BACK);
+                    launchLockOverlay();
+                }
+            }
+        }, 100L);
+
+        tickerHandler.postDelayed(() -> {
+            String fg = detectCurrentForegroundPackage();
+            if (fg != null && !fg.equals(getPackageName()) && !isSystemOrLauncher(fg)) {
+                if (isPackageBlocked(fg)) {
+                    performGlobalAction(GLOBAL_ACTION_BACK);
                     launchLockOverlay();
                 }
             }
         }, 250L);
+    }
+
+    private long lastPipRemediationTime = 0L;
+
+    public void auditAndRemediatePictureInPicture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
+        }
+        try {
+            List<AccessibilityWindowInfo> windows = getWindows();
+            if (windows == null || windows.isEmpty()) return;
+
+            for (AccessibilityWindowInfo w : windows) {
+                if (w != null && w.isInPictureInPictureMode()) {
+                    AccessibilityNodeInfo root = w.getRoot();
+                    if (root != null) {
+                        try {
+                            CharSequence p = root.getPackageName();
+                            if (p != null) {
+                                String pipPkg = p.toString();
+                                if (pipPkg.equals(getPackageName()) || isSystemOrLauncher(pipPkg)) {
+                                    continue;
+                                }
+
+                                boolean isPortal = AppClassifier.isPortalSuperApp(pipPkg);
+                                boolean isBlocked = isPackageBlocked(pipPkg);
+                                boolean isVideoRestricted = !isVideoPolicyAllowed();
+
+                                if (isBlocked || (isPortal && isVideoRestricted) || (isVideoRestricted && isMediaAppOrPip(pipPkg))) {
+                                    long now = System.currentTimeMillis();
+                                    if (now - lastPipRemediationTime > 1200L) {
+                                        lastPipRemediationTime = now;
+                                        Log.w(TAG, "🛡️ Unauthorized Picture-in-Picture / miniplayer overlay detected: " + pipPkg + " -> Remediating");
+
+                                        // 1. Standard Accessibility action to dismiss floating window
+                                        try {
+                                            root.performAction(AccessibilityNodeInfo.ACTION_DISMISS);
+                                        } catch (Exception ignore) {}
+
+                                        // 2. Educational Toast notice (throttled)
+                                        if (now - lastBrowserToastTime >= 4000L) {
+                                            lastBrowserToastTime = now;
+                                            new Handler(Looper.getMainLooper()).post(() -> {
+                                                Toast.makeText(getApplicationContext(),
+                                                        "⚠️ Video miniplayer / Picture-in-Picture is restricted during focus lockdown.",
+                                                        Toast.LENGTH_SHORT).show();
+                                            });
+                                        }
+
+                                        // 3. For portal super-apps (like NAVER): bring search homepage to front, killing PiP task
+                                        if (isPortal) {
+                                            try {
+                                                Intent homeIntent = getPackageManager().getLaunchIntentForPackage(pipPkg);
+                                                if (homeIntent != null) {
+                                                    homeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                                                    startActivity(homeIntent);
+                                                }
+                                            } catch (Exception ignore) {}
+                                        } else {
+                                            // 4. For blocked apps (YouTube, Bilibili, Netflix, etc.): enforce lock overlay
+                                            enforceBlock(pipPkg);
+                                        }
+                                    }
+                                }
+                            }
+                        } finally {
+                            root.recycle();
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "auditAndRemediatePictureInPicture error: " + e.getMessage());
+        }
+    }
+
+    private boolean isMediaAppOrPip(String pkg) {
+        if (pkg == null) return false;
+        String lower = pkg.toLowerCase(Locale.US);
+        return lower.contains("video") || lower.contains("media") || lower.contains("player") ||
+               lower.contains("stream") || lower.contains("tube") || lower.contains("movie") ||
+               lower.contains("bstar") || lower.contains("bilibili") || lower.contains("netflix") ||
+               lower.contains("tiktok") || lower.contains("twitch") || lower.contains("nhn.android");
     }
 
     public void onScheduleStartTriggered() {
@@ -2186,7 +2484,7 @@ public class LockAccessibilityService extends AccessibilityService {
 
     public String detectCurrentForegroundPackage() {
         // 1. Z-Order Window Audit: Check if any active or visible application window belongs to a blocked package.
-        // This defeats TWA/CustomTab host wrapping (e.g. id.kisskh.twa wrapped in com.android.chrome),
+        // This defeats host wrapping (e.g. host app wrapped in browser provider),
         // split-screen multi-window bypasses, and floating windows.
         try {
             List<AccessibilityWindowInfo> windows = getWindows();
@@ -2246,7 +2544,7 @@ public class LockAccessibilityService extends AccessibilityService {
                             return "com.google.android.apps.bard";
                         }
                         String candidateCls = resolveCandidateClass(rootPkg, lastActiveActivityClass, activeRoot);
-                        if (!isSystemOrLauncher(rootPkg, candidateCls)) {
+                        if (!"com.android.systemui".equals(rootPkg)) {
                             lastForegroundPackage = rootPkg;
                             return rootPkg;
                         }

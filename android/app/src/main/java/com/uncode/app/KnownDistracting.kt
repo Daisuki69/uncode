@@ -9,7 +9,7 @@ import java.util.Locale
  * - Video & Entertainment Streaming (YouTube, Netflix, Twitch, Disney+, Hulu, TikTok, etc.)
  * - Social Media Feeds & Forums (Instagram, Twitter/X, Facebook feeds, Reddit, Threads, etc.)
  * - Short Dramas, Web Novels, Manga & Comics (ReelShort, DramaBox, ShortMax, Webtoon, etc.)
- * - Video Streaming Aggregators & Piracy (Stremio, OnStream, Loklok, KissKH, etc.)
+ * - Video Streaming Aggregators & Piracy (Stremio, OnStream, Loklok, etc.)
  * - Top Mobile Games & Gaming Communities (Mobile Legends, Genshin, PUBG, Roblox, Steam, etc.)
  * - Remote Desktop & Screen Mirror Bypasses (TeamViewer, AnyDesk, RustDesk, Parsec, Vysor, etc.)
  * - Sandboxes, Cloners, Game Cheats & Hidden Vaults (Parallel Space, Dual Space, VMOS, Lucky Patcher, etc.)
@@ -92,7 +92,6 @@ object KnownDistracting {
         "com.movieboxpro.android",                   // MovieBoxPro
         "com.allinone.loklok",                       // Loklok
         "com.anilab.app",                            // Anilab
-        "id.kisskh.twa",                             // KissKH PWA / TWA
         "app.revanced.android.youtube",              // ReVanced YouTube
         "app.revanced.android.apps.youtube.music",
         "org.schabi.newpipe",                        // NewPipe
@@ -300,7 +299,6 @@ object KnownDistracting {
                lower.contains(".cloudstream.") ||
                lower.contains(".onstream.") ||
                lower.contains(".loklok.") ||
-               lower.contains(".kisskh.") ||
                lower.contains(".kissasian.") ||
                lower.contains(".game.") ||
                lower.contains(".games.") ||
@@ -373,7 +371,6 @@ object KnownDistracting {
                lowerLabel.contains("manga") ||
                lowerLabel.contains("webnovel") ||
                lowerLabel.contains("stremio") ||
-               lowerLabel.contains("kisskh") ||
                lowerLabel.contains("remote desktop") ||
                lowerLabel.contains("screen mirror") ||
                lowerLabel.contains("screen share") ||

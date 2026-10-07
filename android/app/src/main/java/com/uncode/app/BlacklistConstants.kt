@@ -58,7 +58,7 @@ object BlacklistConstants {
                 return true
             }
         }
-        // Substring checks for PWA and Browser Window Titles (KissKH, Anime, Manga, Web Games)
+        // Substring checks for Browser Window Titles (Anime, Manga, Web Games)
         if (!appLabel.isNullOrEmpty()) {
             val lowerLabel = appLabel.trim().lowercase(Locale.ROOT)
             val normalizedLabel = lowerLabel.replace(" ", "").replace("-", "").replace("_", "").replace(".", "")
@@ -87,11 +87,9 @@ object BlacklistConstants {
             lower.contains("calculatorvault") ||
             lower.contains("photovault") ||
             lower.contains("gallerylock") ||
-            lower.contains("kisskh") ||
             lower.contains("kissasian") ||
             lower.contains("bilibili") ||
             lower.contains("danmaku.bili") ||
-            lower.contains("webapk") ||
             lower.contains("crazygames") ||
             lower.contains("123movies") ||
             lower.contains("fmovies") ||
