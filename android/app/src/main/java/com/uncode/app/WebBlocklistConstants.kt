@@ -54,6 +54,10 @@ object WebBlocklistConstants {
     @JvmField
     val CRYPTO_SPECULATION_DOMAINS: Set<String> = KnownDistractingWeb.CRYPTO_SPECULATION_DOMAINS
 
+    // ── Online Shopping & E-Commerce Trap Domains ──
+    @JvmField
+    val SHOPPING_DOMAINS: Set<String> = KnownDistractingWeb.SHOPPING_DOMAINS
+
     // ── Vast Academic, Research & Developer Safe-List ──
     @JvmField
     val ACADEMIC_EXEMPT_DOMAINS: Set<String> = KnownSafeWeb.ACADEMIC_EXEMPT_DOMAINS

@@ -226,15 +226,27 @@ public final class AppClassifier {
         // 4. 1DM / IDM Downloaders
         if (pkg.startsWith("idm.internet.download.manager")) return true;
 
-        // 5. Standard Latin Substring Fallback (if not vetoed by disallowed super-app check)
-        if (lower.contains("browser") || lower.contains("chrome") || lower.contains("firefox") || lower.contains("explorer")) {
+        // 5. Standard Latin Substring Fallback for Browsers, WebAPKs, PWAs & TWAs
+        if (lower.contains("browser") || lower.contains("chrome") || lower.contains("chromium") ||
+            lower.contains("webapk") || lower.contains(".twa") || lower.endsWith(".twa") ||
+            lower.contains(".pwa") || lower.endsWith(".pwa") || lower.contains("firefox") || lower.contains("explorer")) {
             return true;
         }
 
-        // 6. Universal Native Android OS Intent Resolution
+        // 6. Universal Native Android OS Component & Intent Resolution for Web Containers (TWAs, PWAs, CustomTabs)
         if (context != null) {
             try {
                 PackageManager pm = context.getPackageManager();
+                // Check if package declares AndroidX Trusted Web Activity service
+                Intent twaIntent = new Intent("android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE");
+                twaIntent.setPackage(pkg);
+                List<ResolveInfo> twaServices = pm.queryIntentServices(twaIntent, 0);
+                if (twaServices != null && !twaServices.isEmpty()) {
+                    dynamicBrowserPackages.add(pkg);
+                    return true;
+                }
+
+                // Check general browsable intent activities
                 Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"));
                 intent.addCategory(Intent.CATEGORY_BROWSABLE);
                 List<ResolveInfo> resolved = pm.queryIntentActivities(intent, 0);
@@ -313,7 +325,8 @@ public final class AppClassifier {
             lowerCls.contains("reelsactivity") ||
             lowerCls.contains("videoflowactivity") ||
             lowerCls.contains(".clip.ui.") ||
-            lowerCls.contains("clipactivity")) {
+            lowerCls.contains("clipactivity") ||
+            lowerCls.contains("clipvieweractivity")) {
             return true;
         }
 
@@ -354,7 +367,13 @@ public final class AppClassifier {
                    lowerId.contains("videogroup") ||
                    lowerId.contains("container_clip_nested_scrollable_host") ||
                    lowerId.contains("shortentsnowviewpager") ||
-                   lowerId.contains("clipcontentsoundtoggle");
+                   lowerId.contains("clipcontentsoundtoggle") ||
+                   lowerId.contains("clip_root") ||
+                   lowerId.contains("clip_player") ||
+                   lowerId.contains("clip_player_view") ||
+                   lowerId.contains("clip_view_pager") ||
+                   lowerId.contains("clip_content_layout") ||
+                   lowerId.contains("clip_form");
         }
 
         // 3. Unmanaged / Disallowed Super-Apps (defensive detection)
@@ -609,7 +628,7 @@ public final class AppClassifier {
         "short drama", "shortmax", "reelshort", "dramabox", "goodshort", "snackshort", "moboreels",
         "netshort", "webtoon", "manga", "manhwa", "manhua", "comic", "comics", "anime", "webnovel",
         "light novel", "fanfiction", "wattpad", "wuxia", "livestream", "live stream", "broadcast",
-        "kisskh", "kissasian", "bilibili", "loklok", "cloudstream", "stremio", "onstream",
+        "kissasian", "bilibili", "loklok", "cloudstream", "stremio", "onstream",
 
         // Social Feeds, Video & Forum Distractions
         "tiktok", "tik tok", "douyin", "reddit"
@@ -854,41 +873,6 @@ public final class AppClassifier {
             return true;
         }
 
-        // Milestone 20: WebAPK & PWA Deep Metadata Inspection
-        if (pkg.startsWith("org.chromium.webapk") || pkg.contains("webapk")) {
-            if (hasNegativeDistractionSignals(lowerLabel, lowerPkg)) {
-                Log.w(TAG, "Blocked WebAPK by negative signals: " + pkg + " (" + appLabel + ")");
-                return true;
-            }
-            try {
-                ApplicationInfo appInfoWithMeta = pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA);
-                if (appInfoWithMeta != null && appInfoWithMeta.metaData != null) {
-                    String startUrl = appInfoWithMeta.metaData.getString("org.chromium.webapk.shell_apk.startUrl");
-                    if (startUrl == null) {
-                        startUrl = appInfoWithMeta.metaData.getString("org.chromium.webapk.shell_apk.scopeUrl");
-                    }
-                    if (startUrl != null && !startUrl.isEmpty()) {
-                        Log.i(TAG, "Inspecting WebAPK startUrl: " + startUrl + " for pkg: " + pkg);
-                        String lowerStart = startUrl.toLowerCase(Locale.ROOT);
-                        if (WebBlocklistConstants.isPiracyOrMediaDomain(lowerStart) ||
-                            WebBlocklistConstants.isWebGameDomain(lowerStart) ||
-                            WebBlocklistConstants.isGamblingDomain(lowerStart) ||
-                            WebBlocklistConstants.isAdultDomain(lowerStart) ||
-                            BlacklistConstants.isBlacklisted(startUrl, appLabel)) {
-                            Log.w(TAG, "Blocked WebAPK matching blocklist: " + pkg + " (" + appLabel + ", " + startUrl + ")");
-                            return true;
-                        }
-                        WebClassifier.ClassificationResult urlResult = WebClassifier.classify(startUrl, null, false);
-                        if (urlResult.isBlocked) {
-                            Log.w(TAG, "Blocked WebAPK via WebClassifier: " + pkg + " (" + appLabel + ", " + startUrl + " - " + urlResult.reason + ")");
-                            return true;
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Error inspecting WebAPK meta-data for " + pkg + ": " + e.getMessage());
-            }
-        }
 
         // Milestone 17: Fake Calculator & Secret Vault Inspection
         if (isFakeCalculatorVault(pm, pkg, lowerLabel, lowerPkg)) {

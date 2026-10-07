@@ -299,11 +299,35 @@ class HomeHandlerTest {
         // 2. AppClassifier.isBrowserPackage
         assertTrue(AppClassifier.isBrowserPackage("com.android.chrome"))
         assertTrue(AppClassifier.isBrowserPackage("org.mozilla.firefox"))
-        assertTrue(AppClassifier.isBrowserPackage("com.sec.android.app.sbrowser"))
         assertTrue(AppClassifier.isBrowserPackage("idm.internet.download.manager"))
+        assertTrue(AppClassifier.isBrowserPackage("id.kisskh.twa"))
+        assertTrue(AppClassifier.isBrowserPackage("org.chromium.webapk.a803cdaf2d8785085_v2"))
+        assertTrue(AppClassifier.isBrowserPackage("com.example.app.pwa"))
         assertTrue(LockAccessibilityService.isBrowserPackage("com.android.chrome"))
+        assertTrue(LockAccessibilityService.isBrowserPackage("id.kisskh.twa"))
         assertFalse(AppClassifier.isBrowserPackage("com.facebook.katana"))
         assertFalse(AppClassifier.isBrowserPackage(null))
+
+        // Shopping domain checks
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("https://shopee.ph"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("https://shopee.com/cart"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("https://lazada.com.ph"))
+        assertTrue(KnownDistractingWeb.isKnownDistractingWeb("https://kisskh.id"))
+
+        // WebClassifier ClassificationResult states
+        val pendingRes = WebClassifier.ClassificationResult.pendingLoad("skeleton")
+        assertTrue(pendingRes.isPending)
+        assertFalse(pendingRes.isBlocked)
+        assertEquals("skeleton", pendingRes.reason)
+
+        val allowedRes = WebClassifier.ClassificationResult.allowed()
+        assertFalse(allowedRes.isPending)
+        assertFalse(allowedRes.isBlocked)
+
+        val blockedRes = WebClassifier.ClassificationResult.blocked("games")
+        assertFalse(blockedRes.isPending)
+        assertTrue(blockedRes.isBlocked)
+        assertEquals("games", blockedRes.reason)
 
         // 3. AppClassifier.isSimOrCarrierService
         assertTrue(AppClassifier.isSimOrCarrierService("com.android.stk", null))
@@ -603,6 +627,7 @@ class HomeHandlerTest {
         // 4. Distracting sub-activity detection for Baidu and Naver
         assertTrue(AppClassifier.isDistractingSubActivity(baiduPkg, "com.baidu.searchbox.video.feedflow.tab.VideoTabActivity"))
         assertTrue(AppClassifier.isDistractingSubActivity(naverPkg, "com.nhn.android.clip.ui.ClipActivity"))
+        assertTrue(AppClassifier.isDistractingSubActivity(naverPkg, "com.nhn.android.search.clip.ClipViewerActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity(baiduPkg, "com.baidu.browser.search.LightSearchActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity(naverPkg, "com.nhn.android.search.universe.UniverseActivity"))
         assertFalse(AppClassifier.isDistractingSubActivity(naverPkg, "com.nhn.android.search.browser.InAppBrowserActivity"))
@@ -632,6 +657,9 @@ class HomeHandlerTest {
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/container_clip_nested_scrollable_host"))
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/shortentsNowViewPager"))
         assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/clipContentSoundToggle"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/clip_root"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/clip_player"))
+        assertTrue(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search:id/clip_form"))
 
         // 8. NAVER legitimate search UI view IDs must NOT be classified as video view IDs
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId(naverPkg, "com.nhn.android.search.InAppBrowser:id/search_window_edit"))

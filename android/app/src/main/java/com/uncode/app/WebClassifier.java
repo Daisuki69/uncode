@@ -7,6 +7,7 @@ import android.util.Log;
 
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -41,23 +42,33 @@ public final class WebClassifier {
 
     public static final class ClassificationResult {
         public final boolean isBlocked;
+        public final boolean isPending;
         public final String reason;
 
         public ClassificationResult(boolean isBlocked, String reason) {
+            this(isBlocked, false, reason);
+        }
+
+        public ClassificationResult(boolean isBlocked, boolean isPending, String reason) {
             this.isBlocked = isBlocked;
+            this.isPending = isPending;
             this.reason = reason;
         }
 
         public static ClassificationResult allowed() {
-            return new ClassificationResult(false, null);
+            return new ClassificationResult(false, false, null);
         }
 
         public static ClassificationResult allowed(String reason) {
-            return new ClassificationResult(false, reason);
+            return new ClassificationResult(false, false, reason);
         }
 
         public static ClassificationResult blocked(String reason) {
-            return new ClassificationResult(true, reason);
+            return new ClassificationResult(true, false, reason);
+        }
+
+        public static ClassificationResult pendingLoad(String reason) {
+            return new ClassificationResult(false, true, reason);
         }
     }
 
@@ -204,7 +215,7 @@ public final class WebClassifier {
     private static final String[] DOM_PIRACY_TOKENS = {
         "stream server", "watch in hd free", "download episode", "unlock next episode", "drama coins", "download torrent",
         "continue watching", "lastest update", "latest update", "top k-drama", "top c-drama", "k-drama", "c-drama",
-        "watch history", "sign in now to save your watch history"
+        "watch history", "sign in now to save your watch history", "kisskh"
     };
 
     // ── Academic Promotion Keywords (Protects research papers & study guides) ──
@@ -213,7 +224,7 @@ public final class WebClassifier {
         "textbook", "peer-reviewed", "journal", "abstract", "methodology",
         "bibliography", "scholarly", "encyclopedia", "definition", "thesaurus",
         "research paper", "dissertation", "citation", "academic", "theorem",
-        "hypothesis", "laboratory", "experiment", "proof", "derivation", "formula",
+        "scientific hypothesis", "laboratory", "experiment", "proof", "derivation", "formula",
         "calculus", "algebra", "geometry", "physics", "chemistry", "biology",
         "documentation", "api reference", "developer guide"
     };
@@ -326,72 +337,22 @@ public final class WebClassifier {
      * Standalone PWA and WebAPK classification for web applications running without an address bar.
      * Evaluates the window title, manifest app label, and active DOM hierarchy.
      */
-    public static ClassificationResult classifyStandalonePwa(String windowTitle, AccessibilityNodeInfo root, boolean allowYoutube) {
-        return classifyStandalonePwa(windowTitle, root, allowYoutube, null);
-    }
+    /**
+     * Node F: WebClassifier + DOM Crawler.
+     * Evaluates DOM tree and window titles for distraction signatures across general web containers
+     * (scrolled browser tabs, Custom Tabs, standalone PWAs, TWAs, WebAPKs) when URL is null or unclassified.
+     */
+    public static ClassificationResult classifyDom(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
+        if (root == null) return ClassificationResult.allowed();
 
-    public static ClassificationResult classifyStandalonePwa(String windowTitle, AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
-        Set<String> effectiveAllowed = allowedDomains != null ? new HashSet<>(allowedDomains) : new HashSet<>();
-        if (allowYoutube) {
-            effectiveAllowed.add("youtube.com");
-            effectiveAllowed.add("youtu.be");
-            effectiveAllowed.add("m.youtube.com");
-            effectiveAllowed.add("v.baidu.com");
-            effectiveAllowed.add("video.baidu.com");
-            effectiveAllowed.add("haokan.baidu.com");
-        }
-
-        if (windowTitle != null && !windowTitle.trim().isEmpty()) {
-            String cleanTitle = windowTitle.trim();
-            String lowerTitle = cleanTitle.toLowerCase(Locale.US);
-
-            if (KnownSafeWeb.isAcademicExempt(lowerTitle)) {
+        // Guard: System Launchers / SystemUI must NEVER be audited as web containers
+        CharSequence rootPkgCs = root.getPackageName();
+        if (rootPkgCs != null) {
+            String rootPkg = rootPkgCs.toString();
+            if (KnownSafe.isLauncherApp(null, rootPkg) || rootPkg.contains("launcher") || "com.android.systemui".equals(rootPkg)) {
                 return ClassificationResult.allowed();
             }
-
-            if (BlacklistConstants.isBlacklisted("", cleanTitle)) {
-                return ClassificationResult.blocked("Distracting PWA app blocked: " + cleanTitle);
-            }
-
-            if (KnownDistractingWeb.isKnownDistractingWeb(lowerTitle)) {
-                return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(lowerTitle));
-            }
         }
-
-        if (root != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                try {
-                    android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
-                    if (win != null && win.getTitle() != null && KnownSafeWeb.isAcademicExempt(win.getTitle().toString())) {
-                        return ClassificationResult.allowed();
-                    }
-                } catch (Exception ignore) {}
-            }
-
-            DomScanStats stats = new DomScanStats();
-            ClassificationResult domRes = inspectDom(root, 0, stats);
-            if (domRes.isBlocked) {
-                return domRes;
-            }
-            if (stats.academicScore > 0) {
-                return ClassificationResult.allowed("Detected Academic & Productivity");
-            }
-        }
-
-        // Branch 4C Fallback: Unclassified standalone web app restricted during lockdown
-        return ClassificationResult.blocked("Layer 5 Fallback: Unclassified standalone web app restricted during focus lockdown");
-    }
-
-    /**
-     * Inspects in-app web views (e.g. NAVER InAppBrowserActivity or Baidu in-app web views)
-     * where the standard native address bar is omitted (url == null).
-     *
-     * Audits the WebView hierarchy for page titles, web links, DOM elements, and distraction tokens.
-     * Unlike standalone PWAs (which block unclassified PWAs), legitimate academic reading, blog
-     * posts, and dictionary lookups are ALLOWED if no distraction signatures are detected.
-     */
-    public static ClassificationResult classifyInAppWeb(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
-        if (root == null) return ClassificationResult.allowed();
 
         // 1. Check window title (e.g. if WindowManager/AccessibilityWindowInfo exposes the page title)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -405,6 +366,106 @@ public final class WebClassifier {
                     if (KnownDistractingWeb.isKnownDistractingWeb(title)) {
                         return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(title));
                     }
+                    if (!allowYoutube) {
+                        String lowerTitle = title.toLowerCase(Locale.ROOT);
+                        if (lowerTitle.contains("동영상") || lowerTitle.contains("short-video") || lowerTitle.contains("reels")) {
+                            return ClassificationResult.blocked("Video stream restricted during focus lockdown");
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+
+        // 2. Perform deep DOM inspection across the Chromium node hierarchy
+        DomScanStats stats = new DomScanStats();
+        ClassificationResult domRes = inspectDom(root, 0, stats);
+        if (domRes.isBlocked) {
+            return domRes;
+        }
+
+        // 3. Web games detected via title / platform tokens without academic context
+        if (stats.academicScore == 0 && stats.gamingTitleScore >= 1) {
+            return ClassificationResult.blocked("Web-based game detected (Title/Platform): " + (stats.detectedToken != null ? stats.detectedToken : "game"));
+        }
+
+        // 4. Sparse / Loading Skeleton Guard
+        // If the DOM tree has very few nodes (< 30) and little/no content text (<= 1),
+        // the page is still loading its initial layout/splash shell.
+        if (stats.totalNodesScanned < 30 && stats.contentTextsScanned <= 1 && stats.academicScore == 0) {
+            return ClassificationResult.pendingLoad("DOM skeleton loading in progress (" + stats.totalNodesScanned + " nodes, " + stats.contentTextsScanned + " texts)");
+        }
+
+        return ClassificationResult.allowed();
+    }
+
+    public static ClassificationResult classifyStandalonePwa(String windowTitle, AccessibilityNodeInfo root, boolean allowYoutube) {
+        return classifyStandalonePwa(windowTitle, root, allowYoutube, null);
+    }
+
+    public static ClassificationResult classifyStandalonePwa(String windowTitle, AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
+        return classifyDom(root, allowYoutube, allowedDomains);
+    }
+
+    /**
+     * Inspects in-app web views (e.g. NAVER InAppBrowserActivity or Baidu in-app web views)
+     * where the standard native address bar is omitted (url == null).
+     *
+     * Audits the WebView hierarchy for page titles, web links, DOM elements, and distraction tokens.
+     * Unlike standalone PWAs (which block unclassified PWAs), legitimate academic reading, blog
+     * posts, and dictionary lookups are ALLOWED if no distraction signatures are detected.
+     */
+    public static ClassificationResult classifyInAppWeb(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains) {
+        if (root == null) return ClassificationResult.allowed();
+
+        // Guard: System Launchers / SystemUI must NEVER be audited as in-app web views
+        CharSequence rootPkgCs = root.getPackageName();
+        if (rootPkgCs != null) {
+            String rootPkg = rootPkgCs.toString();
+            if (KnownSafe.isLauncherApp(null, rootPkg) || rootPkg.contains("launcher") || "com.android.systemui".equals(rootPkg)) {
+                return ClassificationResult.allowed();
+            }
+        }
+
+        // 1. Check window title (e.g. if WindowManager/AccessibilityWindowInfo exposes the page title)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                android.view.accessibility.AccessibilityWindowInfo win = root.getWindow();
+                if (win != null && win.getTitle() != null) {
+                    String title = win.getTitle().toString();
+                    if (KnownSafeWeb.isAcademicExempt(title)) {
+                        return ClassificationResult.allowed();
+                    }
+                    // Fast-path for NAVER search engine results
+                    if (title.contains(": 네이버 검색") || title.contains(": 네이버 통합검색") ||
+                        title.endsWith("네이버 검색") || title.endsWith("네이버 통합검색")) {
+                        return ClassificationResult.allowed();
+                    }
+                    if (KnownDistractingWeb.isKnownDistractingWeb(title)) {
+                        return ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(title));
+                    }
+                    if (!allowYoutube) {
+                        String lowerTitle = title.toLowerCase(Locale.ROOT);
+                        if (lowerTitle.contains("클립검색") || lowerTitle.contains("동영상") ||
+                            lowerTitle.contains("clip.naver") || lowerTitle.contains("tv.naver")) {
+                            return ClassificationResult.blocked("In-app video stream / clip search restricted during focus lockdown");
+                        }
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
+
+        // Check for in-app clip search form when video policy is restricted
+        if (!allowYoutube) {
+            try {
+                List<AccessibilityNodeInfo> clipFormNodes = root.findAccessibilityNodeInfosByViewId("clip_form");
+                if (clipFormNodes != null && !clipFormNodes.isEmpty()) {
+                    return ClassificationResult.blocked("In-app video clip search form restricted during focus lockdown");
+                }
+            } catch (Exception ignore) {}
+            try {
+                List<AccessibilityNodeInfo> clipSearchNodes = root.findAccessibilityNodeInfosByText("클립검색");
+                if (clipSearchNodes != null && !clipSearchNodes.isEmpty()) {
+                    return ClassificationResult.blocked("In-app clip search results restricted during focus lockdown");
                 }
             } catch (Exception ignore) {}
         }
@@ -421,7 +482,12 @@ public final class WebClassifier {
             return ClassificationResult.blocked("Web-based game detected (Title/Platform): " + (stats.detectedToken != null ? stats.detectedToken : "game"));
         }
 
-        // 3. Legitimate study / reading content survived distraction checks -> ALLOW
+        // 3. Sparse / Loading Skeleton Guard
+        if (stats.totalNodesScanned < 30 && stats.contentTextsScanned <= 1 && stats.academicScore == 0) {
+            return ClassificationResult.pendingLoad("In-app DOM skeleton loading in progress (" + stats.totalNodesScanned + " nodes, " + stats.contentTextsScanned + " texts)");
+        }
+
+        // 4. Legitimate study / reading content survived distraction checks -> ALLOW
         return ClassificationResult.allowed();
     }
 
@@ -712,6 +778,7 @@ public final class WebClassifier {
         int gameHudScore = 0;
         int academicScore = 0;
         int totalNodesScanned = 0;
+        int contentTextsScanned = 0;
         String detectedToken = null;
     }
 
@@ -733,6 +800,7 @@ public final class WebClassifier {
         String[] values = {text, desc};
         for (String val : values) {
             if (val == null || val.length() < 2) continue;
+            stats.contentTextsScanned++;
 
             // Academic immunity check on node text/description
             if (WebBlocklistConstants.isAcademicExempt(val)) {
@@ -762,21 +830,21 @@ public final class WebClassifier {
 
             // Real-time Gambling DOM triggers
             for (String gTok : DOM_GAMBLING_TOKENS) {
-                if (val.contains(gTok) && stats.academicScore == 0) {
+                if (val.contains(gTok) && stats.academicScore < 3) {
                     return ClassificationResult.blocked("Interactive gambling controls detected: " + gTok);
                 }
             }
 
             // Real-time Adult DOM triggers
             for (String aTok : DOM_ADULT_TOKENS) {
-                if (val.contains(aTok) && stats.academicScore == 0) {
+                if (val.contains(aTok) && stats.academicScore < 3) {
                     return ClassificationResult.blocked("Adult/explicit content gate detected: " + aTok);
                 }
             }
 
             // Real-time Piracy/Short-Drama binge triggers
             for (String pTok : DOM_PIRACY_TOKENS) {
-                if (val.contains(pTok) && stats.academicScore == 0) {
+                if (val.contains(pTok) && stats.academicScore < 3) {
                     return ClassificationResult.blocked("Piracy/short-drama streaming player detected: " + pTok);
                 }
             }
