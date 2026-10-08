@@ -156,7 +156,6 @@ object BlacklistConstants {
             lower.contains("musically") ||
             lower.contains("tiktok") ||
             lower.contains("trill") ||
-            (lower.contains("youtube") && !lower.contains("music")) ||
             lower.contains("reddit")
     }
 }

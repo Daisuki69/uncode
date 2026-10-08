@@ -452,5 +452,68 @@ class WebTruthTableTest {
         assertTrue(WebClassifier.classifyDomain("youxuan.baidu.com", false, null).isBlocked)
         assertTrue(WebClassifier.classifyDomain("www.coupang.com", false, null).isBlocked)
     }
+
+    @Test
+    fun testBrowserNewTabPageAndShellWidgets() {
+        // 1. Internal browser safe new tab schemes
+        assertTrue(KnownSafeWeb.isAcademicExempt("chrome://newtab"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("edge://newtab"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("about:blank"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("chrome-native://newtab"))
+
+        // 2. Search placeholder hint text is not treated as a destination URL
+        assertFalse(WebClassifier.isDestinationUrl("Search Google or type URL"))
+        assertFalse(WebClassifier.isDestinationUrl("Search or type URL"))
+        assertFalse(WebClassifier.isDestinationUrl("Search or type web address"))
+
+        // 3. Address bar candidate validation rejects placeholder hint text
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Search Google or type URL"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Search or type URL"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("Search or type web address"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("chrome://newtab"))
+        assertFalse(LockAccessibilityService.isValidUrlCandidate("about:blank"))
+
+        // 4. Legitimate destination websites are recognized as valid candidates
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("tiktok.com"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("https://en.wikipedia.org/wiki/Mathematics"))
+        assertTrue(LockAccessibilityService.isValidUrlCandidate("shopee.ph"))
+    }
+
+    @Test
+    fun testGoogleActivityAndSupportExemptionsAndYouTubePolicy() {
+        // 1. Google Account & Support domains are academic/system exempt
+        assertTrue(KnownSafeWeb.isAcademicExempt("myactivity.google.com"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("https://myactivity.google.com/product/youtube"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("activity.google.com"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("support.google.com"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("https://support.google.com/youtube/answer/12345"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("accounts.google.com"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("myaccount.google.com"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("safety.google.com"))
+        assertTrue(KnownSafeWeb.isAcademicExempt("policies.google.com"))
+
+        // 2. Classifying these domains via WebClassifier returns allowed
+        assertFalse(WebClassifier.classifyDomain("myactivity.google.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("activity.google.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("support.google.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("accounts.google.com", false, null).isBlocked)
+
+        // 3. BlacklistConstants substring veto does NOT veto "YouTube History" or "Google Support"
+        assertFalse(BlacklistConstants.isBlacklisted("", "YouTube History"))
+        assertFalse(BlacklistConstants.isBlacklisted("", "Google Support"))
+        assertFalse(BlacklistConstants.isBlacklisted("myactivity.google.com", "YouTube History"))
+
+        // 4. buildEffectiveAllowed properly merges YouTube domains when allowYoutube = true
+        val ytAllowedSet = WebClassifier.buildEffectiveAllowed(true, emptySet())
+        assertTrue(ytAllowedSet.contains("youtube.com"))
+        assertTrue(ytAllowedSet.contains("m.youtube.com"))
+        assertTrue(KnownSafeWeb.isKnownSafeWeb("https://m.youtube.com", ytAllowedSet))
+
+        // 5. When allowYoutube = false, YouTube is not in effective set
+        val ytBlockedSet = WebClassifier.buildEffectiveAllowed(false, emptySet())
+        assertFalse(ytBlockedSet.contains("youtube.com"))
+        assertFalse(KnownSafeWeb.isKnownSafeWeb("https://m.youtube.com", ytBlockedSet))
+    }
 }
+
 

@@ -1090,7 +1090,56 @@ public class LockAccessibilityService extends AccessibilityService {
         return false;
     }
 
+    public static boolean isBrowserNewTabPage(AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        try {
+            // 1. Chrome / Chromium family New Tab Page containers & elements
+            String[] ntpViewIds = {
+                "com.android.chrome:id/ntp_content",
+                "com.android.chrome:id/search_box_text",
+                "com.android.chrome:id/search_provider_logo",
+                "com.android.chrome:id/mv_tiles_layout",
+                "org.chromium.chrome:id/ntp_content",
+                "org.chromium.chrome:id/search_box_text",
+                "org.chromium.chrome:id/search_provider_logo",
+                "com.brave.browser:id/ntp_content",
+                "com.kiwibrowser.browser:id/ntp_content",
+                // Samsung Internet
+                "com.sec.android.app.sbrowser:id/quickaccess_layout",
+                "com.sec.android.app.sbrowser:id/new_tab_page",
+                // Firefox
+                "org.mozilla.firefox:id/home_layout",
+                "org.mozilla.firefox:id/top_sites_container",
+                // Microsoft Edge
+                "com.microsoft.emmx:id/ntp",
+                "com.microsoft.emmx:id/new_tab_page"
+            };
+            for (String id : ntpViewIds) {
+                List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+                if (nodes != null && !nodes.isEmpty()) {
+                    recycleNodes(nodes);
+                    return true;
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
     private boolean isBrowserSearch(String url, AccessibilityNodeInfo root) {
+        // 0. Flowchart Node B: Internal browser home schemes and New Tab Page / Search Launchpad -> 100% research immune
+        if (url != null && !url.trim().isEmpty()) {
+            String cleanUrl = url.trim().toLowerCase(Locale.US);
+            if (cleanUrl.equals("chrome://newtab") || cleanUrl.startsWith("chrome://newtab") ||
+                cleanUrl.equals("about:blank") || cleanUrl.equals("about:home") ||
+                cleanUrl.startsWith("chrome-native://") || cleanUrl.equals("edge://newtab") ||
+                cleanUrl.equals("new tab")) {
+                return true;
+            }
+        }
+        if (isBrowserNewTabPage(root)) {
+            return true;
+        }
+
         // 1. Flowchart: Active search input box / Query typing in progress -> ALLOW_SEARCH (100% immune)
         if (root != null) {
             try {
@@ -2174,7 +2223,7 @@ public class LockAccessibilityService extends AccessibilityService {
         boolean isEnforcing = isLockdownActive || isConsequenceEnforcing;
 
         String webMode = prefs.getString("web_protection_mode", "accessibility");
-        boolean isVpnMode = "dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode);
+        boolean isVpnMode = "dual_hybrid".equalsIgnoreCase(webMode);
         boolean shouldVpnRun = isVpnMode && isEnforcing;
 
         if (shouldVpnRun) {

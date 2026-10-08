@@ -65,7 +65,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   const [modeError, setModeError] = useState<string | null>(null);
 
   const [webProtectionMode, setWebProtectionModeState] = useState<'accessibility' | 'dual_hybrid'>(
-    settings.webProtectionMode === 'dual_hybrid' || (settings.webProtectionMode as string) === 'dns_vpn'
+    settings.webProtectionMode === 'dual_hybrid'
       ? 'dual_hybrid'
       : 'accessibility'
   );
