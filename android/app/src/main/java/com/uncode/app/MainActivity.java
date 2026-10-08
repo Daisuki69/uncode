@@ -1,5 +1,6 @@
 package com.uncode.app;
 
+import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
@@ -21,6 +22,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         sIsRunning = true;
         sInstance = this;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         registerPlugin(LockPlugin.class);
         super.onCreate(savedInstanceState);
 

@@ -78,9 +78,11 @@ object KnownSafeWeb {
         "kaggle.com", "huggingface.co", "paperswithcode.com",
         "overleaf.com", "latex-project.org", "ctan.org",
 
-        // Student Productivity & Document Workspaces
+        // Student Productivity, Account Infrastructure & Document Workspaces
         "docs.google.com", "drive.google.com", "sheets.google.com", "slides.google.com",
         "forms.google.com", "sites.google.com", "keep.google.com", "calendar.google.com",
+        "myactivity.google.com", "activity.google.com", "support.google.com", "accounts.google.com",
+        "myaccount.google.com", "safety.google.com", "policies.google.com",
         "notion.so", "notion.site", "obsidian.md", "trello.com", "miro.com", "figma.com", "canva.com",
         "lucidchart.com", "coggle.it", "draw.io", "diagrams.net",
         "office.com", "onedrive.live.com", "onenote.com", "sharepoint.com"

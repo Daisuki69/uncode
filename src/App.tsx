@@ -310,7 +310,7 @@ export default function App() {
 
       setSettings(loadedSettings);
       setOperatingMode(loadedSettings.operatingMode || 'safemode');
-      const safeWebMode: 'accessibility' | 'dual_hybrid' = loadedSettings.webProtectionMode === 'dual_hybrid' || (loadedSettings.webProtectionMode as string) === 'dns_vpn'
+      const safeWebMode: 'accessibility' | 'dual_hybrid' = loadedSettings.webProtectionMode === 'dual_hybrid'
         ? 'dual_hybrid'
         : 'accessibility';
       setWebProtectionMode(safeWebMode);

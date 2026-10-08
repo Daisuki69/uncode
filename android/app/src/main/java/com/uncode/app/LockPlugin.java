@@ -185,9 +185,9 @@ public class LockPlugin extends Plugin {
             // Start Floating Assistive Timer Ball Overlay
             FloatingOverlayService.startService(getActivity(), lockEndTime, scheduleId);
 
-            // Start Local DNS Sinkhole if web protection mode is dns_vpn or dual_hybrid
+            // Start Local DNS Sinkhole if web protection mode is dual_hybrid
             String webMode = prefs.getString("web_protection_mode", "accessibility");
-            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
+            if ("dual_hybrid".equalsIgnoreCase(webMode)) {
                 LocalDnsVpnService.startVpn(getActivity());
             }
 
@@ -279,9 +279,9 @@ public class LockPlugin extends Plugin {
 
 
 
-            // 3. Start Local DNS Sinkhole VPN if configured
+            // 3. Start Local DNS Sinkhole VPN if configured (Dual Hybrid Mode)
             String webMode = prefs.getString("web_protection_mode", "accessibility");
-            if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode)) {
+            if ("dual_hybrid".equalsIgnoreCase(webMode)) {
                 LocalDnsVpnService.startVpn(context);
             }
 
@@ -390,17 +390,17 @@ public class LockPlugin extends Plugin {
     public void setWebProtectionMode(PluginCall call) {
         try {
             String mode = call.getString("mode", "accessibility");
-            if ("off".equalsIgnoreCase(mode)) {
-                mode = "accessibility"; // Milestone 18: No unrestricted mode; baseline protection mandatory
-            } else if ("dns_vpn".equalsIgnoreCase(mode)) {
-                mode = "dual_hybrid"; // Standalone dns_vpn streamlined to dual_hybrid
+            if ("dual_hybrid".equalsIgnoreCase(mode)) {
+                mode = "dual_hybrid";
+            } else {
+                mode = "accessibility"; // Strict binary enforcement: defaults cleanly to accessibility
             }
             prefs.edit().putString("web_protection_mode", mode).apply();
             Log.i(TAG, "Web protection mode set to: " + mode);
 
             boolean isLockActive = prefs.getBoolean("lockdown_active", false) || prefs.getBoolean("consequence_active", false);
             if (isLockActive) {
-                if ("dns_vpn".equalsIgnoreCase(mode) || "dual_hybrid".equalsIgnoreCase(mode)) {
+                if ("dual_hybrid".equalsIgnoreCase(mode)) {
                     LocalDnsVpnService.startVpn(getActivity());
                 } else {
                     LocalDnsVpnService.stopVpn(getActivity());

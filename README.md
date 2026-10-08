@@ -4360,6 +4360,179 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
          - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
 
+- **Strict 2-Mode Web Protection Architecture Consolidation (Patch 26.13 Follow-Up)**:
+  - **Why It Was Mandated (User Clarification & Architectural Consolidation)**:
+    - *Elimination of Network Mode Ambiguity*:
+      - External analysis reported that QIEZKA supported 3 network modes (`accessibility`, `dns_vpn`, `dual_hybrid`).
+      - Confirmed with user that QIEZKA architecturally and deliberately supports **strictly 2 canonical modes**:
+        1. **`accessibility` (Accessibility Guard)**: Real-time address bar URL & page DOM inspection via Android Accessibility Service. Zero VPN battery overhead, consuming zero system VPN slots and leaving Android's single VPN slot 100% available for enterprise, academic, and research intranet VPNs (WireGuard, Cisco AnyConnect, Tailscale, OpenVPN).
+        2. **`dual_hybrid` (Dual Hybrid Guard)**: Maximum armor combining on-device Local DNS Sinkhole (UDP port 53 loopback VPN) **plus** real-time Accessibility URL & DOM inspection.
+      - Standalone DNS sinkholing alone (`dns_vpn`) was an early intermediate prototype that was phased out: DNS queries operate solely on top-level domain hostnames and cannot inspect granular paths (e.g. `youtube.com/shorts`, `naver.com/shopping`) or in-page search DOM feeds.
+    - *Legacy Code Drift Cleanup*:
+      - While the React UI had already been condensed to 2 cards, legacy migration fallbacks and checks such as `if ("dns_vpn".equalsIgnoreCase(webMode) || "dual_hybrid".equalsIgnoreCase(webMode))` still lingered in `LockPlugin.java` (lines 190, 284, 395, 403), `LockAccessibilityService.java` (line 2177), `App.tsx` (line 313), and `SettingsOverlay.tsx` (line 68).
+      - Removing these legacy checks permanently eliminates code drift and enforces strict binary validation.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Native Android Binary Validation (`LockPlugin.java`)**:
+      - In `setWebProtectionMode()`, simplified parsing to strictly validate `mode`: if `"dual_hybrid".equalsIgnoreCase(mode)`, persists `"dual_hybrid"`; otherwise cleanly defaults to `"accessibility"`. Removed legacy `"dns_vpn"` migration branch.
+      - In `startLockdown()` and `setConsequenceActive()`, streamlined the Local DNS Sinkhole VPN startup check to strictly evaluate `if ("dual_hybrid".equalsIgnoreCase(webMode))`.
+    - **Accessibility Engine Synchronization (`LockAccessibilityService.java`)**:
+      - In `periodicCheck()` / VPN synchronization, updated `boolean isVpnMode = "dual_hybrid".equalsIgnoreCase(webMode);`, ensuring VPN interface lifecycle management is coupled strictly to the `dual_hybrid` mode setting.
+    - **Frontend State Cleanliness (`src/App.tsx` & `src/components/SettingsOverlay.tsx`)**:
+      - In `App.tsx`, cleaned up `safeWebMode` derivation on startup to `loadedSettings.webProtectionMode === 'dual_hybrid' ? 'dual_hybrid' : 'accessibility'`.
+      - In `SettingsOverlay.tsx`, cleaned up initial state derivation to `settings.webProtectionMode === 'dual_hybrid' ? 'dual_hybrid' : 'accessibility'`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/LockPlugin.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java)
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`src/App.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx)
+      - [`src/components/SettingsOverlay.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LocalDnsVpnService.startVpn()` / `stopVpn()`: Controlled exclusively by `LockPlugin.java` and `LockAccessibilityService.java` based on `web_protection_mode`.
+      - `SettingsOverlay.tsx` & `Onboarding.tsx`: Web & Browser Protection cards (Accessibility Guard vs Dual-Layer Hybrid).
+      - `systemBridge.ts` (`setWebProtectionMode`): Capacitor bridge method transmitting the mode to `LockPlugin.java`.
+      - `App.tsx`: Startup initialization synchronizing `webProtectionMode` to native SharedPreferences.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Accessibility Guard Mode (Baseline - Zero VPN Slot)**:
+         - *Action*: In Settings -> Web & Browser Protection, select "Accessibility Guard". Start a focus session.
+         - *Expected Result*: Inspect active VPN state via ADB (`adb shell dumpsys vpn`). Confirm QIEZKA's VPN is NOT running. Open Chrome and navigate to a distracting URL (e.g. `instagram.com` or `tiktok.com`); confirm accessibility URL Guard immediately detects the URL and performs tab remediation (closes tab/navigates back).
+      2. **Dual-Layer Hybrid Mode (Max Armor)**:
+         - *Action*: In Settings -> Web & Browser Protection, select "Dual-Layer Hybrid". Start a focus session.
+         - *Expected Result*: Verify on-device VPN icon appears in status bar. Confirm `LocalDnsVpnService` is running via `adb shell dumpsys vpn`. Distracting domains are sinkholed to NXDOMAIN while accessibility URL Guard inspects DOM and URLs concurrently.
+      3. **Session Teardown & Transition Verification**:
+         - *Action*: End the focus session or switch back to "Accessibility Guard" while idle.
+         - *Expected Result*: Confirm `LocalDnsVpnService.stopVpn()` is cleanly executed and the Android VPN notification dismisses immediately, leaving zero lingering sockets.
+      4. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL in 41s`, 0 failures); TypeScript compiler reports 0 errors (`tsc --noEmit`).
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Browser Homepage (New Tab Page) Search Immunity & Shortcut Tile DOM Filter (Patch 26.14 Follow-Up)**:
+  - **Why It Was Mandated (Live Device Investigation & Forensic Findings)**:
+    - *Cold-Launch False Positive Auto-Back on Chrome Homepage*:
+      - Opening Google Chrome on the test device immediately triggered Auto-Back remediation (`GLOBAL_ACTION_BACK`), evicting the user back to the Android home launcher even though Chrome was simply opened to its clean homepage.
+    - *Root Cause Discovered via Live ADB UI Automator Hierarchy Dump (`/sdcard/chrome_dump.xml`)*:
+      - Chrome's New Tab Page (NTP) displays root container `com.android.chrome:id/ntp_content`, Google search box `com.android.chrome:id/search_box_text` (hint text: `"Search Google or type URL"`), and Most Visited shortcut tiles (`com.android.chrome:id/mv_tiles_layout`).
+      - On test device, Chrome rendered recent shortcut bookmark tiles for `"kisskh"` and `"TikTok"` (from prior testing).
+      - `extractUrlFromBrowser` inspected `"Search Google or type URL"`, recognized it as search placeholder hint text, and correctly returned `url = null`.
+      - In `isBrowserSearch(url, root)`, because `url` was null and the search box was not actively focused with user input on cold launch, `isBrowserSearch` returned `false`.
+      - Flowchart Node D evaluated `isUrlViewable == false` (due to `url == null`), falling through to Node F (`WebClassifier.classifyDom(root)`).
+      - The DOM crawler scanned every node in Chrome's homepage layout, encountered the `"kisskh"` and `"TikTok"` shortcut bookmark titles in `mv_tiles_layout`, matched `KnownDistractingWeb("tiktok")` and `BlacklistConstants("kisskh")`, and executed Auto-Back!
+    - *Architectural Alignment*:
+      - The browser's New Tab Page is the primary Google search launchpad (Node B / Node C: Research Immune). Opening the browser to initiate a search must NEVER be interrupted.
+      - Bookmark/history shortcut tiles are browser shell launcher widgets, not active destination web page sessions, and must never trigger DOM-level web content blocks.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Browser New Tab Page / Homepage Search Immunity (`LockAccessibilityService.java`)**:
+      - Implemented `public static boolean isBrowserNewTabPage(AccessibilityNodeInfo root)` identifying standard New Tab Page search layouts:
+        - Chrome / Chromium family: `com.android.chrome:id/ntp_content`, `com.android.chrome:id/search_box_text`, `com.android.chrome:id/search_provider_logo`, `com.android.chrome:id/mv_tiles_layout`, `org.chromium.chrome:id/ntp_content`, `com.brave.browser:id/ntp_content`, `com.kiwibrowser.browser:id/ntp_content`.
+        - Samsung Internet: `com.sec.android.app.sbrowser:id/quickaccess_layout`, `com.sec.android.app.sbrowser:id/new_tab_page`.
+        - Firefox: `org.mozilla.firefox:id/home_layout`, `org.mozilla.firefox:id/top_sites_container`.
+        - Microsoft Edge: `com.microsoft.emmx:id/ntp`, `com.microsoft.emmx:id/new_tab_page`.
+      - In `isBrowserSearch(url, root)`:
+        - Added internal safe scheme validation (`chrome://newtab`, `about:blank`, `about:home`, `chrome-native://newtab`, `edge://newtab`).
+        - Integrated `isBrowserNewTabPage(root)` check directly into Node B. When on the browser's New Tab Page / search launchpad, immediately returns `true` (Node C: Research Immune: ALLOW), calling `resetBrowserRemediationState(); return;`.
+    - **DOM Crawler Shell Widget Filter (`WebClassifier.java`)**:
+      - Added `public static boolean isBrowserShellWidget(AccessibilityNodeInfo node)` identifying browser bookmark tiles (`mv_tiles_layout`, `mv_tiles_container`, `tile_view`, `tile_view_title`, `tile_view_icon`, `tile_text_container`, `quickaccess_layout`, `top_sites_container`) and Google Discover news feeds (`feed_stream_recycler_view`).
+      - In `inspectDom(node, ...)`: added `if (isLinkContextMenuSubtree(node) || isBrowserShellWidget(node)) return ClassificationResult.allowed();`, guaranteeing bookmark tiles are never parsed as destination web content.
+    - **Unit Test Coverage (`WebTruthTableTest.kt`)**:
+      - Added `testBrowserNewTabPageAndShellWidgets()` verifying internal browser schemes, search placeholder hint rejection, and destination URL candidates.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`android/app/src/main/java/com/uncode/app/WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.inspectBrowserWindow()`: Evaluated on every window state event and ticker pulse for web containers.
+      - `LockAccessibilityService.isBrowserSearch()`: Decides Node B search query & SERP immunity.
+      - `WebClassifier.classifyDom()` & `inspectDom()`: Decides Node F classification when URL is non-viewable or unclassified.
+      - `WebTruthTableTest.kt`: Validates unit test assertions for search and web container classification.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Chrome Homepage Launch Verification**:
+         - *Action*: On connected device (`f678bc48`), launch Google Chrome (`am start -n com.android.chrome/com.google.android.apps.chrome.Main`).
+         - *Expected Result*: Chrome opens and remains stably on the New Tab Page. Google logo, search bar, and shortcut tiles ("kisskh", "TikTok") are displayed. Auto-Back is NOT triggered. Chrome stays in the foreground.
+      2. **Search Query Typing & Execution Verification**:
+         - *Action*: Tap into Chrome's search box. Type `"quantum mechanics lecture notes"` and execute the search.
+         - *Expected Result*: Search suggestions appear, SERP loads Google search results. Node B -> C keeps browsing uninterrupted.
+      3. **Destinating Navigation to Distracting Site Verification**:
+         - *Action*: On Chrome's homepage, tap the `"TikTok"` shortcut tile (or navigate directly to `tiktok.com`).
+         - *Expected Result*: Chrome navigates to `tiktok.com`. The address bar becomes viewable with `tiktok.com`. `extractUrlFromBrowser` detects `tiktok.com`. Node D -> E -> O evaluates as distracting web. Auto-Back executes promptly, closing the tab.
+      4. **Scrolled Webpage & In-App Web Regression Test**:
+         - *Action*: Navigate to an educational Wikipedia article (e.g. `en.wikipedia.org/wiki/Mathematics`) and scroll down into full screen (`url == null`).
+         - *Expected Result*: The page is not on the New Tab Page (`isBrowserNewTabPage` returns false). Node F DOM inspection runs, verifies clean academic content, and allows browsing uninterrupted.
+      5. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL in 29s`, 0 failures); TypeScript compiler reports 0 errors.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Google Account & Support Domain Immunity, Policy-Synced DOM Evaluation & Portrait Orientation Lock (Patch 26.15 Follow-Up)**:
+  - **Why It Was Mandated (Live Device Investigation & Forensic Findings)**:
+    - *Google My Activity and Google Support False-Positive Auto-Back*:
+      - The user reported that visiting `activity.google.com` or `support.google.com` in Google Chrome triggered Auto-Back remediation with reason `"YouTube History detected"` or `"YouTube detected"` even when YouTube/videos was explicitly permitted in `UniversalPolicyRegistry`.
+      - Forensic investigation revealed three root causes:
+        1. *Domain Exemption Omission*: `myactivity.google.com`, `activity.google.com`, `support.google.com`, `accounts.google.com`, `myaccount.google.com`, `safety.google.com`, and `policies.google.com` were missing from `KnownSafeWeb.ACADEMIC_EXEMPT_DOMAINS`. Because the URL was not in the exempt domains list, Flowchart Node O did not immediately evaluate `No Distracting, Yes Safe -> Node I: Browsing Continues Uninterrupted`, falling through to Node F (`WebClassifier.classifyDom`).
+        2. *Anti-Tamper Substring Veto in `BlacklistConstants.kt`*: Line 159 of `BlacklistConstants.kt` had a legacy check `(lower.contains("youtube") && !lower.contains("music"))` inside `hasHostileSubstring()`. When Google My Activity rendered cards titled `"YouTube History"` or Google Support rendered help articles about YouTube, `BlacklistConstants.isBlacklisted("", "YouTube History")` triggered a global hostile substring veto, treating "YouTube History" as a hostile tampering signature regardless of `UniversalPolicyRegistry` settings.
+        3. *Disconnected Policy Context in DOM Crawler*: `inspectDom` in `WebClassifier.java` did not receive `effectiveAllowed`, making DOM node evaluation completely blind to whether YouTube or educational services were allowed by the user.
+    - *Permanent Portrait Mode Lock*:
+      - The user requested that the app be locked strictly and permanently to portrait mode. Previously, `AndroidManifest.xml` lacked `android:screenOrientation="portrait"` on `.MainActivity`, allowing orientation shifts on device rotation.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Google Account, Activity & Support Domain Whitelist (`KnownSafeWeb.kt`)**:
+      - Added `myactivity.google.com`, `activity.google.com`, `support.google.com`, `accounts.google.com`, `myaccount.google.com`, `safety.google.com`, and `policies.google.com` to `ACADEMIC_EXEMPT_DOMAINS`.
+      - In Flowchart Node O (`isAcademicExempt`), these domains immediately evaluate `isSafeWeb == true`, allowing browsing uninterrupted without triggering DOM crawls.
+    - **Anti-Tamper Hostile Substring Cleanup (`BlacklistConstants.kt`)**:
+      - Removed `(lower.contains("youtube") && !lower.contains("music"))` from `hasHostileSubstring()`. YouTube URLs and domains are already governed strictly and cleanly by `KnownDistractingWeb`, `WebClassifier`, and `UniversalPolicyRegistry`; removing this legacy hardcoded string check prevents false-positive vetoes on informational UI cards like "YouTube History" and Google Support documentation.
+    - **Policy-Aware DOM Inspection (`WebClassifier.java`)**:
+      - Exposed `buildEffectiveAllowed(boolean allowYoutube, Set<String> allowedDomains)` to assemble the merged set of policy-allowed domains.
+      - Updated `classifyDom(AccessibilityNodeInfo root, boolean allowYoutube, Set<String> allowedDomains)` and `classifyInAppWeb(...)` to pass `effectiveAllowed` into `inspectDom(AccessibilityNodeInfo node, int depth, DomScanStats stats, Set<String> effectiveAllowed)`.
+      - Added policy immunity check inside `inspectDom`:
+        `if (effectiveAllowed != null && !effectiveAllowed.isEmpty()) { if (effectiveAllowed.contains(val) || KnownSafeWeb.isKnownSafeWeb(val, effectiveAllowed)) { continue; } }`
+    - **Enforce Portrait Orientation (`AndroidManifest.xml` & `MainActivity.java`)**:
+      - Added `android:screenOrientation="portrait"` to `.MainActivity` in `AndroidManifest.xml`.
+      - Added `setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);` in `MainActivity.java` `onCreate()`.
+    - **Unit Test Coverage (`WebTruthTableTest.kt`)**:
+      - Added `testGoogleActivityAndSupportExemptionsAndYouTubePolicy()` verifying:
+        - `KnownSafeWeb.isAcademicExempt` accepts all Google activity, support, account, and policy domains.
+        - `WebClassifier.classifyDomain` permits these domains.
+        - `BlacklistConstants.isBlacklisted("", "YouTube History")` and `("myactivity.google.com", "YouTube History")` return false.
+        - `WebClassifier.buildEffectiveAllowed` correctly synchronizes `youtube.com` and `m.youtube.com` when `allowYoutube = true`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/AndroidManifest.xml`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/AndroidManifest.xml)
+      - [`android/app/src/main/java/com/uncode/app/MainActivity.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.java)
+      - [`android/app/src/main/java/com/uncode/app/KnownSafeWeb.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafeWeb.kt)
+      - [`android/app/src/main/java/com/uncode/app/BlacklistConstants.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/BlacklistConstants.kt)
+      - [`android/app/src/main/java/com/uncode/app/WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java)
+      - [`android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `MainActivity.onCreate()`: Enforces portrait orientation on app launch.
+      - `LockAccessibilityService.inspectBrowserWindow()`: Evaluates browser windows; Node O uses `KnownSafeWeb.isAcademicExempt()` to bypass blocking.
+      - `WebClassifier.classifyDom()` & `inspectDom()`: Performs DOM traversal with `effectiveAllowed` awareness.
+      - `BlacklistConstants.isBlacklisted()`: Checked across both application and web package/URL gatekeepers.
+      - `WebTruthTableTest.kt`: Unit tests verifying Google exemptions and YouTube policy alignment.
+    - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+      1. **Google My Activity Verification**:
+         - *Action*: In Chrome on device, navigate to `https://myactivity.google.com` or `https://activity.google.com`.
+         - *Expected Result*: The page opens and displays the "YouTube History" card. Node O recognises `myactivity.google.com` as academic/system exempt. Auto-Back is NOT triggered. Browsing continues uninterrupted.
+      2. **Google Support Verification**:
+         - *Action*: Navigate to `https://support.google.com` or `https://support.google.com/youtube`.
+         - *Expected Result*: The Google Support page loads without being blocked. Auto-Back is NOT triggered.
+      3. **YouTube Policy Whitelist Verification**:
+         - *Action*: In QIEZKA Universal Policy / Whitelist Settings, verify YouTube is permitted. Open Chrome and navigate to `https://m.youtube.com`.
+         - *Expected Result*: YouTube is allowed to load. When browsing, DOM elements mentioning YouTube are not blocked by `inspectDom`.
+      4. **Portrait Mode Verification**:
+         - *Action*: Open QIEZKA. Rotate the physical device to landscape orientation.
+         - *Expected Result*: The QIEZKA app stays firmly in portrait mode. It does not rotate or rearrange into landscape.
+      5. **Automated Unit Testing & Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: All unit test suites pass (`BUILD SUCCESSFUL in 17s`, 0 failures); TypeScript compiler reports 0 errors.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
 
 ---
 

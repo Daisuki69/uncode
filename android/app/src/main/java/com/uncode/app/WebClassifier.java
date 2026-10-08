@@ -340,6 +340,29 @@ public final class WebClassifier {
         return false;
     }
 
+    /**
+     * Checks if a specific node is a native browser bookmark, history shortcut tile, or Discover feed.
+     * These elements are browser navigation widgets, not active destination website content.
+     */
+    public static boolean isBrowserShellWidget(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        try {
+            CharSequence resId = node.getViewIdResourceName();
+            if (resId != null) {
+                String idStr = resId.toString();
+                if (idStr.endsWith(":id/mv_tiles_layout") || idStr.endsWith(":id/mv_tiles_container") ||
+                    idStr.endsWith(":id/tile_view") || idStr.endsWith(":id/tile_view_title") ||
+                    idStr.endsWith(":id/tile_view_icon") || idStr.endsWith(":id/tile_text_container") ||
+                    idStr.endsWith(":id/tile_view_highlight") || idStr.endsWith(":id/feed_stream_recycler_view") ||
+                    idStr.endsWith(":id/quickaccess_layout") || idStr.endsWith(":id/top_sites_container") ||
+                    idStr.endsWith(":id/ntp_content")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignore) {}
+        return false;
+    }
+
 
     /**
      * Single Gate: Determines whether the given string represents an actual destination website URL.
@@ -485,8 +508,9 @@ public final class WebClassifier {
         }
 
         // 2. Perform deep DOM inspection across the Chromium node hierarchy
+        Set<String> effectiveAllowed = buildEffectiveAllowed(allowYoutube, allowedDomains);
         DomScanStats stats = new DomScanStats();
-        ClassificationResult domRes = inspectDom(root, 0, stats);
+        ClassificationResult domRes = inspectDom(root, 0, stats, effectiveAllowed);
         if (domRes.isBlocked) {
             return domRes;
         }
@@ -587,8 +611,9 @@ public final class WebClassifier {
         }
 
         // 2. Perform deep DOM inspection across the WebView node hierarchy
+        Set<String> effectiveAllowed = buildEffectiveAllowed(allowYoutube, allowedDomains);
         DomScanStats stats = new DomScanStats();
-        ClassificationResult domRes = inspectDom(root, 0, stats);
+        ClassificationResult domRes = inspectDom(root, 0, stats, effectiveAllowed);
         if (domRes.isBlocked) {
             return domRes;
         }
@@ -647,17 +672,7 @@ public final class WebClassifier {
         }
 
         // Build effective allowed domains (including allowYoutube flag)
-        Set<String> effectiveAllowed = allowedDomains != null ? new HashSet<>(allowedDomains) : new HashSet<>();
-        if (allowYoutube) {
-            effectiveAllowed.add("youtube.com");
-            effectiveAllowed.add("youtu.be");
-            effectiveAllowed.add("m.youtube.com");
-            effectiveAllowed.add("v.baidu.com");
-            effectiveAllowed.add("video.baidu.com");
-            effectiveAllowed.add("haokan.baidu.com");
-            effectiveAllowed.add("m.baidu.com/video");
-            effectiveAllowed.add("baidu.com/video");
-        }
+        Set<String> effectiveAllowed = buildEffectiveAllowed(allowYoutube, allowedDomains);
 
         // ── STAGE 2 — INITIAL WEB POLICY EVALUATION (Truth Table) ──
         boolean isSafeWeb = isWindowTitleAcademic || KnownSafeWeb.isKnownSafeWeb(cleanUrl, effectiveAllowed); // WEB_MSG_GATE2
@@ -691,7 +706,7 @@ public final class WebClassifier {
         // Scan Chromium Accessibility View Tree (Secondary Web Classifier)
         if (root != null) {
             DomScanStats stats = new DomScanStats();
-            ClassificationResult domRes = inspectDom(root, 0, stats);
+            ClassificationResult domRes = inspectDom(root, 0, stats, effectiveAllowed);
 
             // Branch 4B: Detected as Distracting Web Category (Games, Video, Social Feeds, Media Players)
             if (domRes.isBlocked) {
@@ -898,16 +913,31 @@ public final class WebClassifier {
         String detectedToken = null;
     }
 
+    public static Set<String> buildEffectiveAllowed(boolean allowYoutube, Set<String> allowedDomains) {
+        Set<String> effective = allowedDomains != null ? new HashSet<>(allowedDomains) : new HashSet<>();
+        if (allowYoutube) {
+            effective.add("youtube.com");
+            effective.add("youtu.be");
+            effective.add("m.youtube.com");
+            effective.add("v.baidu.com");
+            effective.add("video.baidu.com");
+            effective.add("haokan.baidu.com");
+            effective.add("m.baidu.com/video");
+            effective.add("baidu.com/video");
+        }
+        return effective;
+    }
+
     /**
      * Crawls active destination window DOM nodes to evaluate real-time distraction tokens:
      * in-game HUD controls, gambling buttons, adult triggers, and streaming players.
      */
-    private static ClassificationResult inspectDom(AccessibilityNodeInfo node, int depth, DomScanStats stats) {
+    private static ClassificationResult inspectDom(AccessibilityNodeInfo node, int depth, DomScanStats stats, Set<String> effectiveAllowed) {
         if (node == null || depth > MAX_DOM_DEPTH || stats.totalNodesScanned >= MAX_NODE_SCAN_COUNT) {
             return ClassificationResult.allowed();
         }
-        if (isLinkContextMenuSubtree(node)) {
-            // Skip link context menu subtree so header preview URLs and alt text are never scanned as page content
+        if (isLinkContextMenuSubtree(node) || isBrowserShellWidget(node)) {
+            // Skip link context menu and browser shell widgets (shortcut tiles, Discover feed) so they are never scanned as page content
             return ClassificationResult.allowed();
         }
         stats.totalNodesScanned++;
@@ -926,6 +956,13 @@ public final class WebClassifier {
             if (WebBlocklistConstants.isAcademicExempt(val)) {
                 stats.academicScore++;
                 continue;
+            }
+
+            // Policy immunity check (e.g. YouTube or allowed services enabled in settings)
+            if (effectiveAllowed != null && !effectiveAllowed.isEmpty()) {
+                if (effectiveAllowed.contains(val) || KnownSafeWeb.isKnownSafeWeb(val, effectiveAllowed)) {
+                    continue;
+                }
             }
 
             // Direct known distracting web domain / signature match (e.g. y8.com, tiktok.com, etc.)
@@ -1020,7 +1057,7 @@ public final class WebClassifier {
         for (int i = 0; i < childCount; i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             if (child != null) {
-                ClassificationResult childRes = inspectDom(child, depth + 1, stats);
+                ClassificationResult childRes = inspectDom(child, depth + 1, stats, effectiveAllowed);
                 if (childRes.isBlocked) {
                     return childRes;
                 }
