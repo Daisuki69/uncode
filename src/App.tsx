@@ -341,6 +341,8 @@ export default function App() {
 
       setCompletedHomeworks(sanitizedCompletedHomeworks);
       setTimeOffset(loadedTimeOffset);
+      setResources(loadedResources || []);
+      setLogs(loadedLogs || []);
 
       // Check native lock status immediately upon loading
       try {
@@ -824,11 +826,11 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
   };
 
   const handleUpdateResource = (id: string, title: string, content: string, type?: 'lecture_notes' | 'case_study') => {
-    setResources(resources.map(r => r.id === id ? { ...r, title, content, ...(type ? { type } : {}) } : r));
+    setResources(prev => prev.map(r => r.id === id ? { ...r, title, content, ...(type ? { type } : {}) } : r));
   };
 
   const handleRemoveResource = (id: string) => {
-    setResources(resources.filter(r => r.id !== id));
+    setResources(prev => prev.filter(r => r.id !== id));
   };
 
   const handleCombineResources = (id1: string, id2: string) => {

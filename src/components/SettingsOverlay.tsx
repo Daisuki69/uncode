@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search, Sparkles, Bot, Home } from 'lucide-react';
 import { AppSettings, LogEntry, SavedResource, AllowedApp, UnifiedServiceDefinition } from '../types';
-import { defaultPrompts as staticDefaultPrompts } from '../../defaultPrompts';
-import { refinePrompt } from '../api/refinePrompt';
 import { loadData, saveData } from '../storage';
 import { exportBackup, importBackup, sanitizeImportApps, setServicePolicy, getActiveServices, getRegisteredServices, getInstalledLaunchers, setSelectedLauncher, getSelectedLauncher, getSirenStatus, requestSirenHomeRole, LauncherInfo, SirenStatus } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -54,7 +52,7 @@ const getServiceThemeClasses = (themeColor?: string, isAllowed?: boolean) => {
 export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, isLockActive = false }: SettingsOverlayProps) {
   const isLockedOrConsequence = isLockActive || !!settings.consequenceActive;
 
-  const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'logs'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'logs'>('general');
   const [apiKey, setApiKey] = useState(settings.apiKey || '');
   const [apiModel, setApiModel] = useState(settings.apiModel || 'gemini-3.7-flash');
   const [simpleOcrKey, setSimpleOcrKey] = useState(settings.simpleOcrKey || '');
@@ -77,9 +75,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   const blockWebGames = true; // Permanently active & cannot be turned off
   const [webError, setWebError] = useState<string | null>(null);
   
-  const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
-  const [customPrompts, setCustomPrompts] = useState<Record<string, string>>(settings.prompts || {});
-  const [refiningKey, setRefiningKey] = useState<string | null>(null);
+
 
   const [installedLaunchers, setInstalledLaunchers] = useState<LauncherInfo[]>([]);
   const [loadingLaunchers, setLoadingLaunchers] = useState(false);
@@ -117,8 +113,6 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
   };
 
   useEffect(() => {
-    // Load directly from imported file for static/Vercel environments
-    setDefaultPrompts(staticDefaultPrompts);
     getRegisteredServices().then(services => {
       if (services && services.length > 0) {
         setAvailableServices(services);
@@ -479,60 +473,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
     input.click();
   };
 
-  const handlePromptChange = (key: string, value: string) => {
-    setCustomPrompts(prev => ({ ...prev, [key]: value }));
-  };
 
-  const handleResetPrompt = (key: string) => {
-    setCustomPrompts(prev => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  };
-
-  const handleResetAllPrompts = () => {
-    setCustomPrompts({});
-    onSave({ prompts: undefined });
-  };
-
-  const handleRefineAndSaveSingle = async (key: string) => {
-    const value = customPrompts[key];
-    if (!value || !value.trim() || value === defaultPrompts[key]) return;
-
-    setRefiningKey(key);
-    try {
-      const refined = await refinePrompt({
-        promptText: value,
-        apiKey,
-        apiModel,
-      });
-
-      if (refined) {
-        const newPrompts = { ...customPrompts, [key]: refined };
-        setCustomPrompts(newPrompts);
-        onSave({ prompts: newPrompts });
-      } else {
-        throw new Error('Refined prompt is empty.');
-      }
-    } catch (e: any) {
-      console.error('Failed to refine prompt', key, e);
-      alert('Failed to refine prompt: ' + (e.message || 'Unknown error'));
-    } finally {
-      setRefiningKey(null);
-    }
-  };
-
-  const handleSaveAllPrompts = () => {
-    const cleanedPrompts: Record<string, string> = {};
-    for (const [key, value] of Object.entries(customPrompts) as [string, string][]) {
-      if (value && value.trim() && value !== defaultPrompts[key]) {
-        cleanedPrompts[key] = value;
-      }
-    }
-    setCustomPrompts(cleanedPrompts);
-    onSave({ prompts: Object.keys(cleanedPrompts).length > 0 ? cleanedPrompts : undefined });
-  };
 
   return (
     <div className="flex-1 flex items-center justify-center p-4 h-full">
@@ -556,11 +497,16 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
               General
             </button>
             <button
-              onClick={() => setActiveTab('prompts')}
-              className={`text-sm font-bold flex items-center px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'prompts' ? 'bg-gray-200 text-gray-900' : 'text-gray-500 hover:bg-gray-100'}`}
+              onClick={() => setActiveTab('logs')}
+              className={`text-sm font-bold flex items-center px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'logs' ? 'bg-gray-200 text-gray-900' : 'text-gray-500 hover:bg-gray-100'}`}
             >
-              <FileText className="w-4 h-4 mr-2" />
-              AI Prompts
+              <Activity className="w-4 h-4 mr-2" />
+              System Logs
+              {logs.length > 0 && (
+                <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-300 text-gray-800 font-mono">
+                  {logs.length}
+                </span>
+              )}
             </button>
           </div>
           <div className="w-16"></div>
@@ -1144,28 +1090,83 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
             </div>
           )}
 
-          {activeTab === 'prompts' && (
-            <div className="max-w-5xl mx-auto">
-              <div className="flex justify-between items-center mb-6">
-                <p className="text-sm text-gray-600 leading-relaxed max-w-xl">
-                  View the system prompts used across the application. These prompts are hardcoded and cannot be modified from the UI.
-                </p>
+          {activeTab === 'logs' && (
+            <div className="max-w-4xl mx-auto">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-gray-100">
+                <div>
+                  <h3 className="text-lg font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-red-600" />
+                    System Audit Logs
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Live chronological history of background operations, scheduler shifts, and resource changes.
+                  </p>
+                </div>
+                {logs.length > 0 && (
+                  <button
+                    onClick={onClearLogs}
+                    className="px-4 py-2 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-600 font-bold text-xs rounded-xl border border-red-200 transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Clear All Logs
+                  </button>
+                )}
               </div>
-              
-              <div className="space-y-8">
-                {Object.keys(defaultPrompts).map(key => (
-                  <div key={key} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden flex flex-col">
-                    <div className="bg-gray-100 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                      <h3 className="font-bold text-gray-800 text-sm font-mono">{key}</h3>
-                    </div>
-                    <textarea
-                      readOnly
-                      value={defaultPrompts[key]}
-                      className="w-full h-48 p-4 text-xs font-mono text-gray-700 bg-white resize-none focus:outline-none focus:ring-0 cursor-text"
-                    />
+
+              {logs.length === 0 ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-12 text-center flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 rounded-full bg-gray-200 text-gray-400 flex items-center justify-center mb-3">
+                    <Activity className="w-6 h-6" />
                   </div>
-                ))}
-              </div>
+                  <h4 className="text-sm font-bold text-gray-700 mb-1">No System Logs Recorded Yet</h4>
+                  <p className="text-xs text-gray-400 max-w-sm">
+                    Events such as creating schedules, saving resources, emergency rescheduling, or locking actions will appear here automatically.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {logs.map((entry) => {
+                    const isSchedule = entry.action.toLowerCase().includes('schedule');
+                    const isResource = entry.action.toLowerCase().includes('resource') || entry.action.toLowerCase().includes('case study');
+                    const isLock = entry.action.toLowerCase().includes('lock') || entry.action.toLowerCase().includes('consequence');
+                    
+                    const badgeClass = isLock
+                      ? 'bg-red-50 text-red-700 border-red-200'
+                      : isSchedule
+                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : isResource
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-gray-100 text-gray-700 border-gray-200';
+
+                    const d = new Date(entry.timestamp);
+                    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+                    return (
+                      <div
+                        key={entry.id}
+                        className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:border-gray-300 transition-colors flex flex-col sm:flex-row sm:items-start justify-between gap-3"
+                      >
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${badgeClass}`}>
+                              {entry.action}
+                            </span>
+                            <span className="font-mono text-[11px] text-gray-400">
+                              {dateStr} • {timeStr}
+                            </span>
+                          </div>
+                          {entry.details && (
+                            <p className="text-xs text-gray-700 font-mono break-words leading-relaxed pt-1">
+                              {entry.details}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

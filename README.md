@@ -4534,6 +4534,408 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
          - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
 
+### Patch 27: Full Native Kotlin Jetpack Compose Recreation & Remix-UI-Mirror Standalone Client
+- **Why It Was Mandated (Decoupled Native Architecture & Ecosystem Parity)**:
+  - *Decoupling Frontend Logic from Hybrid Web Layer*:
+    - In QIEZKA base, the user interface and core application state relied on a React 19 / TypeScript / Capacitor 7 hybrid web view stack. Over successive iterations, UI state and native Android service hooks became entangled, making experimental UI redesigns risky to validate without impacting device security services.
+    - Creating a clean, standalone, 100% native Kotlin & Jetpack Compose mirror in `remix-ui-mirror` allows rapid iteration, instantaneous rendering, zero WebView overhead, direct Android framework integration, and independent testing without modifying root security daemons.
+  - *Native Gemini & OCR Engine Direct Pipeline*:
+    - Direct OkHttp communication with Google Gemini 2.0 Flash (`generativelanguage.googleapis.com`) and OCR.space REST API eliminates JavaScript-to-Java bridging latencies for camera photo transcription and multi-modal homework evaluation.
+  - *Total Behavioral Parity*:
+    - All complex business logic—including the 19:00 night baseline cascading rescheduling algorithm (`calculateCascadeSchedules`), lockscreen draft submission caching, 5-step onboarding, AI rubric builder with interactive refinement, similarity checking, and anti-tamper blacklist filtering—has been faithfully ported and verified.
+
+- **Concrete Architectural Implementations (`remix-ui-mirror`)**:
+  - **Complete Domain Models (`model/Models.kt`)**:
+    - Ported full TypeScript models: `AppState`, `ScheduleData`, `SavedResource`, `AllowedApp`, `AppSettings`, `EvaluationResult`, `CompletedHomework`, `LogEntry`, `UnifiedServiceDefinition`, `CascadedItem`, and `CascadeResult`.
+  - **Reactive Data Layer & Cascading Engine (`data/AppRepository.kt`)**:
+    - Centralized `SharedPreferences` persistence for settings, resources, completed sessions, logs, simulated time offsets, and whitelisted applications.
+    - Reactive `StateFlow` streams providing real-time reactivity to Compose screens.
+    - Exact port of the `calculateCascadeSchedules` algorithm: calculates continuous minutes from 19:00 night baseline, performs chronological insertion, shifts downstream conflicting items, and computes exact conflict statistics.
+    - Draft submission cache (`saveLockscreenDraft`, `getLockscreenDraft`, `clearLockscreenDraft`) for homework photo and text preservation.
+  - **Native OCR & AI Services (`api/OcrService.kt`, `api/GeminiService.kt`)**:
+    - `OcrService`: Multipart form image upload with support for both simple raw text and structured formatted markdown extraction.
+    - `GeminiService`: High-performance JSON and text generation implementing `evaluateHomework`, `buildRubric`, `checkSimilarity`, `generateAnswer`, and `declutterResource`.
+  - **Stage 1 Anti-Tamper & Blacklist Engine (`constants/BlacklistConstants.kt`)**:
+    - 40+ hardcoded blacklisted packages, substring-based evasion filters (e.g. settings, package installer, dev options, launcher switches), and PWA / WebAPK heuristics matching QIEZKA core security rules.
+  - **10 Full Jetpack Compose Screens & Overlays**:
+    1. `OnboardingScreen.kt`: 5-step wizard (Protocol overview cards, strict Terms checkboxes, System Permissions intents, API Keys input, and Safemode vs Hardcore operating modes).
+    2. `DashboardScreen.kt`: Authentic QIEZKA brand header, simulated time controls, consequence active banner, next activation countdown card, active schedules list with full homework modal and rubric modal, study resources with combine/edit/delete, allowed apps grid with launch intents, and test lock action.
+    3. `CreateScheduleScreen.kt`: 4-step wizard (homework info & OCR parser, AI similarity check, AI rubric builder with refine popup, timing & duration with conflict check).
+    4. `LockScreen.kt`: Fullscreen lock overlay, huge red countdown clock, simulated time controller, homework context & rubric box, native camera capture shutter with auto-OCR transcription, AI answer popup modal with category picker, allowed applications grid launching whitelisted apps directly on device, submit homework button, and test skip button.
+    5. `EvaluatingOverlay.kt`: Animated AI grading overlay with pulsing red spinner.
+    6. `EvaluationResultScreen.kt`: Grade breakdown screen (passed/failed banner, AI feedback, word/sentence metrics, full transcription, exit / try again actions).
+    7. `HomeworksLogScreen.kt`: Completed & failed sessions archive with emergency reschedule executing the authentic `calculateCascadeSchedules` algorithm.
+    8. `EditRubricScreen.kt`: Standalone rubric editor with AI generation and AI refinement.
+    9. `PermissionsScreen.kt`: Standalone permissions walkthrough with live state and direct intents.
+    10. `SettingsScreen.kt`: Comprehensive settings management (API keys, emergency contacts, operating modes, consequence thresholds, lockscreen draft toggle) with SharedPreferences persistence.
+  - **App Navigation & Modal Components**:
+    - `MainActivity.kt`: Root router coordinating all 10 states, lock arrival detection, AI evaluation, and back-press handling.
+    - `AllowedAppsPickerModal.kt`: Multi-select application picker with blacklist filtering.
+    - `StatusDialog.kt`: Unified system status and diagnostic dialog.
+
+- **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+  - *Affected Files in `remix-ui-mirror`*:
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/MainActivity.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/model/Models.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/model/Models.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/data/AppRepository.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/data/AppRepository.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/api/GeminiService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/api/GeminiService.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/api/OcrService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/api/OcrService.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/constants/BlacklistConstants.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/constants/BlacklistConstants.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/OnboardingScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/OnboardingScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/DashboardScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/DashboardScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/CreateScheduleScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/CreateScheduleScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/LockScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/LockScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/EvaluatingOverlay.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/EvaluatingOverlay.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/EvaluationResultScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/EvaluationResultScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/HomeworksLogScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/HomeworksLogScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/EditRubricScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/EditRubricScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/PermissionsScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/PermissionsScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/SettingsScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/SettingsScreen.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/AllowedAppsPickerModal.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/AllowedAppsPickerModal.kt)
+    - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/StatusDialog.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/StatusDialog.kt)
+  - *Known Dependents & Callers*:
+    - `MainActivity.kt`: Routes Compose state transitions and binds camera photo results to OCR and AI grading.
+    - `AppRepository.kt`: Single source of truth consumed across all screens.
+    - `ExampleUnitTest.kt`: Unit test suite verifying model defaults and blacklist filtering heuristics.
+  - *Step-by-Step Device Verification Instructions (How to Verify on Device)*:
+    1. **Onboarding Wizard & Initial State Setup**:
+       - *Action*: Launch the app fresh (or clear storage).
+       - *Expected Result*: Displays `OnboardingScreen` Step 1 (Protocol Cards). Navigating through steps allows checking terms, entering API keys (Gemini & OCR.space), granting device permissions, and selecting Operating Mode (Safemode or Hardcore). Completing step 5 saves onboarding completion to SharedPreferences and smoothly navigates to `DashboardScreen`.
+    2. **Schedule Creation, OCR Parsing & AI Rubric Refinement**:
+       - *Action*: On `DashboardScreen`, tap "+ Create Schedule". Enter subject and title. In step 1, paste raw homework text or take/select an image and tap "Parse via OCR". Proceed to step 2 (AI Similarity Check), step 3 (AI Rubric Builder, click "Refine with AI"), and step 4 (Select start time and 30m duration). Tap "Activate Schedule".
+       - *Expected Result*: OCR parses extracted text. Rubric builder generates and refines rubric items. Schedule activates and appears on the Dashboard schedule list.
+    3. **Lock Screen Full-Screen Lockdown & Camera Photo Capture**:
+       - *Action*: On `DashboardScreen`, tap "Test Lock Now" or fast-forward simulated time to the schedule start time.
+       - *Expected Result*: App transitions into `LockScreen`. Shows giant red countdown clock, homework details, and allowed apps. Tapping "Capture Homework Photo" opens the native device camera shutter. Taking a photo saves the image, runs OCR transcription, and populates the submission draft box.
+    4. **AI Homework Evaluation & Result Breakdown**:
+       - *Action*: On `LockScreen`, tap "Submit Homework & Grade".
+       - *Expected Result*: App switches to `EvaluatingOverlay` with a pulsing red spinner while calling Gemini 2.0 Flash. On completion, transitions to `EvaluationResultScreen`, showing Pass/Fail badge, score, feedback, and word counts.
+    5. **Cascading Reschedule Algorithm Verification**:
+       - *Action*: Navigate to "Homeworks Log" via header icon. Tap "Reschedule" on a session. Select a target time.
+       - *Expected Result*: The `calculateCascadeSchedules` algorithm computes downstream schedule shifts starting from 19:00 baseline and updates active schedules accordingly.
+    6. **Whitelist App Launching & Anti-Tamper Blacklist**:
+       - *Action*: On `DashboardScreen`, tap "+ Allowed Apps". Observe the app list. In `LockScreen`, tap an allowed application tile.
+       - *Expected Result*: System settings, app cloners, package installers, and browser engines are blocked by `BlacklistConstants.kt` from appearing in the allowed list. Whitelisted apps launch cleanly via Android package manager intent without exiting lockdown state.
+    7. **User Rule 2 Compliance Check**:
+       - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+       - *Expected Result*: Verified; APK compilation left entirely to user via Android Studio or their build script.
+
+- **Saved Resources, Case Studies & Logs Startup State Restoration Fix (Patch 27 Follow-Up)**:
+  - **Why It Was Mandated (Forensic Findings & Root Cause)**:
+    - *Destructive Overwrite on Application Restart*:
+      - The user discovered that after creating a course resource or case study/article, saving it, exiting the app, and reopening it, the resource was completely missing from the Dashboard.
+      - Investigation traced this regression to commit `df1e5e1` (Oct 4, 2026), where mutual exclusivity invariants were introduced into `loadAll()`. During that refactoring, `setCompletedHomeworks` was sanitized and restored, but `setResources(loadedResources)` and `setLogs(loadedLogs)` were inadvertently dropped.
+      - Although `loadAll()` correctly read `'studom_resources'` and `'studom_logs'` from `@capacitor/filesystem` into local variables `loadedResources` and `loadedLogs`, the React states `resources` and `logs` remained at their initial empty array defaults `[]`.
+      - When `loadAll()` finished and invoked `setIsLoaded(true)`, the auto-save `useEffect` hooks detected `isLoaded === true` and promptly invoked `saveData('studom_resources', resources)` and `saveData('studom_logs', logs)`.
+      - Because `resources` was `[]`, this auto-save hook immediately overwrote the persistent storage on disk with `[]`, obliterating all user course resources, case studies, and audit logs on every single startup.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Reinstated State Initialization in `loadAll()` (`src/App.tsx`)**:
+      - Explicitly populated state variables before marking loading as complete:
+        ```typescript
+        setResources(loadedResources || []);
+        setLogs(loadedLogs || []);
+        ```
+      - Guarantees that when `isLoaded` flips to `true`, the auto-save `useEffect` observes the loaded resources instead of an empty array.
+    - **Functional State Updaters for Resource Modifications (`src/App.tsx`)**:
+      - Refactored `handleUpdateResource` and `handleRemoveResource` from scope closures (`resources.map`, `resources.filter`) to functional state updaters (`prev => prev.map(...)`, `prev => prev.filter(...)`), eliminating stale closure vulnerabilities during rapid edits.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`src/App.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `Dashboard.tsx`: Renders course resources and case studies; passes actions to `onAddResource`, `onUpdateResource`, and `onRemoveResource`.
+      - `CreateSchedule.tsx`: Attaches resources and inline case studies to study sessions.
+      - `LockScreen.tsx`: Displays attached resources and uses them in AI context injection.
+      - `SettingsOverlay.tsx`: Exports/imports resources and logs in JSON backups.
+    - *Step-by-Step On-Device Verification Instructions (How to Verify on Device)*:
+      1. **Course Resource Restart Persistence**:
+         - *Action*: On the Dashboard, create a course resource with title `"Computer Architecture Ch 3"` and content `"Pipelining hazards"`. Tap Save.
+         - *Action*: Swipe away QIEZKA from Android Recents to terminate the process.
+         - *Action*: Re-launch QIEZKA from the home screen.
+         - *Expected Result*: Under "Saved Course Resources", `"Computer Architecture Ch 3"` is still present with full content.
+      2. **Case Study & Article Restart Persistence**:
+         - *Action*: On the Dashboard, tap "+ Add Article" under "Case Studies & Articles". Enter title `"2024 CrowdStrike Outage"` and content. Tap Save.
+         - *Action*: Swipe away QIEZKA from Android Recents and re-launch.
+         - *Expected Result*: Under "Case Studies & Articles", the case study card is preserved with complete title and content.
+      3. **Resource Edit & Deletion Test**:
+         - *Action*: Edit a saved resource title, save, and restart the app. Verify the edited title persists.
+         - *Action*: Delete a resource, restart the app, and verify it remains deleted.
+      4. **System Logs Persistence**:
+         - *Action*: Open Settings -> System Logs. Verify logs are recorded. Restart the app. Re-open Settings -> System Logs.
+         - *Expected Result*: Logs history is retained across app restarts.
+      5. **Automated Verification**:
+         - *Action*: Run `npx tsc --noEmit` and `.\android\gradlew.bat -p android testDebugUnitTest`.
+         - *Expected Result*: 0 TypeScript errors and all Android unit tests pass.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Settings System Logs Viewer Implementation & AI Prompts Purge (Patch 27 Follow-Up)**:
+  - **Why It Was Mandated (UI Modernization & Feature Parity)**:
+    - *Unused AI Prompts Section*:
+      - The `AI Prompts` tab in `SettingsOverlay` displayed a static, read-only list of system prompts that could not be modified from the UI. It added unnecessary clutter and exposed internal prompts without providing any user benefit.
+    - *Missing Visual Interface for System Logs*:
+      - Internal background operations (such as schedule deletions, emergency cascade rescheduling, case study harvesting, and consequence actions) have been continuously recorded into `studom_logs` (`LogEntry[]`) for backup exports, but the application lacked a dedicated user interface in Settings to inspect or clear these diagnostic events.
+  - **Concrete Architectural Fixes Implemented**:
+    - **Removed AI Prompts Section (`src/components/SettingsOverlay.tsx`)**:
+      - Purged `defaultPrompts as staticDefaultPrompts` and `refinePrompt` imports.
+      - Removed unused prompt state variables (`defaultPrompts`, `customPrompts`, `refiningKey`) and handlers (`handlePromptChange`, `handleResetPrompt`, `handleResetAllPrompts`, `handleRefineAndSaveSingle`, `handleSaveAllPrompts`).
+      - Removed `{activeTab === 'prompts' && ...}` JSX and its corresponding header tab button.
+    - **Dedicated System Audit Logs Tab (`src/components/SettingsOverlay.tsx`)**:
+      - Added `System Logs` tab button with `Activity` icon and live log count badge (`{logs.length}`).
+      - Built a clean, chronological audit log viewer displaying each `LogEntry` with formatted timestamp (`toLocaleDateString` & `toLocaleTimeString`), color-coded action badges (Schedule, Resource/Case Study, Consequence/Lock, System), and detailed event descriptions.
+      - Integrated "Clear All Logs" action button calling `onClearLogs()`, with a friendly empty state when no events are logged.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`src/components/SettingsOverlay.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `App.tsx`: Mounts `SettingsOverlay`, passing `logs` and `onClearLogs={() => setLogs([])}`.
+      - `Dashboard.tsx`: Opens SettingsOverlay via gear button; the red Alert Triangle (`AlertTriangle`) icon independently opens `HomeworksPage` (Failed & Completed Homeworks).
+    - *Step-by-Step On-Device Verification Instructions (How to Verify on Device)*:
+      1. **Tab Switch & Visual Verification**:
+         - *Action*: On Dashboard, tap the Settings gear icon.
+         - *Expected Result*: The overlay opens with two tabs: **General** and **System Logs**. The AI Prompts tab is removed.
+      2. **Logs Display & Inspection**:
+         - *Action*: Tap "System Logs".
+         - *Expected Result*: Displays recent system events (e.g. Schedule creation, Resource save, Emergency cascade) with timestamp badges.
+      3. **Clear Logs Action**:
+         - *Action*: Tap "Clear All Logs".
+         - *Expected Result*: Log entries are cleared, and the clean empty state ("No System Logs Recorded Yet") appears. Force-close and reopen to verify state persistence.
+      4. **Automated Verification**:
+         - *Action*: Run `npx tsc --noEmit` and `.\android\gradlew.bat -p android testDebugUnitTest`.
+         - *Expected Result*: 0 TypeScript errors and all Android unit tests pass.
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+- **Pixel-Accurate Native Dashboard Screen Recreation & Logic Wiring (Patch 27 Follow-Up)**:
+  - **Why It Was Mandated (Visual Parity with Live Running QIEZKA & Screenshot Alignment)**:
+    - *Screen-by-Screen UI Fidelity Mandate*:
+      - The user requested recreating the QIEZKA UI screen-by-screen into native Kotlin Jetpack Compose in `remix-ui-mirror`, prioritizing visual styling and layout fidelity over backend/logic stuff, using live device screenshots of their running application as the primary visual source of truth.
+      - Prior to this iteration, `MainActivity.kt` in `remix-ui-mirror` hosted a static mock placeholder (`SchedulerScreen`) with hardcoded sections ("Resources", "Articles", "Allowed Applications") rather than the genuine layout, styling, and live bindings of the running app.
+    - *Forensic Cross-Verification Against Codebase (`src/components/Dashboard.tsx`)*:
+      - We performed a forensic 1:1 cross-verification comparing the live device screenshots against the active frontend implementation in `src/components/Dashboard.tsx` (lines 520–990) to guarantee both visual styling and logical parity:
+        1. **Header & Simulated Time Controller**:
+           - Live screenshot shows `QIEZKA` typography in bold Navy dark with tight letter spacing.
+           - The simulated time controller pill features a two-line layout: top label `SIMULATED TIME` in uppercase gray text, and bottom digital clock `12:08:16 AM` in bold monospace font with a `KeyboardArrowDown` dropdown chevron. When offset is active, a red `Reset Time` pill button appears.
+           - Header action icons (`AlertTriangle` in red, `Settings` gear in dark slate) are housed in rounded white square card buttons (`36.dp` x `36.dp`) with subtle gray borders.
+        2. **Card 1: Active Schedules Card**:
+           - Empty state displays `"NO ACTIVE SCHEDULES"` with subtitle text on a pure white surface (`24.dp` rounded corners, 1dp subtle gray border) with a vibrant red `+ Create Schedule` pill button (`#DC2626`).
+           - When active schedules exist, renders the next activation countdown card with digital timer, duration, and testing action buttons.
+        3. **Card 2: Saved Course Resources**:
+           - Section header with book icon, title `"Saved Course Resources"`, descriptive subtitle, and soft `+ Add Resource` pill button (`#F1F5F9`).
+           - Renders bordered resource rows with view and deletion dialogs, falling back to a dashed-outline empty state when no course resources exist.
+        4. **Card 3: Case Studies & Articles**:
+           - Section header with document icon, title `"Case Studies & Articles"`, and soft lavender `+ Add Case Study` pill button (`#EEF2FF` background, `#4338CA` text).
+           - Pixel-perfect empty state container featuring custom dashed border stroke (`PathEffect.dashPathEffect(floatArrayOf(12f, 12f))`), lavender icon, and descriptive text.
+        5. **Card 4: Allowed Applications**:
+           - Section header with 4-column launcher grid.
+           - Real Android app icons dynamically extracted from `context.packageManager.getApplicationIcon()` and drawn to Jetpack Compose `ImageBitmap`, with uppercase letter fallback and truncated package labels.
+           - Seamless integration with `AllowedAppsPickerModal.kt` for configuring allowed apps without leaving the dashboard.
+  - **Concrete Architectural Implementations**:
+    - **`DashboardScreen.kt` (`remix-ui-mirror`)**:
+      - Completely implemented pixel-accurate Jetpack Compose dashboard screen matching all 4 cards and header components.
+      - Wired to `AppRepository` reactive `StateFlow` streams (`settings`, `resources`, `completedHomeworks`, `timeOffsetMillis`, `installedApps`).
+      - Integrated native `TimePickerDialog` for simulated time offsetting, consequence mode banner, full homework context dialog, resource viewing dialog, and app launcher intents.
+    - **`MainActivity.kt` (`remix-ui-mirror`)**:
+      - Replaced old static mock `SchedulerScreen` with direct invocation and delegation to the newly created `DashboardScreen`.
+      - Purged dead mock data structures (`SectionItem`, `SectionItemList`).
+    - **`ExampleRobolectricTest.kt` (`remix-ui-mirror`)**:
+      - Aligned expected app name string assertion with `"SIREN Scheduler"` defined in `strings.xml`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/DashboardScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/DashboardScreen.kt)
+      - [`remix-ui-mirror/app/src/main/java/com/siren/scheduler/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/main/java/com/siren/scheduler/MainActivity.kt)
+      - [`remix-ui-mirror/app/src/test/java/com/siren/scheduler/ExampleRobolectricTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/remix-ui-mirror/app/src/test/java/com/siren/scheduler/ExampleRobolectricTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `MainActivity.kt`: Directly hosts `DashboardScreen` as root `AppScreen.DASHBOARD` destination.
+      - `AppRepository.kt`: Provides real-time `StateFlow` persistence backing all cards and simulated clock.
+      - `AllowedAppsPickerModal.kt`: Triggered from Card 4 "+ Add App" button.
+      - `CreateScheduleScreen.kt`: Launched from Card 1 "+ Create Schedule" button.
+      - `AddResourceScreen.kt`: Launched from Card 2 and Card 3 add buttons.
+      - `SettingsScreen.kt`: Launched from Header settings gear icon.
+    - *Step-by-Step On-Device Verification Instructions (How to Verify on Device)*:
+      1. **Header & Simulated Time Interaction**:
+         - *Action*: Launch `remix-ui-mirror` app on device or emulator. Observe header bar.
+         - *Expected Result*: Displays `"QIEZKA"` in bold black/navy font on left. On right, displays simulated time pill with `"SIMULATED TIME:"` and live digital clock with dropdown arrow, alongside red Alert and gray Settings buttons.
+         - *Action*: Tap simulated time pill.
+         - *Expected Result*: Android `TimePickerDialog` opens. Select an altered time and confirm. Monospace clock updates to simulated time, and red `"Reset Time"` pill appears. Tapping `"Reset Time"` returns clock to real device wall time.
+      2. **Empty State & Create Schedule Action**:
+         - *Action*: Ensure no active schedules exist. Inspect Card 1.
+         - *Expected Result*: Displays `"NO ACTIVE SCHEDULES"` with clean centered text and red `+ Create Schedule` button. Tapping navigates to `CreateScheduleScreen`.
+      3. **Course Resources Card & Modal Inspection**:
+         - *Action*: Inspect Card 2 ("Saved Course Resources").
+         - *Expected Result*: Displays list of saved lecture/course resources. Tapping a resource card opens the detail dialog with view and delete options. Tapping `+ Add Resource` opens `AddResourceScreen`.
+      4. **Case Studies & Articles Dashed Empty State**:
+         - *Action*: Inspect Card 3 ("Case Studies & Articles").
+         - *Expected Result*: Displays dashed-border box with centered indigo document icon matching screenshot 2. Tapping `+ Add Case Study` opens `AddResourceScreen`.
+      5. **Allowed Applications Grid & Direct App Launch**:
+         - *Action*: Inspect Card 4 ("Allowed Applications").
+         - *Expected Result*: Renders installed allowed apps in a 4-column launcher grid with authentic system app icons and truncated labels.
+         - *Action*: Tap an allowed app tile (e.g. Calculator, Chrome).
+         - *Expected Result*: App launches directly into the selected application via Android intent without crashing.
+      6. **Automated Verification**:
+         - *Action*: Run `.\gradlew.bat -p app testDebugUnitTest` in `remix-ui-mirror`.
+         - *Expected Result*: 100% build success and all unit tests pass.
+      7. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user via `build.bat`.
+
+### Patch 28: Native Android Kotlin Migration (Phase 1: Leaf Utilities & State Managers)
+- **Why It Was Mandated (Modernization & Inside-Out Kotlin Architecture)**:
+  - *Strategic Migration of Core Native Utilities*:
+    - As outlined in the Master Kotlin Migration Strategy, executing a wholesale, simultaneous rewrite of QIEZKA's UI and native services risks race conditions across Android lifecycles, in-memory caches, and lock enforcement routines.
+    - Instead, an "inside-out, leaf-to-root" migration allows converting self-contained utilities and state managers to idiomatic Kotlin first, guaranteeing 100% bytecode and contract interoperability with remaining Java services.
+  - *Zero Behavioral Drift & Preserved Signatures*:
+    - Converted classes preserve identical method signatures, visibility modifiers, and calling conventions using `@JvmStatic` and `@JvmField`, ensuring existing Java callers ([LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java), [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java), [SirenContentProvider.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/SirenContentProvider.java)) and Kotlin consumers ([BootReceiver.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/BootReceiver.kt), [KnownSafe.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownSafe.kt)) require zero changes.
+- **Concrete Architectural Implementations**:
+  - **`ScheduleManager.kt` (`android/app/src/main/java/com/uncode/app/ScheduleManager.kt`)**:
+    - Ported from Java to Kotlin singleton `object ScheduleManager`.
+    - Preserves `@JvmStatic` endpoints: `syncSchedules(Context, String?, Set<String>?)`, `rescheduleAll(Context)`, and `cancelAllScheduledAlarms(Context)`.
+    - Retains wall-clock offset calculation logic, multi-stage warning alarm registration (30m, 15m, 5m, 1m, 30s, 10s), expired lockdown auto-transition to consequence mode, and exact alarm scheduling via `AlarmReceiver.scheduleExactAlarmCompat`.
+  - **`InstalledLauncherDetector.kt` (`android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.kt`)**:
+    - Ported from Java to Kotlin singleton `object InstalledLauncherDetector`.
+    - Features `LauncherInfo` data class with `@JvmField` properties and `toJsObject()` conversion for Capacitor IPC.
+    - Preserves `@JvmStatic` methods `isRealLauncher`, `getInstalledLaunchers`, `getInstalledLaunchersJson`, and `drawableToBase64`.
+    - Enforces Stage 1 Master Veto Gate via `AppClassifier.isStage1Vetoed(...)` and excludes self and SIREN HomeProxy.
+  - **`LauncherStateManager.kt` (`android/app/src/main/java/com/uncode/app/LauncherStateManager.kt`)**:
+    - Ported from Java to Kotlin singleton `object LauncherStateManager`.
+    - Preserves constants `PREFS_NAME`, `KEY_SELECTED_LAUNCHER_PKG`, `KEY_SELECTED_LAUNCHER_CLS`, `ACTION_UPDATE_LAUNCHER`, `SIREN_PACKAGE`.
+    - Preserves `@JvmStatic` methods `notifySirenLauncherChanged`, `saveSelectedLauncher`, `clearSelectedLauncher`, and `getSelectedLauncher`.
+    - Dispatches explicit broadcast `com.siren.homeproxy.ACTION_UPDATE_LAUNCHER` to SIREN companion app upon launcher changes.
+  - **Purge of Obsolete Java Sources**:
+    - Safely deleted `ScheduleManager.java`, `InstalledLauncherDetector.java`, and `LauncherStateManager.java`.
+- **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+  - *Affected Files*:
+    - [`android/app/src/main/java/com/uncode/app/ScheduleManager.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ScheduleManager.kt)
+    - [`android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.kt)
+    - [`android/app/src/main/java/com/uncode/app/LauncherStateManager.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LauncherStateManager.kt)
+    - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+  - *Known Dependents & Callers*:
+    - `LockPlugin.java`: Invokes `ScheduleManager.syncSchedules`, `ScheduleManager.rescheduleAll`, `InstalledLauncherDetector.getInstalledLaunchersJson`, `LauncherStateManager.saveSelectedLauncher`, `LauncherStateManager.clearSelectedLauncher`, and `LauncherStateManager.getSelectedLauncher`.
+    - `BootReceiver.kt`: Invokes `ScheduleManager.rescheduleAll` on system boot.
+    - `LockAccessibilityService.java`: Invokes `InstalledLauncherDetector.isRealLauncher` and accesses `LauncherStateManager.SIREN_PACKAGE`.
+    - `KnownSafe.kt`: Invokes `InstalledLauncherDetector.isRealLauncher` and `LauncherStateManager.getSelectedLauncher`.
+    - `SirenContentProvider.java`: Invokes `LauncherStateManager.getSelectedLauncher`.
+    - `AlarmReceiver.java`: Target of `ScheduleManager` alarms.
+  - *Step-by-Step On-Device Verification Instructions (How to Verify on Device)*:
+    1. **Schedule Creation & Alarm Trigger Flow**:
+       - *Action*: In QIEZKA, create a new schedule set to start in 2 minutes with 5 minutes duration. Tap Save.
+       - *Expected Result*: React calls `systemBridge.syncSchedules()`, which calls `ScheduleManager.syncSchedules()`. AlarmManager registers start and warning alarms. System notification fires 1 minute before lock, and lockdown activates on time.
+    2. **Simulated Clock Offset Rescheduling**:
+       - *Action*: On the Dashboard, advance simulated time using the Simulated Time Controller.
+       - *Expected Result*: `ScheduleManager.rescheduleAll()` recalculates triggers using the new offset, engaging lockdown immediately when the simulated time enters an active window.
+    3. **Installed Launchers Query**:
+       - *Action*: Open Settings and inspect Home Launcher configuration.
+       - *Expected Result*: `InstalledLauncherDetector.getInstalledLaunchersJson()` queries PackageManager and displays all genuine launchers with icons and labels while excluding system fallbacks and SIREN.
+    4. **Launcher Selection & SIREN Broadcast**:
+       - *Action*: Select a target launcher.
+       - *Expected Result*: `LauncherStateManager.saveSelectedLauncher()` persists the choice and broadcasts `com.siren.homeproxy.ACTION_UPDATE_LAUNCHER` to SIREN HomeProxy.
+    5. **Reboot Recovery**:
+       - *Action*: With an active schedule, reboot the device.
+       - *Expected Result*: `BootReceiver.kt` executes on startup and calls `ScheduleManager.rescheduleAll()`, re-arming all alarms in AlarmManager.
+    6. **Automated Verification**:
+       - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+       - *Expected Result*: 0 compilation errors and all tests pass.
+    7. **User Rule 2 Compliance Check**:
+       - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+       - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **SIREN HomeProxy Active Push Receiver & 0-Press Instant Delegation Fix (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Eliminating 1-Press Delegation Lag)**:
+    - *Forensic Investigation of 2nd-Tap Delegation Bug*:
+      - The user reported that after selecting a new launcher in QIEZKA Settings, pressing Home immediately still delegated to the old launcher, and only the second Home press delegated to the new launcher. Waiting 5 seconds did not help.
+      - Investigation traced the root cause to `SIRENHomeProxy`: while QIEZKA's `LauncherStateManager.notifySirenLauncherChanged()` properly dispatched `ACTION_UPDATE_LAUNCHER` (`com.siren.homeproxy.ACTION_UPDATE_LAUNCHER`), `SIRENHomeProxy` lacked a registered `BroadcastReceiver` to handle this action.
+      - As a result, the broadcast was dropped. `SirenHomeActivity` only initiated a ContentProvider sync (`checkAndSyncWithTarget()`) asynchronously in the background *after* already delegating to the old cached launcher on the first tap. Only on the second tap did the in-memory cache reflect the new target.
+  - **Concrete Architectural Implementations (`SIRENHomeProxy`)**:
+    - **`SirenLauncherUpdateReceiver.kt` (`SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenLauncherUpdateReceiver.kt`)**:
+      - Created dedicated broadcast receiver listening for `com.siren.homeproxy.ACTION_UPDATE_LAUNCHER`.
+      - Resolves the target `ComponentName` synchronously and updates `SirenHomeActivity.updateCachedLauncher(context, resolved)`, writing to both in-memory `sCachedLauncher` and persistent SharedPreferences (`siren_home_proxy`) the moment QIEZKA dispatches the broadcast.
+    - **`SirenHomeActivity.kt` (`SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenHomeActivity.kt`)**:
+      - Exposed companion helpers `updateCachedLauncher`, `clearCachedLauncher`, and `resolveLauncherComponent` to allow direct atomic cache synchronization from the receiver.
+    - **`AndroidManifest.xml` (`SIRENHomeProxy/app/src/main/AndroidManifest.xml`)**:
+      - Registered `<receiver android:name=".SirenLauncherUpdateReceiver" android:exported="true">` with intent filter `com.siren.homeproxy.ACTION_UPDATE_LAUNCHER`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenLauncherUpdateReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenLauncherUpdateReceiver.kt)
+      - [`SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenHomeActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/SIRENHomeProxy/app/src/main/java/com/siren/homeproxy/SirenHomeActivity.kt)
+      - [`SIRENHomeProxy/app/src/main/AndroidManifest.xml`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/SIRENHomeProxy/app/src/main/AndroidManifest.xml)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LauncherStateManager.kt`: Dispatches `ACTION_UPDATE_LAUNCHER` when user selects launcher or when auto-discovery runs.
+      - `SirenHomeActivity`: Relies on `sCachedLauncher` for zero-latency instant delegation on every Home tap.
+    - *Step-by-Step On-Device Verification Instructions (How to Verify on Device)*:
+      1. **Active Push Instant Delegation Test**:
+         - *Action*: In QIEZKA Settings, select Launcher B (switching from Launcher A).
+         - *Action*: Immediately tap the device Home key (or swipe up for Home).
+         - *Expected Result*: `SirenLauncherUpdateReceiver` has already caught `ACTION_UPDATE_LAUNCHER` and updated `sCachedLauncher`. SIREN delegates directly to Launcher B on the very first tap (0-press lag, zero delay).
+      2. **Rapid Selection Test**:
+         - *Action*: Rapidly switch between multiple launchers in Settings and tap Home.
+         - *Expected Result*: SIREN reliably opens the most recently selected launcher on the first press.
+      3. **Automated Verification**:
+         - *Action*: Run `.\gradlew.bat compileDebugKotlin compileDebugJavaWithJavac` in `SIRENHomeProxy`.
+         - *Expected Result*: `BUILD SUCCESSFUL` with 0 compilation errors.
+      4. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+
+- **Phase 2 Kotlin Migration: Receivers & Content Provider (AlarmReceiver, SirenReviveReceiver, SirenContentProvider) (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Decoupled Android OS Component Layer & Zero-Drift Kotlin Architecture)**:
+    - *Progressing the 6-Phase Master Kotlin Migration*:
+      - Following the successful Phase 1 migration of leaf utilities (`ScheduleManager`, `InstalledLauncherDetector`, `LauncherStateManager`), Phase 2 targets the boundary layer between the Android OS and QIEZKA: broadcast receivers and content providers.
+      - Historically, `AlarmReceiver.java`, `SirenReviveReceiver.java`, and `SirenContentProvider.java` managed critical Android OS system callbacks: exact alarm wakeups, consequence wake-up pulses, notification channels, vibrating alerts, and inter-process launcher resolution with SIREN HomeProxy.
+      - Migrating these components to idiomatic Kotlin consolidates null safety, standardizes coroutine-compatible execution patterns, and provides `@JvmStatic` companion interfaces ensuring 100% binary compatibility with remaining Java enforcement services (`LockPlugin.java`, `LockAccessibilityService.java`).
+  - **Concrete Architectural Implementations**:
+    - **`AlarmReceiver.kt` (`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`)**:
+      - Converted legacy `AlarmReceiver.java` (500+ lines) into idiomatic, null-safe Kotlin.
+      - Preserves all system actions: `ACTION_SCHEDULE_START`, `ACTION_LOCK_END`, `ACTION_PRE_LOCK_WARNING`, `ACTION_WARNING_VIBRATE`, and `ACTION_START_CONSEQUENCE`.
+      - Maintains full `@JvmStatic` companion methods for backward-compatible Java callers: `triggerScheduleStartDirectly`, `scheduleLockEndAlarm`, `cancelLockEndAlarm`, `scheduleExactAlarmCompat`, `createNotificationChannels`, and `showNotificationStatic`.
+      - Strict null safety and exception handling around `NotificationManagerCompat`, `Vibrator` / `VibrationEffect`, `PendingIntent`, and Android 12+ (API 31+) `FLAG_IMMUTABLE` requirements.
+    - **`SirenReviveReceiver.kt` (`android/app/src/main/java/com/uncode/app/SirenReviveReceiver.kt`)**:
+      - Converted from `SirenReviveReceiver.java`.
+      - Intercepts `com.uncode.app.ACTION_SIREN_REVIVE` and `com.siren.homeproxy.ACTION_REVIVE_PULSE`.
+      - Verifies `consequence_mode` and `lockdown_active` flags from `SharedPreferences` before dispatching revival intents, preventing phantom revivals.
+    - **`SirenContentProvider.kt` (`android/app/src/main/java/com/uncode/app/SirenContentProvider.kt`)**:
+      - Converted from `SirenContentProvider.java`.
+      - Exposes secure `MatrixCursor` projection (`package_name`, `activity_name`) under `content://com.uncode.app.sirenprovider/selected_launcher` consumed by SIREN HomeProxy.
+      - Directly delegates to `LauncherStateManager.getSelectedLauncher(context)` with instant fallback resolution.
+    - **Purge of Obsolete Java Sources**:
+      - Safely removed legacy files `AlarmReceiver.java`, `SirenReviveReceiver.java`, and `SirenContentProvider.java`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AlarmReceiver.kt)
+      - [`android/app/src/main/java/com/uncode/app/SirenReviveReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/SirenReviveReceiver.kt)
+      - [`android/app/src/main/java/com/uncode/app/SirenContentProvider.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/SirenContentProvider.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `ScheduleManager.kt`: Invokes `AlarmReceiver.scheduleExactAlarmCompat`, `AlarmReceiver.triggerScheduleStartDirectly`, and `AlarmReceiver.cancelLockEndAlarm`.
+      - `LockPlugin.java`: Invokes `AlarmReceiver.scheduleLockEndAlarm`, `AlarmReceiver.cancelLockEndAlarm`, `AlarmReceiver.createNotificationChannels`, `AlarmReceiver.showNotificationStatic`, and `AlarmReceiver.triggerScheduleStartDirectly`.
+      - `LockAccessibilityService.java`: Invokes `AlarmReceiver.showNotificationStatic` and dispatches `ACTION_WARNING_VIBRATE`.
+      - `BootReceiver.kt`: Interacts via `ScheduleManager.rescheduleAll` which arms alarms routed to `AlarmReceiver`.
+      - `SIREN HomeProxy` (`SirenHomeActivity.kt`): Queries `content://com.uncode.app.sirenprovider/selected_launcher` via `SirenContentProvider`.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Alarm Triggering, Warning Notification & Fullscreen Lockdown Engagement**:
+         - *Action*: In QIEZKA, create a new schedule set to start in 2 minutes with a 5-minute duration. Tap Save.
+         - *Expected Result*: 1 minute before lock, phone chimes with a persistent warning notification ("Study Session Starting in 1 Minute"). 10 seconds before lock, phone emits a distinct urgent vibration pulse. At the exact scheduled start minute, the app automatically transitions to the full-screen Lock Screen overlay with the large red countdown timer ticking down.
+      2. **Alarm Cancellation & Session Deletion Verification**:
+         - *Action*: In QIEZKA Dashboard, delete an active upcoming schedule.
+         - *Expected Result*: Observe phone status bar. The scheduled alarm is cancelled immediately. When the previously scheduled clock time arrives, NO lock screen overlay appears, NO alarm fires, and NO phantom notifications appear.
+      3. **Consequence Mode Revival & Siren Pulse Verification**:
+         - *Action*: Let a study session time out without homework submission (or fast forward simulated time past the deadline) so Consequence Mode is engaged.
+         - *Expected Result*: Phone displays high-priority persistent consequence notification ("Consequence Mode Active - Study Session Missed"), vibrates with warning pattern, and `SirenReviveReceiver` keeps the consequence lock active if the user attempts to swipe QIEZKA away.
+      4. **SIREN ContentProvider Live Launcher Resolution**:
+         - *Action*: Open QIEZKA Settings -> Home Launcher selection list. Switch between launchers and tap Home.
+         - *Expected Result*: `SirenContentProvider` serves the selected launcher to SIREN HomeProxy without crashes or permission errors; pressing Home delegates to the selected launcher instantly.
+      5. **Automated Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed (`BUILD SUCCESSFUL in 56s`), unit tests pass (`BUILD SUCCESSFUL in 32s`, 0 failures), and TypeScript typecheck reports 0 errors.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks
