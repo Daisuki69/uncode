@@ -67,8 +67,8 @@ object LauncherStateManager {
             return false
         }
 
-        // Stage 1 Master Veto Protection: Reject Settings, Device Care, Setup Wizards, Bloatware, Distractions
-        if (AppClassifier.isStage1Vetoed(trimmedPkg, null)) {
+        // Stage 1 Master Veto Protection & Distraction Rejection: Reject Settings, Device Care, Setup Wizards, Bloatware, Distractions
+        if (AppClassifier.isStage1Vetoed(trimmedPkg, null) || KnownDistracting.isKnownDistracting(trimmedPkg)) {
             Log.w(TAG, "Attempted to save vetoed package as launcher: $trimmedPkg")
             return false
         }
@@ -121,8 +121,8 @@ object LauncherStateManager {
         var savedPkg = prefs.getString(KEY_SELECTED_LAUNCHER_PKG, null)
         var savedCls = prefs.getString(KEY_SELECTED_LAUNCHER_CLS, null)
 
-        // Sanitize: Purge if vetoed by Stage 1 Master Veto (e.g. legacy com.android.settings)
-        if (savedPkg != null && AppClassifier.isStage1Vetoed(savedPkg, null)) {
+        // Sanitize: Purge if vetoed by Stage 1 Master Veto or Distraction (e.g. legacy com.android.settings or games)
+        if (savedPkg != null && (AppClassifier.isStage1Vetoed(savedPkg, null) || KnownDistracting.isKnownDistracting(savedPkg))) {
             Log.w(TAG, "Purging vetoed launcher from prefs: $savedPkg")
             prefs.edit()
                 .remove(KEY_SELECTED_LAUNCHER_PKG)

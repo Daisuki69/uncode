@@ -86,9 +86,9 @@ object InstalledLauncherDetector {
             return false
         }
 
-        // 4. QIEZKA 3-Stage Model: Stage 1 Master Veto Gate
+        // 4. QIEZKA 3-Stage Model: Stage 1 Master Veto Gate & Distraction Rejection
         // Strictly rejects Android Settings, Device Care, Phone Managers, Setup Wizards, Bloatware, and Distractions
-        if (AppClassifier.isStage1Vetoed(pkg, null)) {
+        if (AppClassifier.isStage1Vetoed(pkg, null) || KnownDistracting.isKnownDistracting(pkg)) {
             return false
         }
 

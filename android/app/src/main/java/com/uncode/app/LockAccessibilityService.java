@@ -2502,12 +2502,9 @@ public class LockAccessibilityService extends AccessibilityService {
         lastBlockTimestamp = now;
         lastBlockedPackage = pkg;
 
-        Log.w(TAG, "enforceBlock on distracting app: " + pkg + " — directly bringing QIEZKA lock to front (no home redirection)");
-        
-        // Immediately kick the distracting activity out of the foreground so WindowManager yields focus
-        performGlobalAction(GLOBAL_ACTION_BACK);
+        Log.w(TAG, "enforceBlock on distracting app: " + pkg + " — directly bringing QIEZKA lock to front (no home redirection, no back press)");
 
-        // Directly bring QIEZKA lock screen to front immediately
+        // Directly bring QIEZKA lock screen to front immediately (no synthetic back press)
         launchLockOverlay();
 
         // Follow-up burst check to re-assert QIEZKA Lock overlay if another activity transitions in
@@ -2515,7 +2512,6 @@ public class LockAccessibilityService extends AccessibilityService {
             String fg = detectCurrentForegroundPackage();
             if (fg != null && !fg.equals(getPackageName()) && !isSystemOrLauncher(fg)) {
                 if (isPackageBlocked(fg)) {
-                    performGlobalAction(GLOBAL_ACTION_BACK);
                     launchLockOverlay();
                 }
             }
@@ -2525,7 +2521,6 @@ public class LockAccessibilityService extends AccessibilityService {
             String fg = detectCurrentForegroundPackage();
             if (fg != null && !fg.equals(getPackageName()) && !isSystemOrLauncher(fg)) {
                 if (isPackageBlocked(fg)) {
-                    performGlobalAction(GLOBAL_ACTION_BACK);
                     launchLockOverlay();
                 }
             }
@@ -3210,7 +3205,7 @@ public class LockAccessibilityService extends AccessibilityService {
             } catch (Exception ignore) {}
         }
 
-        // 4. Rapid-burst retries (25ms, 60ms, 120ms) to defeat fast clicks if window was inflating
+        // 4. Programmatic cancel retry if window was inflating
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             try {
                 AccessibilityNodeInfo r = getRootInActiveWindow();
@@ -3218,21 +3213,8 @@ public class LockAccessibilityService extends AccessibilityService {
                     clickCancelOnNode(r);
                     r.recycle();
                 }
-                performGlobalAction(GLOBAL_ACTION_BACK);
             } catch (Exception ignore) {}
         }, 25L);
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            try {
-                performGlobalAction(GLOBAL_ACTION_BACK);
-            } catch (Exception ignore) {}
-        }, 60L);
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            try {
-                performGlobalAction(GLOBAL_ACTION_BACK);
-            } catch (Exception ignore) {}
-        }, 120L);
 
         // 5. Anti-Tamper Toast feedback
         new Handler(Looper.getMainLooper()).post(() -> {

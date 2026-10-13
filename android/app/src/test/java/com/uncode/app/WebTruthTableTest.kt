@@ -421,10 +421,14 @@ class WebTruthTableTest {
         assertTrue(KnownDistracting.isKnownDistracting("com.generic.market", "Online Marketplace"))
         assertTrue(KnownDistracting.isKnownDistracting("kr.random.store", "온라인 쇼핑몰"))
 
-        // 3. Stage 1 Master Veto Gate verifies native shopping packages
-        assertTrue(AppClassifier.isStage1Vetoed("com.shopee.ph", "Shopee"))
-        assertTrue(AppClassifier.isStage1Vetoed("kr.co.coupang.ecommerce", "쿠팡"))
-        assertTrue(AppClassifier.isStage1Vetoed("com.amazon.mShop.android.shopping", "Amazon Shopping"))
+        // 3. Stage 2 Native Truth Table verifies native shopping packages are blocked
+        assertTrue(KnownDistracting.isKnownDistracting("com.shopee.ph", "Shopee"))
+        assertTrue(KnownDistracting.isKnownDistracting("kr.co.coupang.ecommerce", "쿠팡"))
+        assertTrue(KnownDistracting.isKnownDistracting("com.amazon.mShop.android.shopping", "Amazon Shopping"))
+        assertFalse(AppClassifier.isStage1Vetoed("com.shopee.ph", "Shopee"))
+        assertTrue(AppClassifier.isPackageBlocked(null, "com.shopee.ph", null))
+        assertTrue(AppClassifier.isPackageBlocked(null, "kr.co.coupang.ecommerce", null))
+        assertTrue(AppClassifier.isPackageBlocked(null, "com.amazon.mShop.android.shopping", null))
 
         // 4. Web shopping domains in KnownDistractingWeb
         assertTrue(KnownDistractingWeb.isKnownDistractingWeb("shopping.naver.com"))
@@ -507,12 +511,21 @@ class WebTruthTableTest {
         val ytAllowedSet = WebClassifier.buildEffectiveAllowed(true, emptySet())
         assertTrue(ytAllowedSet.contains("youtube.com"))
         assertTrue(ytAllowedSet.contains("m.youtube.com"))
+        assertTrue(ytAllowedSet.contains("googlevideo.com"))
+        assertTrue(ytAllowedSet.contains("ytimg.com"))
+        assertTrue(ytAllowedSet.contains("youtube-nocookie.com"))
         assertTrue(KnownSafeWeb.isKnownSafeWeb("https://m.youtube.com", ytAllowedSet))
+        assertFalse(WebClassifier.classifyDomain("googlevideo.com", true, emptySet()).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("ytimg.com", true, emptySet()).isBlocked)
 
-        // 5. When allowYoutube = false, YouTube is not in effective set
+        // 5. When allowYoutube = false, YouTube and its CDNs are not in effective set and are blocked
         val ytBlockedSet = WebClassifier.buildEffectiveAllowed(false, emptySet())
         assertFalse(ytBlockedSet.contains("youtube.com"))
+        assertFalse(ytBlockedSet.contains("googlevideo.com"))
+        assertFalse(ytBlockedSet.contains("ytimg.com"))
         assertFalse(KnownSafeWeb.isKnownSafeWeb("https://m.youtube.com", ytBlockedSet))
+        assertTrue(WebClassifier.classifyDomain("googlevideo.com", false, emptySet()).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("ytimg.com", false, emptySet()).isBlocked)
     }
 }
 

@@ -545,4 +545,110 @@ object KnownDistracting {
                lowerLabel.contains("ショッピング") ||
                lowerLabel.contains("belanja")
     }
+
+    @JvmField
+    val HOSTILE_EVASION_PACKAGES: Set<String> = hashSetOf(
+        "org.torproject.torbrowser",
+        "org.torproject.torbrowser_alpha",
+        "com.cloudmosa.puffinfree",
+        "com.cloudmosa.puffin",
+        "com.ucmobile.intl",
+        "com.uc.browser.en",
+        "free.vpn.unblock.proxy.turbovpn",
+        "free.vpn.unblock.proxy.turbovpn.lite",
+        "com.psiphon3",
+        "com.psiphon3.subscription",
+        "com.jrzheng.supervpnfree",
+        "com.fast.free.unblock.thunder.vpn",
+        "org.hola",
+        "com.windscribe.vpn",
+        "ch.protonvpn.android",
+        "com.nordvpn.android",
+        "com.expressvpn.vpn",
+        "com.surfshark.vpnclient.android",
+        "de.mobileconcepts.cyberghost",
+        "com.privateinternetaccess.android",
+        "com.securevpn.vpn",
+        "com.freevpnintouch",
+        "com.free.vpn.super.hotspot.master",
+        "com.inconnecting.hotspotvpn",
+        "com.security.identity.vpn",
+        "org.getlantern.lantern",
+        "com.v2ray.ang",
+        "com.github.kr328.clash",
+        "com.github.metacubex.clash.meta",
+        "io.nekohasekai.sfa",
+        "com.github.shadowsocks",
+        "com.quickq.android",
+        "com.aloha.browser"
+    ).map { it.lowercase(Locale.ROOT) }.toHashSet()
+
+    /**
+     * Identifies hostile proxy browsers, cloud renderers, onion bypasses, and circumvention tools.
+     * These components represent active system evasion threats and are evaluated in Stage 1 Master Veto.
+     */
+    @JvmStatic
+    fun isHostileEvasionProxy(packageName: String?, appLabel: String?): Boolean {
+        if (!packageName.isNullOrBlank()) {
+            val lower = packageName.trim().lowercase(Locale.ROOT)
+            if (HOSTILE_EVASION_PACKAGES.contains(lower) || hasEvasionPackageSignature(lower)) {
+                return true
+            }
+        }
+        if (!appLabel.isNullOrBlank()) {
+            val lowerLabel = appLabel.trim().lowercase(Locale.ROOT)
+            if (hasEvasionLabelSignature(lowerLabel)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    @JvmStatic
+    fun hasEvasionPackageSignature(lower: String): Boolean {
+        return lower.contains(".proxy") ||
+               lower.startsWith("proxy.") ||
+               lower.contains(".vpn") ||
+               lower.startsWith("vpn.") ||
+               lower.contains("unblock") ||
+               lower.contains(".tunnel") ||
+               lower.contains(".bypass") ||
+               lower.contains("shadowsocks") ||
+               lower.contains("v2ray") ||
+               lower.contains(".clash.") ||
+               lower.contains("psiphon") ||
+               lower.contains("torproject") ||
+               lower.contains("cloudmosa") ||
+               lower.contains(".aloha.")
+    }
+
+    @JvmStatic
+    fun hasEvasionLabelSignature(lowerLabel: String): Boolean {
+        if (lowerLabel.contains("music") || lowerLabel.contains("audio") || lowerLabel.contains("podcast")) {
+            return false
+        }
+        if (lowerLabel.contains("tailscale") || lowerLabel.contains("wireguard") || lowerLabel.contains("cisco") ||
+            lowerLabel.contains("globalprotect") || lowerLabel.contains("openvpn")) {
+            return false
+        }
+        return lowerLabel.contains("прокси") ||
+               lowerLabel.contains("впн") ||
+               lowerLabel.contains("анонимайзер") ||
+               lowerLabel.contains("代理") ||
+               lowerLabel.contains("翻墙") ||
+               lowerLabel.contains("梯子") ||
+               lowerLabel.contains("科学上网") ||
+               lowerLabel.contains("加速器") ||
+               lowerLabel.contains("プロキシ") ||
+               lowerLabel.contains("navegador proxy") ||
+               lowerLabel.contains("desbloquear") ||
+               lowerLabel.contains("بروكسي") ||
+               lowerLabel.contains("في بي ان") ||
+               lowerLabel.contains("proxy") ||
+               lowerLabel.contains("vpn") ||
+               lowerLabel.contains("unblock") ||
+               lowerLabel.contains("tunnel") ||
+               lowerLabel.contains("tor browser") ||
+               lowerLabel.contains("onion browser")
+    }
 }
