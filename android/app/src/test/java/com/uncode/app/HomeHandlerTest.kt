@@ -286,6 +286,22 @@ class HomeHandlerTest {
     }
 
     @Test
+    fun testHomeAppChangeTriggerText() {
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Set as default"))
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Set as default launcher"))
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Make default launcher"))
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Default launcher"))
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Default home app"))
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Not set as default"))
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Change default home app"))
+        assertTrue(LockAccessibilityService.isHomeAppChangeTriggerText("Choose default"))
+        assertFalse(LockAccessibilityService.isHomeAppChangeTriggerText("Open with"))
+        assertFalse(LockAccessibilityService.isHomeAppChangeTriggerText("Display Settings"))
+        assertFalse(LockAccessibilityService.isHomeAppChangeTriggerText(null))
+        assertFalse(LockAccessibilityService.isHomeAppChangeTriggerText(""))
+    }
+
+    @Test
     fun testCentralizedSecurityClassification() {
         // 1. KnownSafe.isLauncherApp
         assertTrue(KnownSafe.isLauncherApp(null, "com.siren.homeproxy"))
@@ -716,6 +732,140 @@ class HomeHandlerTest {
         // 9. Standard general-purpose browsers never trigger portal video view IDs
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId("com.android.chrome", "com.android.chrome:id/video_player"))
         assertFalse(AppClassifier.isPortalSuperAppVideoViewId("com.sec.android.app.sbrowser", "com.sec.android.app.sbrowser:id/video_flow_cmp_player"))
+    }
+
+    @Test
+    fun testHomeRoleActivityClassification() {
+        // 1. Valid Home Role Activities across PermissionController and Settings
+        assertTrue(AppClassifier.isHomeRoleActivity("com.android.permissioncontroller.role.ui.RequestRoleActivity"))
+        assertTrue(AppClassifier.isHomeRoleActivity("com.android.permissioncontroller.role.ui.DefaultAppActivity"))
+        assertTrue(AppClassifier.isHomeRoleActivity("com.android.settings.Settings\$HomeSettingsActivity"))
+        assertTrue(AppClassifier.isHomeRoleActivity("com.android.settings.applications.defaultapps.DefaultHomePicker"))
+        assertTrue(AppClassifier.isHomeRoleActivity("com.android.settings.Settings\$DefaultHomeSettingsActivity"))
+        assertTrue(AppClassifier.isHomeRoleActivity("RequestRoleActivity"))
+        assertTrue(AppClassifier.isHomeRoleActivity("DefaultAppActivity"))
+        assertTrue(AppClassifier.isHomeRoleActivity("HomeSettingsActivity"))
+        assertTrue(AppClassifier.isHomeRoleActivity("DefaultHomePicker"))
+        assertTrue(AppClassifier.isHomeRoleActivity("DefaultHomeSettingsActivity"))
+
+        // 2. Hostile anti-tamper Settings activities must NOT be classified as Home Role Activities
+        assertFalse(AppClassifier.isHomeRoleActivity("com.android.settings.Settings"))
+        assertFalse(AppClassifier.isHomeRoleActivity("com.android.settings.SubSettings"))
+        assertFalse(AppClassifier.isHomeRoleActivity("com.android.settings.applications.InstalledAppDetails"))
+        assertFalse(AppClassifier.isHomeRoleActivity("com.android.settings.applications.ManageApplications"))
+        assertFalse(AppClassifier.isHomeRoleActivity("com.android.permissioncontroller.permission.ui.ManagePermissionsActivity"))
+        assertFalse(AppClassifier.isHomeRoleActivity(null))
+        assertFalse(AppClassifier.isHomeRoleActivity(""))
+    }
+
+    @Test
+    fun testHomeRoleTruthTableAuthoritativeFourStates() {
+        try {
+            val homeRoleActivity = "com.android.permissioncontroller.role.ui.RequestRoleActivity"
+            val homePickerActivity = "com.android.settings.applications.defaultapps.DefaultHomePicker"
+            val normalSettingsActivity = "com.android.settings.Settings"
+
+            val activePrefs = FakeTestPreferences(mapOf("lockdown_active" to true))
+            val idlePrefs = FakeTestPreferences(emptyMap())
+
+            // ── STATE 1: SIREN IS Default + Session Active -> INTERCEPT ──
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(true)
+            assertEquals(
+                HomeRoleTruthTable.Decision.INTERCEPT,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.permissioncontroller", homeRoleActivity, activePrefs)
+            )
+            assertEquals(
+                HomeRoleTruthTable.Decision.INTERCEPT,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.settings", homePickerActivity, activePrefs)
+            )
+
+            // ── STATE 2: SIREN IS Default + Session Idle -> ALLOW ──
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(true)
+            assertEquals(
+                HomeRoleTruthTable.Decision.ALLOW,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.permissioncontroller", homeRoleActivity, idlePrefs)
+            )
+            assertEquals(
+                HomeRoleTruthTable.Decision.ALLOW,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.settings", homePickerActivity, idlePrefs)
+            )
+
+            // ── STATE 3: SIREN NOT Default + Session Active -> ALLOW ──
+            // (CRITICAL: Student must be able to select and set SIREN as home during active session!)
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(false)
+            assertEquals(
+                HomeRoleTruthTable.Decision.ALLOW,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.permissioncontroller", homeRoleActivity, activePrefs)
+            )
+            assertEquals(
+                HomeRoleTruthTable.Decision.ALLOW,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.settings", homePickerActivity, activePrefs)
+            )
+
+            // ── STATE 4: SIREN NOT Default + Session Idle -> ALLOW ──
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(false)
+            assertEquals(
+                HomeRoleTruthTable.Decision.ALLOW,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.permissioncontroller", homeRoleActivity, idlePrefs)
+            )
+            assertEquals(
+                HomeRoleTruthTable.Decision.ALLOW,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.settings", homePickerActivity, idlePrefs)
+            )
+
+            // ── Non-Home Role Surface -> NOT_HOME_ROLE ──
+            assertEquals(
+                HomeRoleTruthTable.Decision.NOT_HOME_ROLE,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.android.settings", normalSettingsActivity, activePrefs)
+            )
+            assertEquals(
+                HomeRoleTruthTable.Decision.NOT_HOME_ROLE,
+                HomeRoleTruthTable.evaluate(null, null, null, "com.zhiliaoapp.musically", "MainActivity", activePrefs)
+            )
+        } finally {
+            LockAccessibilityService.setCachedIsSirenDefaultForTesting(null)
+        }
+    }
+
+    @Test
+    fun testIsSettingsOrDeviceManagerImmunityForHomeRoleActivities() {
+        // Home Role activities must NOT be classified as settings or device managers
+        assertFalse(AppClassifier.isSettingsOrDeviceManager("com.android.permissioncontroller", "Permission Controller", "com.android.permissioncontroller.role.ui.RequestRoleActivity"))
+        assertFalse(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "com.android.settings.applications.defaultapps.DefaultHomePicker"))
+        assertFalse(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "DefaultHomePicker"))
+        assertFalse(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "RequestRoleActivity"))
+
+        // Standard settings must remain classified as SettingsOrDeviceManager
+        assertTrue(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", "com.android.settings.Settings"))
+        assertTrue(AppClassifier.isSettingsOrDeviceManager("com.android.settings", "Settings", null))
+        assertTrue(AppClassifier.isSettingsOrDeviceManager("com.android.permissioncontroller", "Permission Controller", null))
+    }
+
+    @Test
+    fun testIsInAppBrowserActivity() {
+        // Meta BrowserLiteActivity (Messenger, Facebook, Instagram)
+        assertTrue(AppClassifier.isInAppBrowserActivity("com.facebook.browser.lite.BrowserLiteActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("com.instagram.inappbrowser.launcher.BrowserLiteActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("BrowserLiteActivity"))
+
+        // AndroidX / Chromium Custom Tabs
+        assertTrue(AppClassifier.isInAppBrowserActivity("androidx.browser.customtabs.CustomTabsActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("org.chromium.chrome.browser.customtabs.CustomTabActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("com.sec.android.app.sbrowser.customtabs.CustomTabActivity"))
+
+        // Generic In-App Browsers
+        assertTrue(AppClassifier.isInAppBrowserActivity("org.telegram.ui.BrowserActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("com.twitter.app.browser.BrowserActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("com.example.app.InAppBrowserActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("com.example.app.WebViewActivity"))
+        assertTrue(AppClassifier.isInAppBrowserActivity("com.example.app.WebContainerActivity"))
+
+        // Non-browser activities must return false
+        assertFalse(AppClassifier.isInAppBrowserActivity("com.facebook.orca.auth.StartScreenActivity"))
+        assertFalse(AppClassifier.isInAppBrowserActivity("com.facebook.orca.threadview.ThreadViewActivity"))
+        assertFalse(AppClassifier.isInAppBrowserActivity("com.android.settings.Settings"))
+        assertFalse(AppClassifier.isInAppBrowserActivity(null))
+        assertFalse(AppClassifier.isInAppBrowserActivity(""))
     }
 }
 

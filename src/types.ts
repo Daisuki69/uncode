@@ -112,6 +112,27 @@ export interface CompletedHomework {
   activationTime?: string;
 }
 
+/**
+ * Ensures that any homework object (whether completed, scheduled, or imported)
+ * possesses a guaranteed non-empty string ID regardless of whether it originally had one.
+ */
+export const ensureHomeworkId = (hw: any): string => {
+  if (hw && typeof hw.id === 'string' && hw.id.trim().length > 0) {
+    return hw.id.trim();
+  }
+  const timestamp = (hw && typeof hw.timestamp === 'number') ? hw.timestamp : Date.now();
+  const rand = Math.random().toString(36).substring(2, 9);
+  return `hw_${timestamp}_${rand}`;
+};
+
+export const sanitizeHomework = <T extends { id?: string }>(hw: T): T & { id: string } => {
+  if (!hw) return { id: ensureHomeworkId(hw) } as any;
+  return {
+    ...hw,
+    id: ensureHomeworkId(hw)
+  };
+};
+
 declare global {
   interface Window {
     systemLockAPI?: {

@@ -360,6 +360,9 @@ class WebClassifier private constructor() {
 
             // 4. Search Engine Results Pages (SERP) are research pages, NOT destination websites!
             if (withoutScheme.startsWith("www.google.") || withoutScheme.startsWith("google.")) {
+                if (withoutScheme.contains("/url?q=") || withoutScheme.contains("/url?url=")) {
+                    return true
+                }
                 if (withoutScheme.contains("/fbx?fbx=") || withoutScheme.contains("/logos/") || withoutScheme.contains("/doodles/")) {
                     return true
                 }
@@ -606,6 +609,20 @@ class WebClassifier private constructor() {
                 return cached
             }
 
+            // ── STAGE 1: LINK SHIMS & REDIRECTIONS IN TRANSIT ──
+            val host = WebBlocklistConstants.extractHost(cleanUrl)
+            if (WebBlocklistConstants.isPureLinkShimDomain(host)) {
+                // If it contains an explicit redirect target (u=, q=, url=) pointing to a known distracting domain, block immediately
+                val explicitTarget = extractExplicitRedirectTarget(cleanUrl)
+                if (explicitTarget != null && KnownDistractingWeb.isKnownDistractingWeb(explicitTarget)) {
+                    val res = ClassificationResult.blocked(KnownDistractingWeb.getDistractionReason(explicitTarget))
+                    decisionCache[cacheKey] = res
+                    return res
+                }
+                // Otherwise grant a settling delay to allow the HTTP 302 redirect to land on the destination website
+                return ClassificationResult.pendingLoad("Redirect in transit: awaiting settled destination ($host)")
+            }
+
             // Window title academic check (Chromium tabs / CustomTabs)
             var isWindowTitleAcademic = false
             if (root != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -703,6 +720,14 @@ class WebClassifier private constructor() {
                 return res
             }
 
+            // Pure link shims and redirect forwarders must be forwarded to upstream DNS
+            // so the browser can receive the HTTP 302/301 redirect to the destination website
+            if (WebBlocklistConstants.isPureLinkShimDomain(lower)) {
+                val res = ClassificationResult.allowed("Pure link shim redirect domain forwarded to resolve outbound destination")
+                decisionCache[cacheKey] = res
+                return res
+            }
+
             val isSafeWeb = KnownSafeWeb.isKnownSafeWeb(lower, effectiveAllowed)
             val isDistractingWeb = KnownDistractingWeb.isKnownDistractingWeb(lower)
 
@@ -735,6 +760,29 @@ class WebClassifier private constructor() {
             val allowedRes = ClassificationResult.allowed()
             decisionCache[cacheKey] = allowedRes
             return allowedRes
+        }
+
+        private fun extractExplicitRedirectTarget(url: String): String? {
+            try {
+                val qIdx = url.indexOf('?')
+                if (qIdx == -1 || qIdx == url.length - 1) return null
+                val query = url.substring(qIdx + 1)
+                val pairs = query.split('&')
+                for (pair in pairs) {
+                    val eqIdx = pair.indexOf('=')
+                    if (eqIdx != -1) {
+                        val key = pair.substring(0, eqIdx).trim()
+                        if (key == "u" || key == "q" || key == "url") {
+                            val rawVal = pair.substring(eqIdx + 1).trim()
+                            val decoded = java.net.URLDecoder.decode(rawVal, "UTF-8")
+                            if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+                                return decoded
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+            return null
         }
 
         private fun evaluateMultiGenreCategories(text: String): ClassificationResult {

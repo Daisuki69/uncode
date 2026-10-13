@@ -248,15 +248,8 @@ open class LockAccessibilityService : AccessibilityService() {
         }
 
         @JvmStatic
-        fun isHomeChangeInterceptorActive(context: Context?, preferences: SharedPreferences?): Boolean {
-            // Condition 1: SIREN must be detected as the OS default home launcher
-            if (!isSirenDefaultLauncher(context)) {
-                return false
-            }
-
-            // Condition 2: Active schedule, lockdown, or consequence
+        fun isSessionOrScheduleActive(context: Context?, preferences: SharedPreferences?): Boolean {
             if (preferences == null) return false
-
             val isLockdownActive = preferences.getBoolean("lockdown_active", false)
             val isConsequenceActive = preferences.getBoolean("consequence_active", false)
 
@@ -267,8 +260,14 @@ open class LockAccessibilityService : AccessibilityService() {
             val isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours)
 
             val hasSchedules = hasActiveSchedules(preferences)
-
             return isLockdownActive || isConsequenceEnforcing || hasSchedules
+        }
+
+        @JvmStatic
+        fun isHomeChangeInterceptorActive(context: Context?, preferences: SharedPreferences?): Boolean {
+            // Condition 1: SIREN must be detected as the OS default home launcher
+            // Condition 2: Active schedule, lockdown, or consequence
+            return isSirenDefaultLauncher(context) && isSessionOrScheduleActive(context, preferences)
         }
 
         @JvmStatic
@@ -447,6 +446,23 @@ open class LockAccessibilityService : AccessibilityService() {
                    lower == "home launcher"
         }
 
+        @JvmStatic
+        fun isHomeAppChangeTriggerText(txt: String?): Boolean {
+            if (txt == null || txt.isEmpty()) return false
+            val lower = txt.trim().lowercase(Locale.US)
+            return lower.contains("set as default") ||
+                   lower.contains("make default") ||
+                   lower.contains("default launcher") ||
+                   lower.contains("default home") ||
+                   lower.contains("home app") ||
+                   lower.contains("home launcher") ||
+                   lower.contains("change default") ||
+                   lower.contains("choose default") ||
+                   lower.contains("not set as default") ||
+                   lower.contains("defaulthome") ||
+                   lower.contains("role_home")
+        }
+
         private fun recycleNodes(nodes: List<AccessibilityNodeInfo?>?) {
             if (nodes != null) {
                 for (n in nodes) {
@@ -455,6 +471,141 @@ open class LockAccessibilityService : AccessibilityService() {
                     }
                 }
             }
+        }
+
+        @JvmStatic
+        fun findRootNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (node == null) return null
+            var curr: AccessibilityNodeInfo = node
+            while (true) {
+                val parent = curr.parent ?: break
+                if (curr != node) {
+                    try { curr.recycle() } catch (ignore: Exception) {}
+                }
+                curr = parent
+            }
+            return curr
+        }
+
+        @JvmStatic
+        fun countInstalledLauncherCandidates(node: AccessibilityNodeInfo?, maxDepth: Int = 8): Int {
+            if (node == null || maxDepth < 0) return 0
+            var count = 0
+            try {
+                val txt = node.text
+                if (txt != null && isInstalledLauncherCandidate(txt.toString())) {
+                    count++
+                } else {
+                    val desc = node.contentDescription
+                    if (desc != null && isInstalledLauncherCandidate(desc.toString())) {
+                        count++
+                    }
+                }
+                if (count >= 2) return count
+
+                val childCount = node.childCount
+                for (i in 0 until childCount) {
+                    val child = node.getChild(i)
+                    if (child != null) {
+                        try {
+                            count += countInstalledLauncherCandidates(child, maxDepth - 1)
+                            if (count >= 2) return count
+                        } finally {
+                            child.recycle()
+                        }
+                    }
+                }
+            } catch (ignore: Exception) {}
+            return count
+        }
+
+        @JvmStatic
+        fun isHomeAppSelectionPackageOrRoot(context: Context?, pkg: String?, root: AccessibilityNodeInfo?): Boolean {
+            if (pkg == null || root == null) return false
+            val rootPkg = root.packageName?.toString()?.lowercase(Locale.US) ?: ""
+            val lower = if (rootPkg.isNotEmpty() && rootPkg != "android") rootPkg else pkg.lowercase(Locale.US)
+            val myPkg = context?.packageName ?: "com.uncode.app"
+            if (lower == myPkg || lower == "com.android.systemui" || lower == "com.siren.homeproxy") {
+                return false
+            }
+
+            try {
+                // 1. Check exact activity class name on root if available (language-independent)
+                val rootClass = root.className
+                if (rootClass != null) {
+                    val rc = rootClass.toString().lowercase(Locale.US)
+                    if (rc.contains("requestroleactivity") || rc.contains("defaultappactivity") ||
+                        rc.contains("homesettingsactivity") || rc.contains("defaulthomepicker") ||
+                        rc.contains("rolesearchactivity") || rc.contains("resolveractivity")) {
+                        return true
+                    }
+                }
+
+                // 2. Normal launcher desktop / app drawer is 100% immune:
+                val btn1 = root.findAccessibilityNodeInfosByViewId("android:id/button1")
+                val btn2 = root.findAccessibilityNodeInfosByViewId("android:id/button2")
+                val dontAsk = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/dont_ask_again")
+                val hasDialogControls = !btn1.isNullOrEmpty() || !btn2.isNullOrEmpty() || !dontAsk.isNullOrEmpty()
+                recycleNodes(btn1)
+                recycleNodes(btn2)
+                recycleNodes(dontAsk)
+
+                if (isLauncherApp(context, lower) && !hasDialogControls) {
+                    return false
+                }
+
+                // 3. PermissionController Role UI: id/list containing candidate launcher items, or dont_ask_again checkbox
+                if (lower.contains("permissioncontroller") || rootPkg.contains("permissioncontroller")) {
+                    val listNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/list")
+                    if (!listNodes.isNullOrEmpty()) {
+                        recycleNodes(listNodes)
+                        val launcherCount = countInstalledLauncherCandidates(root)
+                        if (launcherCount >= 1) {
+                            return true
+                        }
+                        val dontAskNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/dont_ask_again")
+                        if (!dontAskNodes.isNullOrEmpty()) {
+                            recycleNodes(dontAskNodes)
+                            return true
+                        }
+                    }
+                    val dontAskNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/dont_ask_again")
+                    if (!dontAskNodes.isNullOrEmpty()) {
+                        recycleNodes(dontAskNodes)
+                        return true
+                    }
+                }
+
+                // 4. Settings Default Home Picker UI:
+                if (lower.contains("settings") || rootPkg.contains("settings")) {
+                    val launcherCount = countInstalledLauncherCandidates(root)
+                    if (launcherCount >= 2) {
+                        return true
+                    }
+                }
+
+                // 5. Modal Dialogs with candidate items & dialog confirmation controls
+                if (hasDialogControls) {
+                    val launcherCount = countInstalledLauncherCandidates(root)
+                    if (launcherCount >= 1) {
+                        return true
+                    }
+                }
+
+                // 6. Check title text in permissioncontroller role UI or Settings
+                val titleNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/title")
+                if (!titleNodes.isNullOrEmpty()) {
+                    for (t in titleNodes) {
+                        val txt = t.text
+                        if (txt != null && (isHomeAppSelectionTitle(txt.toString()) || isInstalledLauncherCandidate(txt.toString()))) {
+                            recycleNodes(titleNodes)
+                            return true
+                        }
+                    }
+                    recycleNodes(titleNodes)
+                }
+            } catch (ignore: Exception) {}
+            return false
         }
 
         private fun extractHost(rawUrl: String?): String {
@@ -531,8 +682,11 @@ open class LockAccessibilityService : AccessibilityService() {
             if (root != null) {
                 try {
                     val rPkg = root.packageName
-                    if (rPkg != null && isBrowserPackage(rPkg.toString(), null) && !isSystemOrLauncher(rPkg.toString())) {
-                        inspectBrowserWindow(root, targetPkg, false, pollStep)
+                    if (rPkg != null && !isSystemOrLauncher(rPkg.toString())) {
+                        val isSurface = isBrowserSurface(rPkg.toString(), lastActiveActivityClass, root)
+                        if (isSurface) {
+                            inspectBrowserWindow(root, targetPkg, false, pollStep)
+                        }
                     }
                 } finally {
                     root.recycle()
@@ -685,30 +839,45 @@ open class LockAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
-        // Ultra-Fast Path: Master Veto Default Home Launcher role & switch attempt (ONLY if SIREN is default AND session active)
-        if (isHomeChangeInterceptorActive()) {
-            val src = event.source
-            var root = if (src != null) findRootNode(src) else null
-            var rootNeedsRecycle = (root != null && root != src)
-            if (root == null) {
-                root = rootInActiveWindow
-                if (root != null) rootNeedsRecycle = true
-            }
-            try {
-                if (isFastHomeRoleEvent(event, root)) {
+        if (prefs == null) {
+            prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+
+        // ── Authoritative Truth Table Gate (Evaluates Home Role surfaces instantly) ──
+        val src = event.source
+        var root = if (src != null) findRootNode(src) else null
+        var rootNeedsRecycle = (root != null && root != src)
+        if (root == null) {
+            root = rootInActiveWindow
+            if (root != null) rootNeedsRecycle = true
+        }
+
+        val topPkgChar = event.packageName
+        val topPkgStr = topPkgChar?.toString()
+        val topEventCls = event.className?.toString()
+        val candidateCls = if (isLikelyActivityClass(topEventCls)) topEventCls else lastActiveActivityClass
+
+        try {
+            val decision = HomeRoleTruthTable.evaluate(this, event, root, topPkgStr, candidateCls, prefs)
+            when (decision) {
+                HomeRoleTruthTable.Decision.INTERCEPT -> {
+                    // State 1: SIREN is default + Active session -> Evict evasion attempt
                     evictHomeLauncherChange(root)
                     return
                 }
-            } finally {
-                if (rootNeedsRecycle) {
-                    try { root?.recycle() } catch (ignore: Exception) {}
+                HomeRoleTruthTable.Decision.ALLOW -> {
+                    // States 2, 3, 4: Permitted Home Role surface -> Allow completely, bypass Stage 1 Master Veto
+                    return
                 }
-                try { src?.recycle() } catch (ignore: Exception) {}
+                HomeRoleTruthTable.Decision.NOT_HOME_ROLE -> {
+                    // Not a home role surface, proceed to standard event processing
+                }
             }
-        }
-
-        if (prefs == null) {
-            prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        } finally {
+            if (rootNeedsRecycle) {
+                try { root?.recycle() } catch (ignore: Exception) {}
+            }
+            try { src?.recycle() } catch (ignore: Exception) {}
         }
 
         // Track foreground app switches
@@ -821,10 +990,6 @@ open class LockAccessibilityService : AccessibilityService() {
         }
 
         // ── STAGE 1: MASTER VETO GATE (Active Lockdown, Active Consequence, or Standby Protection) ──
-        if (interceptHomeLauncherChangeAttempt(event, null, pkgChar?.toString())) {
-            return
-        }
-
         if (pkgChar != null) {
             val pkgStr = pkgChar.toString()
             val eventCls = event.className?.toString()
@@ -835,6 +1000,15 @@ open class LockAccessibilityService : AccessibilityService() {
             }
 
             if (pkgStr != packageName && !isSystemOrLauncher(pkgStr, activeCls)) {
+                // Secondary Authoritative Truth Table Gate check
+                val homeDecision = HomeRoleTruthTable.evaluate(this, event, null, pkgStr, activeCls, currentPrefs)
+                if (homeDecision == HomeRoleTruthTable.Decision.ALLOW) {
+                    return
+                } else if (homeDecision == HomeRoleTruthTable.Decision.INTERCEPT) {
+                    evictHomeLauncherChange(null)
+                    return
+                }
+
                 var appLabel: String? = null
                 try {
                     val pm = packageManager
@@ -869,6 +1043,14 @@ open class LockAccessibilityService : AccessibilityService() {
                 }
             }
             if (currentFg != null && currentFg != packageName && !isSystemOrLauncher(currentFg, activeCls)) {
+                // Authoritative Truth Table Gate for Window Stack changes
+                val homeDecision = HomeRoleTruthTable.evaluate(this, event, null, currentFg, activeCls, currentPrefs)
+                if (homeDecision == HomeRoleTruthTable.Decision.ALLOW) {
+                    return
+                } else if (homeDecision == HomeRoleTruthTable.Decision.INTERCEPT) {
+                    evictHomeLauncherChange(null)
+                    return
+                }
                 var fgLabel: String? = null
                 try {
                     val pm = packageManager
@@ -893,7 +1075,7 @@ open class LockAccessibilityService : AccessibilityService() {
                 // Universal audit and remediation for unauthorized floating PiP / miniplayers
                 auditAndRemediatePictureInPicture()
 
-                if (isBrowserPackage(currentFg, null)) {
+                if (isBrowserSurface(currentFg, lastActiveActivityClass)) {
                     postBrowserAudit(currentFg)
                     return
                 } else if (isPackageBlocked(currentFg)) {
@@ -917,6 +1099,7 @@ open class LockAccessibilityService : AccessibilityService() {
 
         // Gemini interception inside com.google.android.googlequicksearchbox or entry stub
         val eventCls = event.className?.toString()
+        val activeCls = resolveCandidateClass(pkg, if (isLikelyActivityClass(eventCls)) eventCls else lastActiveActivityClass, event.source)
         if (isGeminiActive(pkg, eventCls, event.source)) {
             if (!isGeminiAllowed()) {
                 Log.w(TAG, "Blocked Gemini Robin UI inside $pkg ($eventCls) — AI policy disabled during lockdown/consequence")
@@ -937,7 +1120,7 @@ open class LockAccessibilityService : AccessibilityService() {
         }
 
         // STAGE 2 — Branch 1: Web Browser Gate (URL / DOM Classifier & In-Browser Auto-Back)
-        if (isBrowserPackage(pkg, null)) {
+        if (isBrowserSurface(pkg, activeCls, event.source)) {
             // Typing Immunity: Ignore keystrokes and text selection events while user is editing in address bars
             if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
@@ -1013,6 +1196,78 @@ open class LockAccessibilityService : AccessibilityService() {
 
     fun isBrowserPackage(pkg: String?, appLabel: String?): Boolean {
         return AppClassifier.isBrowserPackage(this, pkg, appLabel)
+    }
+
+    fun isBrowserSurface(pkg: String?, activityCls: String?, root: AccessibilityNodeInfo? = null): Boolean {
+        if (pkg.isNullOrBlank()) return false
+        if (isBrowserPackage(pkg, null)) return true
+        if (AppClassifier.isInAppBrowserActivity(activityCls)) return true
+        if (AppClassifier.isInAppBrowserActivity(lastActiveActivityClass)) return true
+        if (AppClassifier.isInAppBrowserActivity(lastBrowserEventClass)) return true
+        if (root != null && hasInAppBrowserStructure(root)) return true
+        return false
+    }
+
+    private fun hasInAppBrowserStructure(root: AccessibilityNodeInfo?): Boolean {
+        if (root == null) return false
+        try {
+            val pkg = root.packageName?.toString()
+            if (pkg != null && (isLauncherApp(this, pkg) || pkg == "com.android.systemui" || pkg == packageName)) {
+                return false
+            }
+            if (containsWebView(root, 0) && hasInAppBrowserToolbarOrClose(root, 0)) {
+                return true
+            }
+        } catch (_: Exception) {}
+        return false
+    }
+
+    private fun containsWebView(node: AccessibilityNodeInfo?, depth: Int): Boolean {
+        if (node == null || depth > 8) return false
+        val cls = node.className?.toString()?.lowercase(Locale.US)
+        if (cls != null && (cls.contains("webview") || cls.contains("contentview") || cls.contains("render"))) {
+            return true
+        }
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                try {
+                    if (containsWebView(child, depth + 1)) return true
+                } finally {
+                    child.recycle()
+                }
+            }
+        }
+        return false
+    }
+
+    private fun hasInAppBrowserToolbarOrClose(node: AccessibilityNodeInfo?, depth: Int): Boolean {
+        if (node == null || depth > 8) return false
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
+        if (rect.top < 500) {
+            val desc = node.contentDescription?.toString()?.trim()
+            val text = node.text?.toString()?.trim()
+            if (desc != null && (desc.equals("Close", ignoreCase = true) || desc.equals("Navigate up", ignoreCase = true) || desc.equals("Secure connection", ignoreCase = true) || desc.equals("More options", ignoreCase = true))) {
+                return true
+            }
+            if (text != null && text.equals("Close", ignoreCase = true)) {
+                return true
+            }
+        }
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                try {
+                    if (hasInAppBrowserToolbarOrClose(child, depth + 1)) return true
+                } finally {
+                    child.recycle()
+                }
+            }
+        }
+        return false
     }
 
     fun isGeminiAllowed(): Boolean {
@@ -1223,6 +1478,12 @@ open class LockAccessibilityService : AccessibilityService() {
 
     private fun isSystemOrLauncher(pkg: String?, activityCls: String?): Boolean {
         if (pkg == null) return false
+        val homeDecision = HomeRoleTruthTable.evaluate(this, null, null, pkg, activityCls, prefs)
+        if (homeDecision == HomeRoleTruthTable.Decision.ALLOW) {
+            return true
+        } else if (homeDecision == HomeRoleTruthTable.Decision.INTERCEPT) {
+            return false
+        }
         if (pkg.contains("permissioncontroller")) {
             return false
         }
@@ -1492,6 +1753,11 @@ open class LockAccessibilityService : AccessibilityService() {
                     val res = WebClassifier.classify(url, root, allowYoutube, allowedDomains)
                     if (res.isBlocked) {
                         remediateBlockedBrowserTab(pkg, url, res.reason, root)
+                    } else if (res.isPending) {
+                        Log.i(TAG, "inspectBrowserWindow: in-app URL pending for $pkg (${res.reason}), scheduling poll step ${pollStep + 1}")
+                        if (pollStep < PROGRESSIVE_DOM_POLL_DELAYS.size) {
+                            postBrowserAudit(pkg, pollStep + 1)
+                        }
                     } else {
                         resetBrowserRemediationState()
                     }
@@ -1573,6 +1839,15 @@ open class LockAccessibilityService : AccessibilityService() {
                             isWindowTitleAcademic = true
                         }
                     } catch (ignore: Exception) {}
+                }
+
+                // Pure link shims in transit (e.g. l.facebook.com, t.co) in general browsers
+                if (WebBlocklistConstants.isPureLinkShimDomain(cleanUrl)) {
+                    Log.i(TAG, "inspectBrowserWindow: link shim in transit for $pkg: $cleanUrl, scheduling poll step ${pollStep + 1}")
+                    if (pollStep < PROGRESSIVE_DOM_POLL_DELAYS.size) {
+                        postBrowserAudit(pkg, pollStep + 1)
+                    }
+                    return
                 }
 
                 // Node E: Check for KnownDistractingWeb
@@ -1804,11 +2079,58 @@ open class LockAccessibilityService : AccessibilityService() {
                     }
                 }
             }
+
+            // Universal in-app browser and custom tab close button fallback
+            if (findAndClickCloseButton(root, 0)) {
+                Log.i(TAG, "closeCustomTab: clicked universal in-app browser close button")
+                return true
+            }
         } catch (e: Exception) {
             Log.e(TAG, "closeCustomTab error: ${e.message}")
         } finally {
             if (shouldRecycleRoot && root != null) {
                 root.recycle()
+            }
+        }
+        return false
+    }
+
+    private fun findAndClickCloseButton(node: AccessibilityNodeInfo?, depth: Int): Boolean {
+        if (node == null || depth > 8) return false
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
+        if (rect.top < 500) {
+            val desc = node.contentDescription?.toString()?.trim()?.lowercase(Locale.US)
+            val text = node.text?.toString()?.trim()?.lowercase(Locale.US)
+            val isClose = (desc == "close" || desc == "tutup" || desc == "navigate up" || desc == "back") ||
+                          (text == "close" || text == "tutup" || text == "back")
+            if (isClose) {
+                if (node.isClickable) {
+                    val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (clicked) return true
+                }
+                val parent = node.parent
+                if (parent != null) {
+                    try {
+                        if (parent.isClickable) {
+                            val clicked = parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            if (clicked) return true
+                        }
+                    } finally {
+                        parent.recycle()
+                    }
+                }
+            }
+        }
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                try {
+                    if (findAndClickCloseButton(child, depth + 1)) return true
+                } finally {
+                    child.recycle()
+                }
             }
         }
         return false
@@ -2053,7 +2375,62 @@ open class LockAccessibilityService : AccessibilityService() {
         }
 
         // 7. Generic Heuristic Fallback through hierarchy (Targeting address bar & input nodes only)
-        return findUrlInHierarchy(root, 0)
+        val hierarchyUrl = findUrlInHierarchy(root, 0)
+        if (hierarchyUrl != null) return hierarchyUrl
+
+        // 8. In-App Browser & Custom Tab Header / WebView URL Extraction
+        return extractUrlFromInAppBrowser(root, 0)
+    }
+
+    private fun extractUrlFromInAppBrowser(node: AccessibilityNodeInfo?, depth: Int): String? {
+        if (node == null || depth > 8) return null
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
+        // 1. Inspect top toolbar area for domain strings
+        if (rect.top < 500) {
+            val text = node.text?.toString()?.trim()
+            val desc = node.contentDescription?.toString()?.trim()
+            val candidate = if (!text.isNullOrEmpty()) text else desc
+            if (isValidUrlCandidate(candidate)) {
+                val clean = candidate!!.lowercase(Locale.US)
+                if (clean.contains(".") && !clean.contains(" ") &&
+                    !clean.equals("messenger", ignoreCase = true) &&
+                    !clean.equals("facebook", ignoreCase = true) &&
+                    !clean.equals("instagram", ignoreCase = true) &&
+                    !clean.equals("more options", ignoreCase = true) &&
+                    !clean.equals("secure connection", ignoreCase = true)) {
+                    return candidate
+                }
+            }
+        }
+        // 2. Inspect WebView text for error URL or destination URL (e.g. "The webpage at https://m.facebook.com/... could not be loaded")
+        val text = node.text?.toString()?.trim()
+        if (text != null && text.isNotEmpty()) {
+            if (text.startsWith("http://") || text.startsWith("https://")) {
+                if (isValidUrlCandidate(text)) return text
+            }
+            if (text.contains("The webpage at http", ignoreCase = true)) {
+                val startIdx = text.indexOf("http")
+                if (startIdx >= 0) {
+                    val endIdx = text.indexOf(" ", startIdx)
+                    val sub = if (endIdx > startIdx) text.substring(startIdx, endIdx) else text.substring(startIdx)
+                    if (isValidUrlCandidate(sub)) return sub
+                }
+            }
+        }
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i)
+            if (child != null) {
+                try {
+                    val res = extractUrlFromInAppBrowser(child, depth + 1)
+                    if (res != null) return res
+                } finally {
+                    child.recycle()
+                }
+            }
+        }
+        return null
     }
 
     private fun CharSequence?.isNullEmpty(): Boolean {
@@ -2365,10 +2742,6 @@ open class LockAccessibilityService : AccessibilityService() {
         }
 
         // ── STAGE 1: Anti-Tamper & Task Killer Shield (Active Lockdown, Consequence, or Standby) ──
-        if (interceptHomeLauncherChangeAttempt(null, null, null)) {
-            return
-        }
-
         val activeRoot = rootInActiveWindow
         if (activeRoot != null) {
             try {
@@ -2376,9 +2749,20 @@ open class LockAccessibilityService : AccessibilityService() {
                 if (p != null) {
                     val rootPkg = p.toString()
                     if (rootPkg != packageName) {
-                        if (interceptHomeLauncherChangeAttempt(null, activeRoot, rootPkg)) {
+                        val activeCls = resolveCandidateClass(rootPkg, lastActiveActivityClass, activeRoot)
+                        if (AppClassifier.isSystemSettingsDialog(activeCls)) {
+                            lastActiveActivityClass = activeCls
+                        }
+
+                        // Authoritative Truth Table Gate
+                        val homeDecision = HomeRoleTruthTable.evaluate(this, null, activeRoot, rootPkg, activeCls, currentPrefs)
+                        if (homeDecision == HomeRoleTruthTable.Decision.INTERCEPT) {
+                            evictHomeLauncherChange(activeRoot)
+                            return
+                        } else if (homeDecision == HomeRoleTruthTable.Decision.ALLOW) {
                             return
                         }
+
                         var appLabel: String? = null
                         try {
                             val pm = packageManager
@@ -2389,11 +2773,9 @@ open class LockAccessibilityService : AccessibilityService() {
                             }
                         } catch (ignore: Exception) {}
 
-                        val activeCls = resolveCandidateClass(rootPkg, lastActiveActivityClass, activeRoot)
-                        if (AppClassifier.isSystemSettingsDialog(activeCls)) {
-                            lastActiveActivityClass = activeCls
-                        }
-                        if (AppClassifier.isSettingsOrDeviceManager(rootPkg, appLabel, activeCls) || AppClassifier.isStage1Bloat(rootPkg, appLabel)) {
+                        if (isSystemOrLauncher(rootPkg, activeCls)) {
+                            // System or launcher allowed
+                        } else if (AppClassifier.isSettingsOrDeviceManager(rootPkg, appLabel, activeCls) || AppClassifier.isStage1Bloat(rootPkg, appLabel)) {
                             enforceBlock(rootPkg)
                             return
                         }
@@ -2407,7 +2789,7 @@ open class LockAccessibilityService : AccessibilityService() {
                                 return
                             }
                             if (!isSystemOrLauncher(rootPkg, activeCls)) {
-                                if (isBrowserPackage(rootPkg, null)) {
+                                if (isBrowserSurface(rootPkg, activeCls, activeRoot)) {
                                     postBrowserAudit(rootPkg)
                                 } else if (isPackageBlocked(rootPkg, activeCls)) {
                                     enforceBlock(rootPkg)
@@ -2430,7 +2812,7 @@ open class LockAccessibilityService : AccessibilityService() {
 
             val currentForegroundPkg = detectCurrentForegroundPackage()
             if (currentForegroundPkg != null && !isSystemOrLauncher(currentForegroundPkg) && currentForegroundPkg != packageName) {
-                if (isBrowserPackage(currentForegroundPkg, null)) {
+                if (isBrowserSurface(currentForegroundPkg, lastActiveActivityClass)) {
                     postBrowserAudit(currentForegroundPkg)
                 } else if (isPackageBlocked(currentForegroundPkg)) {
                     enforceBlock(currentForegroundPkg)
@@ -2671,17 +3053,6 @@ open class LockAccessibilityService : AccessibilityService() {
                                 root.recycle()
                             }
                         }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            val wt = w.title
-                            if (wt != null) {
-                                val titleStr = wt.toString()
-                                if (isHomeChangeInterceptorActive() && isHomeAppSelectionTitle(titleStr)) {
-                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: $titleStr")
-                                    lastForegroundPackage = "com.android.permissioncontroller"
-                                    return "com.android.permissioncontroller"
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -2737,17 +3108,6 @@ open class LockAccessibilityService : AccessibilityService() {
                                 }
                             } finally {
                                 root.recycle()
-                            }
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            val wt = w.title
-                            if (wt != null) {
-                                val titleStr = wt.toString()
-                                if (isHomeChangeInterceptorActive() && isHomeAppSelectionTitle(titleStr)) {
-                                    Log.w(TAG, "🛡️ Sandboxed window matched Home App Selection title: $titleStr")
-                                    lastForegroundPackage = "com.android.permissioncontroller"
-                                    return "com.android.permissioncontroller"
-                                }
                             }
                         }
                     }
@@ -2961,336 +3321,8 @@ open class LockAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun countInstalledLauncherCandidates(node: AccessibilityNodeInfo?, maxDepth: Int = 8): Int {
-        if (node == null || maxDepth < 0) return 0
-        var count = 0
-        try {
-            val txt = node.text
-            if (txt != null && isInstalledLauncherCandidate(txt.toString())) {
-                count++
-            } else {
-                val desc = node.contentDescription
-                if (desc != null && isInstalledLauncherCandidate(desc.toString())) {
-                    count++
-                }
-            }
-            if (count >= 2) return count
-
-            val childCount = node.childCount
-            for (i in 0 until childCount) {
-                val child = node.getChild(i)
-                if (child != null) {
-                    try {
-                        count += countInstalledLauncherCandidates(child, maxDepth - 1)
-                        if (count >= 2) return count
-                    } finally {
-                        child.recycle()
-                    }
-                }
-            }
-        } catch (ignore: Exception) {}
-        return count
-    }
-
-    private fun findRootNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (node == null) return null
-        var curr: AccessibilityNodeInfo = node
-        while (true) {
-            val parent = curr.parent ?: break
-            if (curr != node) {
-                try { curr.recycle() } catch (ignore: Exception) {}
-            }
-            curr = parent
-        }
-        return curr
-    }
-
-    private fun isFastHomeRoleEvent(event: AccessibilityEvent?, root: AccessibilityNodeInfo? = null): Boolean {
-        if (event == null) return false
-
-        val pkgChar = event.packageName
-        val pkgStr = pkgChar?.toString()?.lowercase(Locale.US) ?: ""
-
-        val clsChar = event.className
-        val clsStr = clsChar?.toString()?.lowercase(Locale.US) ?: ""
-
-        // 1. Direct Activity class name match (sub-microsecond memory check, 100% language-independent)
-        if (clsStr.contains("requestroleactivity") || clsStr.contains("defaultappactivity") ||
-            clsStr.contains("homesettingsactivity") || clsStr.contains("defaulthomepicker") ||
-            clsStr.contains("rolesearchactivity") || clsStr.contains("specialappaccessactivity") ||
-            clsStr.contains("resolveractivity")) {
-            return true
-        }
-
-        // 2. Structural role / launcher picker interception across ALL packages (language-independent)
-        if (root != null) {
-            val rootPkg = root.packageName?.toString()?.lowercase(Locale.US) ?: pkgStr
-            if (isHomeAppSelectionPackageOrRoot(rootPkg, root)) {
-                return true
-            }
-        } else if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
-            event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
-            event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-            val src = event.source
-            var trueRoot = if (src != null) findRootNode(src) else null
-            var needsRecycle = (trueRoot != null && trueRoot != src)
-            if (trueRoot == null) {
-                trueRoot = rootInActiveWindow
-                if (trueRoot != null) needsRecycle = true
-            }
-            if (trueRoot != null) {
-                try {
-                    val rootPkg = trueRoot.packageName?.toString()?.lowercase(Locale.US) ?: pkgStr
-                    if (isHomeAppSelectionPackageOrRoot(rootPkg, trueRoot)) {
-                        return true
-                    }
-                } finally {
-                    if (needsRecycle) {
-                        try { trueRoot.recycle() } catch (ignore: Exception) {}
-                    }
-                    try { src?.recycle() } catch (ignore: Exception) {}
-                }
-            }
-        }
-
-        // 3. Proactive tap interception: User taps "Not set as default" or "Nova is not default launcher" in launcher settings
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val texts = event.text
-            if (texts != null) {
-                for (t in texts) {
-                    if (t != null) {
-                        val txt = t.toString().lowercase(Locale.US)
-                        if (txt.contains("not set as default") ||
-                            txt.contains("default launcher") ||
-                            (txt.contains("set as default") && txt.contains("home"))) {
-                            return true
-                        }
-                    }
-                }
-            }
-            val cd = event.contentDescription
-            if (cd != null) {
-                val cStr = cd.toString().lowercase(Locale.US)
-                if (cStr.contains("not set as default") || cStr.contains("default launcher")) {
-                    return true
-                }
-            }
-        }
-
-        return false
-    }
-
-    private fun interceptHomeLauncherChangeAttempt(event: AccessibilityEvent?, providedRoot: AccessibilityNodeInfo?, pkg: String?): Boolean {
-        // Master Gate: ONLY activate interceptor if SIREN is default launcher AND a session/schedule is active
-        if (!isHomeChangeInterceptorActive()) {
-            return false
-        }
-
-        var lowerPkg = pkg?.lowercase(Locale.US) ?: ""
-        if (lowerPkg.isEmpty() && event?.packageName != null) {
-            lowerPkg = event.packageName.toString().lowercase(Locale.US)
-        }
-
-        if (lowerPkg == packageName || lowerPkg == "com.android.systemui" || lowerPkg == "com.siren.homeproxy") {
-            return false
-        }
-
-        var classStr = ""
-        if (event?.className != null) {
-            classStr = event.className.toString().lowercase(Locale.US)
-        } else if (providedRoot?.className != null) {
-            classStr = providedRoot.className.toString().lowercase(Locale.US)
-        }
-
-        // 1. Fast Event-level class checks (0ms - instant memory evaluation, 100% language-independent)
-        if (classStr.contains("defaultappactivity") || classStr.contains("requestroleactivity") ||
-            classStr.contains("homesettingsactivity") || classStr.contains("defaulthomepicker") ||
-            classStr.contains("rolesearchactivity") || classStr.contains("specialappaccessactivity") ||
-            classStr.contains("resolveractivity")) {
-            val rootToDismiss = (providedRoot ?: event?.source)?.let { findRootNode(it) } ?: rootInActiveWindow
-            evictHomeLauncherChange(rootToDismiss)
-            return true
-        }
-
-        // 2. Window Audit via getWindows() (Essential for Android 14/15/16 modal dialogs)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                val winList = windows
-                if (winList != null) {
-                    for (w in winList) {
-                        if ((w.type == AccessibilityWindowInfo.TYPE_APPLICATION || w.type == AccessibilityWindowInfo.TYPE_SYSTEM) && (w.isActive || w.isFocused)) {
-                            val wRoot = w.root
-                            if (wRoot != null) {
-                                try {
-                                    val wp = wRoot.packageName
-                                    if (wp != null) {
-                                        val wpStr = wp.toString().lowercase(Locale.US)
-                                        if (wpStr == packageName || wpStr == "com.android.systemui" || wpStr == "com.siren.homeproxy") {
-                                            continue
-                                        }
-                                        if (isHomeAppSelectionPackageOrRoot(wpStr, wRoot)) {
-                                            evictHomeLauncherChange(wRoot)
-                                            return true
-                                        }
-                                    }
-                                    val wt = w.title
-                                    if (wt != null && isHomeAppSelectionTitle(wt.toString())) {
-                                        evictHomeLauncherChange(wRoot)
-                                        return true
-                                    }
-                                } finally {
-                                    wRoot.recycle()
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (ignore: Exception) {}
-        }
-
-        var root = if (providedRoot != null) findRootNode(providedRoot) else null
-        var needsRecycle = (root != null && root != providedRoot)
-        try {
-            if (root == null) {
-                val src = event?.source
-                if (src != null) {
-                    root = findRootNode(src)
-                    if (root != src) {
-                        needsRecycle = true
-                    }
-                    try { src.recycle() } catch (ignore: Exception) {}
-                }
-            }
-            if (root == null) {
-                root = rootInActiveWindow
-                if (root != null) needsRecycle = true
-            }
-
-            if (root == null) return false
-
-            val rootPkg = root.packageName
-            val effectivePkg = rootPkg?.toString()?.lowercase(Locale.US) ?: lowerPkg
-            if (effectivePkg == packageName || effectivePkg == "com.android.systemui" || effectivePkg == "com.siren.homeproxy") {
-                return false
-            }
-
-            if (isHomeAppSelectionPackageOrRoot(effectivePkg, root)) {
-                evictHomeLauncherChange(root)
-                return true
-            }
-
-            // Third party launchers prompting to set default launcher
-            if (effectivePkg.contains("launcher") && !isLauncherApp(this, effectivePkg)) {
-                val defaultHomeNodes = root.findAccessibilityNodeInfosByText("Default")
-                if (!defaultHomeNodes.isNullOrEmpty()) {
-                    val launcherNodes = root.findAccessibilityNodeInfosByText("Launcher")
-                    if (!launcherNodes.isNullOrEmpty()) {
-                        evictHomeLauncherChange(root)
-                        return true
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error checking home launcher change attempt: ${e.message}")
-        } finally {
-            if (root != null && needsRecycle) {
-                try {
-                    root.recycle()
-                } catch (ignore: Exception) {}
-            }
-        }
-
-        return false
-    }
-
     private fun isHomeAppSelectionPackageOrRoot(pkg: String?, root: AccessibilityNodeInfo?): Boolean {
-        if (pkg == null || root == null) return false
-        val rootPkg = root.packageName?.toString()?.lowercase(Locale.US) ?: ""
-        val lower = if (rootPkg.isNotEmpty() && rootPkg != "android") rootPkg else pkg.lowercase(Locale.US)
-        if (lower == packageName || lower == "com.android.systemui" || lower == "com.siren.homeproxy") {
-            return false
-        }
-
-        try {
-            // 1. Check exact activity class name on root if available (language-independent)
-            val rootClass = root.className
-            if (rootClass != null) {
-                val rc = rootClass.toString().lowercase(Locale.US)
-                if (rc.contains("requestroleactivity") || rc.contains("defaultappactivity") ||
-                    rc.contains("homesettingsactivity") || rc.contains("defaulthomepicker") ||
-                    rc.contains("rolesearchactivity") || rc.contains("resolveractivity")) {
-                    return true
-                }
-            }
-
-            // 2. Normal launcher desktop / app drawer is 100% immune:
-            // An installed launcher running in normal desktop mode must NEVER be blocked!
-            val btn1 = root.findAccessibilityNodeInfosByViewId("android:id/button1")
-            val btn2 = root.findAccessibilityNodeInfosByViewId("android:id/button2")
-            val dontAsk = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/dont_ask_again")
-            val hasDialogControls = !btn1.isNullOrEmpty() || !btn2.isNullOrEmpty() || !dontAsk.isNullOrEmpty()
-            recycleNodes(btn1)
-            recycleNodes(btn2)
-            recycleNodes(dontAsk)
-
-            if (isLauncherApp(this, lower) && !hasDialogControls) {
-                return false
-            }
-
-            // 3. PermissionController Role UI: id/list containing candidate launcher items, or dont_ask_again checkbox
-            if (lower.contains("permissioncontroller") || rootPkg.contains("permissioncontroller")) {
-                val listNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/list")
-                if (!listNodes.isNullOrEmpty()) {
-                    recycleNodes(listNodes)
-                    val launcherCount = countInstalledLauncherCandidates(root)
-                    if (launcherCount >= 1) {
-                        return true
-                    }
-                    val dontAskNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/dont_ask_again")
-                    if (!dontAskNodes.isNullOrEmpty()) {
-                        recycleNodes(dontAskNodes)
-                        return true
-                    }
-                }
-                val dontAskNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/dont_ask_again")
-                if (!dontAskNodes.isNullOrEmpty()) {
-                    recycleNodes(dontAskNodes)
-                    return true
-                }
-            }
-
-            // 4. Settings Default Home Picker UI:
-            if (lower.contains("settings") || rootPkg.contains("settings")) {
-                val launcherCount = countInstalledLauncherCandidates(root)
-                if (launcherCount >= 2) {
-                    return true
-                }
-            }
-
-            // 5. Modal Dialogs with candidate items & dialog confirmation controls
-            // (Strictly excludes full-screen launcher desktops and Recents, which lack dialog buttons)
-            if (hasDialogControls) {
-                val launcherCount = countInstalledLauncherCandidates(root)
-                if (launcherCount >= 1) {
-                    return true
-                }
-            }
-
-            // 6. Check title text in permissioncontroller role UI or Settings
-            val titleNodes = root.findAccessibilityNodeInfosByViewId("com.android.permissioncontroller:id/title")
-            if (!titleNodes.isNullOrEmpty()) {
-                for (t in titleNodes) {
-                    val txt = t.text
-                    if (txt != null && (isHomeAppSelectionTitle(txt.toString()) || isInstalledLauncherCandidate(txt.toString()))) {
-                        recycleNodes(titleNodes)
-                        return true
-                    }
-                }
-                recycleNodes(titleNodes)
-            }
-        } catch (ignore: Exception) {}
-        return false
+        return Companion.isHomeAppSelectionPackageOrRoot(this, pkg, root)
     }
 
     private fun clickCancelOnNode(root: AccessibilityNodeInfo?): Boolean {
@@ -3336,6 +3368,23 @@ open class LockAccessibilityService : AccessibilityService() {
                     recycleNodes(textCancel)
                 }
             }
+
+            // 4. Fallback for settings pickers with no cancel button (e.g. DefaultHomePicker):
+            // Check for SIREN entry and re-select it to preserve SIREN default
+            if (!dismissed) {
+                val sirenNodes = root.findAccessibilityNodeInfosByText("SIREN")
+                if (!sirenNodes.isNullOrEmpty()) {
+                    for (sn in sirenNodes) {
+                        if (sn != null && sn.isCheckable && !sn.isChecked) {
+                            sn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            Log.i(TAG, "Re-selected SIREN in home picker")
+                            dismissed = true
+                            break
+                        }
+                    }
+                    recycleNodes(sirenNodes)
+                }
+            }
         } catch (ignore: Exception) {}
         return dismissed
     }
@@ -3359,9 +3408,27 @@ open class LockAccessibilityService : AccessibilityService() {
             } catch (ignore: Exception) {}
         }
 
+        // Anti-Fast-Click Shield: Comprehensive post-inflation & transition cancel retries (10ms to 500ms)
+        // Programmatically cancels the dialog across the entire 300ms Android window transition duration
+        val retryDelays = longArrayOf(10L, 25L, 50L, 100L, 150L, 200L, 250L, 350L, 500L)
+        for (delay in retryDelays) {
+            mainHandler.postDelayed({
+                try {
+                    val r = rootInActiveWindow
+                    if (r != null) {
+                        try {
+                            clickCancelOnNode(r)
+                        } finally {
+                            r.recycle()
+                        }
+                    }
+                } catch (ignore: Exception) {}
+            }, delay)
+        }
+
         // 2. Fallback: if Cancel button click was not confirmed, perform GLOBAL_ACTION_HOME to return to SIREN
         if (!clicked) {
-            Log.w(TAG, "Cancel button not confirmed; performing GLOBAL_ACTION_HOME fallback.")
+            Log.w(TAG, "Cancel button not confirmed at t=0; performing GLOBAL_ACTION_HOME fallback.")
             performGlobalAction(GLOBAL_ACTION_HOME)
         }
 

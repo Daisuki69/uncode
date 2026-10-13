@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react';
-import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp, CompletedHomework } from './types';
+import { AppState, AppSettings, EvaluationResult as IEvaluationResult, ScheduleData, SavedResource, LogEntry, AllowedApp, CompletedHomework, sanitizeHomework, ensureHomeworkId } from './types';
 import { Dashboard } from './components/Dashboard';
 import { LockScreen } from './components/LockScreen';
 import { EvaluationResult } from './components/EvaluationResult';
@@ -218,7 +218,13 @@ export default function App() {
     if (isLoaded) saveData('studom_logs', logs);
   }, [logs, isLoaded]);
 
-  const [completedHomeworks, setCompletedHomeworks] = useState<import('./types').CompletedHomework[]>([]);
+  const [completedHomeworks, setCompletedHomeworksRaw] = useState<CompletedHomework[]>([]);
+  const setCompletedHomeworks = useCallback((val: React.SetStateAction<CompletedHomework[]>) => {
+    setCompletedHomeworksRaw(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      return (next || []).map(sanitizeHomework);
+    });
+  }, []);
 
   useEffect(() => {
     if (isLoaded) saveData('studom_completed_homeworks', completedHomeworks);
@@ -328,7 +334,7 @@ export default function App() {
         (loadedSettings.schedules || []).filter((s: ScheduleData) => s.isActive).map((s: ScheduleData) => s.id)
       );
       // Remove any failed homework from completedHomeworks if it currently exists as an active schedule
-      const sanitizedCompletedHomeworks = loadedCompletedHomeworks.filter(
+      const sanitizedCompletedHomeworks = (loadedCompletedHomeworks || []).map(sanitizeHomework).filter(
         (h: CompletedHomework) => h.passed || !activeScheduleIds.has(h.id)
       );
       // Ensure failed homework IDs do not exist as active schedules
@@ -393,6 +399,13 @@ export default function App() {
       getInstalledApps().then(installed => {
         if (installed && installed.length > 0) {
           setInstalledApps(installed);
+          const prevInstalledRaw = localStorage.getItem('studom_installed_apps');
+          let prevInstalledIds: Set<string> | null = null;
+          try {
+            if (prevInstalledRaw) {
+              prevInstalledIds = new Set((JSON.parse(prevInstalledRaw) || []).map((a: any) => a.id));
+            }
+          } catch {}
           try { localStorage.setItem('studom_installed_apps', JSON.stringify(installed)); } catch {}
 
           setSettings(prev => {
@@ -416,6 +429,22 @@ export default function App() {
                 allowedApps: combined,
                 allowedAppsInitialized: true,
                 allowedAppsVersion: 2
+              };
+            }
+
+            // For already-initialized systems: auto-add every newly installed app that passes all detection
+            const existingApps = prev.allowedApps || [];
+            const newlyInstalledPassed = installed.filter(a =>
+              (prevInstalledIds === null || !prevInstalledIds.has(a.id)) &&
+              !existingApps.some(e => e.id === a.id) &&
+              !a.isHardcoded && 
+              !a.isLauncher &&
+              !isAppBlacklisted(a.id)
+            );
+            if (newlyInstalledPassed.length > 0) {
+              return {
+                ...prev,
+                allowedApps: [...existingApps, ...newlyInstalledPassed]
               };
             }
             return prev;
@@ -465,6 +494,40 @@ export default function App() {
           } else {
             setAppState(prev => (prev === 'locked' ? 'dashboard' : prev));
           }
+
+          // Check for newly installed apps when returning from Play Store or another app
+          getInstalledApps().then(freshInstalled => {
+            if (freshInstalled && freshInstalled.length > 0) {
+              setInstalledApps(freshInstalled);
+              const prevInstalledRaw = localStorage.getItem('studom_installed_apps');
+              let prevInstalledIds: Set<string> | null = null;
+              try {
+                if (prevInstalledRaw) {
+                  prevInstalledIds = new Set((JSON.parse(prevInstalledRaw) || []).map((a: any) => a.id));
+                }
+              } catch {}
+              try { localStorage.setItem('studom_installed_apps', JSON.stringify(freshInstalled)); } catch {}
+
+              setSettings(prev => {
+                if (!prev.allowedAppsInitialized) return prev;
+                const existingApps = prev.allowedApps || [];
+                const newlyInstalledPassed = freshInstalled.filter(a =>
+                  (prevInstalledIds === null || !prevInstalledIds.has(a.id)) &&
+                  !existingApps.some(e => e.id === a.id) &&
+                  !a.isHardcoded &&
+                  !a.isLauncher &&
+                  !isAppBlacklisted(a.id)
+                );
+                if (newlyInstalledPassed.length > 0) {
+                  return {
+                    ...prev,
+                    allowedApps: [...existingApps, ...newlyInstalledPassed]
+                  };
+                }
+                return prev;
+              });
+            }
+          }).catch(() => {});
         } catch (e) {
           console.warn('Failed to refresh lock status on visibility change', e);
         }

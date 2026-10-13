@@ -11,7 +11,7 @@ import {
   Sparkles,
   Check
 } from 'lucide-react';
-import { CompletedHomework, ScheduleData } from '../types';
+import { CompletedHomework, ScheduleData, sanitizeHomework } from '../types';
 
 export interface HomeworksPageProps {
   homeworks: CompletedHomework[];
@@ -321,8 +321,8 @@ export function HomeworksPage({
   }, [rescheduleTarget, selectedHomework]);
 
   const failedHomeworks = useMemo(() => {
-    // Filter to only failed/expired homeworks
-    const onlyFailed = (homeworks || []).filter(hw => !hw.passed);
+    // Filter to only failed/expired homeworks, guaranteeing valid unique IDs
+    const onlyFailed = (homeworks || []).map(sanitizeHomework).filter(hw => !hw.passed);
     // Deduplicate entries with same ID or same title that occurred within 15 seconds of each other
     const deduped: CompletedHomework[] = [];
     for (const hw of onlyFailed) {

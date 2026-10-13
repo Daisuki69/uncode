@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Key, Save, Trash2, Cpu, FileText, Wand2, RefreshCw, ArrowLeft, Clock, Activity, Globe, Shield, Flame, CheckCircle, AlertTriangle, Wifi, Layers, Video, Lock, Gamepad2, Search, Sparkles, Bot, Home } from 'lucide-react';
-import { AppSettings, LogEntry, SavedResource, AllowedApp, UnifiedServiceDefinition } from '../types';
+import { AppSettings, LogEntry, SavedResource, AllowedApp, UnifiedServiceDefinition, sanitizeHomework } from '../types';
 import { loadData, saveData } from '../storage';
 import { exportBackup, importBackup, sanitizeImportApps, setServicePolicy, getActiveServices, getRegisteredServices, getInstalledLaunchers, setSelectedLauncher, getSelectedLauncher, getSirenStatus, requestSirenHomeRole, LauncherInfo, SirenStatus } from '../systemBridge';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -412,7 +412,7 @@ export function SettingsOverlay({ settings, logs, onSave, onClearLogs, onClose, 
       }
       if (data.resources) await saveData('studom_resources', data.resources);
       if (data.logs) await saveData('studom_logs', data.logs);
-      if (data.completedHomeworks) await saveData('studom_completed_homeworks', data.completedHomeworks);
+      if (data.completedHomeworks) await saveData('studom_completed_homeworks', (data.completedHomeworks || []).map(sanitizeHomework));
       if (data.timeOffset !== undefined) await saveData('studom_timeOffset', data.timeOffset);
       
       if (totalPurgedCount > 0) {

@@ -527,6 +527,79 @@ class WebTruthTableTest {
         assertTrue(WebClassifier.classifyDomain("googlevideo.com", false, emptySet()).isBlocked)
         assertTrue(WebClassifier.classifyDomain("ytimg.com", false, emptySet()).isBlocked)
     }
+
+    @Test
+    fun testPureLinkShimDnsClassification() {
+        // 1. WebBlocklistConstants accurately recognizes pure link shims vs core social domains
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("l.facebook.com"))
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("lm.facebook.com"))
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("l.instagram.com"))
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("l.threads.net"))
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("slack-redir.net"))
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("out.reddit.com"))
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("t.co"))
+        assertTrue(WebBlocklistConstants.isPureLinkShimDomain("https://l.facebook.com/l.php?u=https%3A%2F%2Fgoogle.com"))
+
+        assertFalse(WebBlocklistConstants.isPureLinkShimDomain("facebook.com"))
+        assertFalse(WebBlocklistConstants.isPureLinkShimDomain("m.facebook.com"))
+        assertFalse(WebBlocklistConstants.isPureLinkShimDomain("www.facebook.com"))
+        assertFalse(WebBlocklistConstants.isPureLinkShimDomain("fb.com"))
+        assertFalse(WebBlocklistConstants.isPureLinkShimDomain("fbcdn.net"))
+        assertFalse(WebBlocklistConstants.isPureLinkShimDomain("instagram.com"))
+        assertFalse(WebBlocklistConstants.isPureLinkShimDomain("threads.net"))
+
+        // 2. DNS classification allows pure link shims for upstream HTTP 302 resolution
+        assertFalse(WebClassifier.classifyDomain("l.facebook.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("lm.facebook.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("l.instagram.com", false, null).isBlocked)
+        assertFalse(WebClassifier.classifyDomain("t.co", false, null).isBlocked)
+
+        // 3. DNS classification strictly blocks core social media domains (sinkholed to NXDOMAIN)
+        assertTrue(WebClassifier.classifyDomain("facebook.com", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("m.facebook.com", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("fb.com", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("fbcdn.net", false, null).isBlocked)
+        assertTrue(WebClassifier.classifyDomain("instagram.com", false, null).isBlocked)
+    }
+
+    @Test
+    fun testLinkShimTransitSettlingDelay() {
+        // 1. Link shim with safe/unclassified destination in transit is granted settling delay (isPending = true)
+        val safeTransit = WebClassifier.classify(
+            "https://l.facebook.com/l.php?u=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FCalculus&h=AT1",
+            null,
+            false
+        )
+        assertFalse(safeTransit.isBlocked)
+        assertTrue(safeTransit.isPending)
+
+        // 2. Bare link shim host in transit is granted settling delay
+        val bareShimTransit = WebClassifier.classify("l.facebook.com", null, false)
+        assertFalse(bareShimTransit.isBlocked)
+        assertTrue(bareShimTransit.isPending)
+
+        // 3. Link shim with explicit blacklisted destination is blocked immediately
+        val blockedTransit = WebClassifier.classify(
+            "https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.tiktok.com%2F%40science&h=AT1",
+            null,
+            false
+        )
+        assertTrue(blockedTransit.isBlocked)
+
+        // 4. Core Facebook pages (not link shims) are blocked immediately with no pending delay
+        val coreFb = WebClassifier.classify("https://m.facebook.com/?log_join_id=12345", null, false)
+        assertTrue(coreFb.isBlocked)
+        assertFalse(coreFb.isPending)
+
+        // 5. Settled page with leftover dest= parameter evaluates the actual host (no false positive from dest=)
+        val settledWithDestParam = WebClassifier.classify(
+            "https://en.wikipedia.org/wiki/Science?dest=chatgpt.com",
+            null,
+            false
+        )
+        assertFalse(settledWithDestParam.isBlocked)
+        assertFalse(settledWithDestParam.isPending)
+    }
 }
 
 

@@ -62,6 +62,27 @@ object WebBlocklistConstants {
     @JvmField
     val ACADEMIC_EXEMPT_DOMAINS: Set<String> = KnownSafeWeb.ACADEMIC_EXEMPT_DOMAINS
 
+    // ── Pure Outbound Link Shims & Redirection Forwarders ──
+    // Dedicated servers that ONLY issue HTTP 302/301 redirects to external destinations (no feeds, stories, or profiles)
+    @JvmField
+    val PURE_LINK_SHIM_DOMAINS: Set<String> = hashSetOf(
+        "l.facebook.com",
+        "lm.facebook.com",
+        "l.instagram.com",
+        "l.threads.net",
+        "slack-redir.net",
+        "out.reddit.com",
+        "t.co"
+    )
+
+    @JvmStatic
+    fun isPureLinkShimDomain(domainOrUrl: String?): Boolean {
+        if (domainOrUrl == null) return false
+        val host = extractHost(domainOrUrl)
+        if (host.isEmpty()) return false
+        return PURE_LINK_SHIM_DOMAINS.contains(host)
+    }
+
     /**
      * Checks if a domain or URL is immune under the academic whitelist.
      * Delegates authoritatively to [KnownSafeWeb.isAcademicExempt].

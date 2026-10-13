@@ -5613,6 +5613,274 @@ for a genuine distracting app successfully disguises, will be tested and hardene
       5. **User Rule 2 Compliance Check**:
          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
          - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Anti-Fast-Click Shield & 0ms Zero-Buffer Proactive Role Interception (Patch 28 Follow-Up 3)**:
+  - **Why It Was Mandated (Eliminating the Fast-Click / Spam-Tap Window)**:
+    - *Vulnerability Analysis*: While the role dialog was successfully intercepted and dismissed, a rapid user could attempt to spam-click the candidate launcher ("Niagara Launcher") and confirmation button ("Set as default") during the microsecond interval before accessibility processing completed.
+    - *Forensic Analysis of the Micro-Window*:
+      1. *50ms OS Notification Delay*: `accessibility_config.xml` originally configured `android:notificationTimeout="50"`. Android OS Accessibility Framework buffered events by up to 50ms before delivering them to `onAccessibilityEvent`. Setting this to `0` removes the 50ms latency barrier completely.
+      2. *View Inflation Timing Gap*: When `TYPE_WINDOW_STATE_CHANGED` fires, the activity is created, but dialog views may still be inflating for 10–25ms. If the Cancel button is not yet attached at $t=0$, a single cancel attempt could miss the button.
+      3. *Proactive Trigger Interception Gaps*: The user taps a trigger button inside Niagara Launcher (e.g. "Set as default launcher") or Settings to invoke the role dialog. If that click is not intercepted *before* the dialog launches, the dialog is allowed to draw on screen.
+  - **Concrete Architectural Implementations**:
+    - **`accessibility_config.xml` (`android/app/src/main/res/xml/accessibility_config.xml`)**:
+      - Configured `android:notificationTimeout="0"` to eliminate the 50ms Android OS event buffer, achieving instant 0ms event dispatch.
+    - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+      - Added `isHomeAppChangeTriggerText(txt)`: Matches trigger tokens (`"set as default"`, `"make default"`, `"default launcher"`, `"default home"`, `"home app"`, `"change default"`, `"choose default"`, `"not set as default"`, `"defaulthome"`, `"role_home"`).
+      - In `isFastHomeRoleEvent()` on `TYPE_VIEW_CLICKED`: Proactively intercepts taps on trigger buttons and cards in Niagara, Nova, Lawnchair, or Settings, asserting the QIEZKA Lock overlay *before* the role dialog ever inflates or draws.
+      - In `evictHomeLauncherChange()`: Added automated post-inflation cancel retries at $t=10\text{ms}$, $t=25\text{ms}$, and $t=50\text{ms}$ on `mainHandler`. The Cancel button is programmatically clicked the microsecond it finishes inflating, long before human reaction time (~200ms) can land a physical tap.
+    - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+      - Added `testHomeAppChangeTriggerText()` verifying trigger token recognition across launcher buttons and setup cards.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/res/xml/accessibility_config.xml`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/res/xml/accessibility_config.xml)
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt)
+      - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.kt`: Core accessibility event dispatch, role trigger detection, and post-inflation cancel retries.
+      - `SIREN HomeProxy` (`com.siren.homeproxy`): Preserved as view-only; unconditionally immune from role change eviction.
+      - `SystemUI` (`com.android.systemui`): Status bar shade and Recents overview remain 100% accessible.
+      - `Installed Launchers`: Normal desktop launcher operation lacking dialog action controls remains 100% immune.
+      - `MainActivity.kt`: Authoritative recipient of BAL-compliant foreground launch Intent.
+    - *Step-by-Step On-Device Verification Protocol (Sensory - No ADB)*:
+      1. **Proactive Trigger Interception**:
+         - *Action*: During an active focus lockdown with SIREN set as default, open Niagara Launcher settings and tap "Set as default launcher" or "Default launcher".
+         - *Expected Result*: The role dialog never draws on screen; the tap is immediately intercepted and QIEZKA Lock overlay is re-asserted.
+      2. **Spam-Tap / Fast-Click Stress Test**:
+         - *Action*: If the role dialog is opened from any settings menu, attempt to spam-click or double-tap rapidly where the launcher list and "Set as default" button appear.
+         - *Expected Result*: The dialog is dismissed within 10–25ms by the inflation retry loop and click defense; no role switch occurs, and QIEZKA Lock overlay remains solidly in the foreground.
+      3. **Desktop Immunity Check**:
+         - *Action*: Verify that regular navigation on the home screen, opening apps, and swiping through the app drawer are completely unaffected.
+      4. **Automated Verification**:
+         - *Action*: Run `.\gradlew.bat compileDebugKotlin compileDebugJavaWithJavac`, `.\gradlew.bat testDebugUnitTest`, and `npx tsc --noEmit`.
+         - *Expected Result*: Pure Kotlin and Java compilation succeed (`BUILD SUCCESSFUL`), all 15 unit test suites pass (`BUILD SUCCESSFUL`), and TypeScript reports 0 errors.
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Truth Table State 3 Home Role Exemption & Extended Anti-Fast-Click Shield (Patch 28 Follow-Up 4)**:
+  - **Why It Was Mandated (Resolving Truth Table State 3 Interception & Closing Window-Transition Fast-Click Window)**:
+    - *Forensic Investigation of Live Device Evasion & Interception Bug*:
+      - Live testing on device revealed two interrelated defects:
+        1. *Truth Table State 3 Violation (Trapped when SIREN is not default)*: When the user attempted to set SIREN as the default home launcher while SIREN was not currently default, QIEZKA still intercepted and dismissed the role dialog / home settings. While `isHomeChangeInterceptorActive()` correctly stood down, the event fell through to Stage 1 Master Veto Gate (`isSettingsOrDeviceManager`). In `AppClassifier.kt`, `permissioncontroller` and `settings` packages were unconditionally classified as settings tampering risks. When `RequestRoleActivity` or `DefaultHomePicker` opened, Stage 1 Master Veto triggered `enforceBlock()`, trapping the student and preventing them from setting SIREN as default home.
+        2. *Window-Transition Fast-Click Window*: When SIREN was default, a rapid user could still tap a candidate launcher item and switch launchers because Android window transitions take 250–350ms, while the cancel retry array was capped at only 50ms (`10ms, 25ms, 50ms`). Once the 50ms window expired, retries stopped before the window finished animating, leaving interactive buttons on screen. Additionally, settings-based pickers (`DefaultHomePicker`) lacked standard `android:id/button2` (`Cancel`) buttons.
+  - **Concrete Architectural Implementations**:
+    - **`AppClassifier.kt` (`android/app/src/main/java/com/uncode/app/AppClassifier.kt`)**:
+      - Added `isHomeRoleActivity(activityOrTitle: String?): Boolean`: Identifies default home assignment surfaces (`RequestRoleActivity`, `DefaultHomePicker`, `DefaultAppActivity`, `HomeSettingsActivity`, `DefaultHomeSettingsActivity`).
+    - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+      - In `isSystemOrLauncher()`: When `!isSirenDefaultLauncher(this)` and `AppClassifier.isHomeRoleActivity(activityCls)` is detected, permits `com.android.permissioncontroller` and `com.android.settings` as allowed system role assignment surfaces.
+      - In `onAccessibilityEvent()`, `TYPE_WINDOWS_CHANGED`, and `postAppAudit()`: Exempts Home Role selection prompts from Stage 1 Master Veto when SIREN is not default, fulfilling Truth Table State 3 ("SIREN is not default -> DO NOT INTERCEPT, allow student to select SIREN").
+      - In `isFastHomeRoleEvent()` on `TYPE_VIEW_CLICKED`: Proactively intercepts ANY view tap inside `com.android.permissioncontroller` or `RequestRoleActivity` while SIREN is default, immediately evicting the attempt.
+      - In `clickCancelOnNode()`: Added fallback for settings-based pickers (`DefaultHomePicker`) lacking `android:id/button2` to re-select SIREN or dismiss.
+      - In `evictHomeLauncherChange()`: Extended post-inflation cancel retries across the entire 500ms window transition timeline (`10ms, 25ms, 50ms, 100ms, 150ms, 200ms, 250ms, 350ms, 500ms`), completely eliminating the fast-click tap window.
+    - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+      - Added `testHomeRoleActivityClassification()` verifying Home Role activity recognition across PermissionController and Settings while ensuring hostile anti-tamper pages remain strictly blocked.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/AppClassifier.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.kt)
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt)
+      - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `SIREN HomeProxy` (`com.siren.homeproxy`): Preserved as view-only; allowed to receive default home assignment when not default.
+      - `AppClassifier.isSettingsOrDeviceManager`: General settings, App Info, and Force Stop remain 100% blocked by Stage 1 Master Veto.
+      - `LockAccessibilityService.kt`: Core window event handler and background ticker.
+      - `MainActivity.kt`: Authoritative recipient of BAL-compliant foreground launch Intent.
+    - *Step-by-Step On-Device Verification Protocol (Sensory - No ADB)*:
+      1. **Truth Table State 3 Verification (SIREN Not Default -> Allow Setting SIREN)**:
+         - *Action*: In a state where SIREN is not currently the default home launcher, tap "Set SIREN as default home" in QIEZKA/SIREN or open default home app settings.
+         - *Expected Result*: The role selection dialog / picker is NOT intercepted or dismissed; the student can freely select SIREN and confirm it as default home.
+      2. **Truth Table State 1 Verification (SIREN Default + Active Session -> Evict Rapid Taps)**:
+         - *Action*: With SIREN active as default launcher and an active focus lockdown session running, trigger default launcher change dialog and attempt to rapidly spam-tap candidate launcher items or "Set as default".
+         - *Expected Result*: The dialog is instantly dismissed within milliseconds by the extended retry cycle (10ms–500ms); no role change occurs, anti-tamper toast appears, and QIEZKA Lock overlay remains in the foreground.
+      3. **Anti-Tamper Settings Immunity Check**:
+         - *Action*: Attempt to open Android System Settings -> Apps -> QIEZKA -> Force Stop, or Accessibility settings to disable QIEZKA.
+         - *Expected Result*: Instantly vetoed and redirected back to Lock Screen / Home. Only the dedicated Home Role selection window is exempt when SIREN is not default.
+      4. **Automated Verification**:
+         - *Action*: Run `.\gradlew.bat compileDebugKotlin compileDebugJavaWithJavac`, `.\gradlew.bat testDebugUnitTest`, and `npx tsc --noEmit`.
+         - *Expected Result*: Pure Kotlin and Java compilation succeed (`BUILD SUCCESSFUL`), all unit test suites pass (`BUILD SUCCESSFUL`), and TypeScript reports 0 errors.
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Unified 4-State Home Role Truth Table Engine & Fast-Click Hardening (Patch 28 Follow-Up 5)**:
+  - **Why It Was Mandated (Consolidating Scattered Interceptor Logic & Establishing Authoritative Truth Table Engine)**:
+    - *Forensic Investigation of Scattered Interception & Evasion Pathways*:
+      - Live device testing surfaced that default home launcher interception logic had become fragmented across multiple disconnected inspection layers:
+        1. Fast-path checks at the top of `onAccessibilityEvent` only checked if SIREN was default and session active, falling through to downstream Stage 1 gates when SIREN was not default.
+        2. Downstream in `onAccessibilityEvent`, `TYPE_WINDOWS_CHANGED`, and `postAppAudit`, distinct and inconsistent checks evaluated whether to allow or block home role surfaces.
+        3. `detectCurrentForegroundPackage()` synthetically spoofed `"com.android.permissioncontroller"`, causing false blocks even during permitted role configuration.
+        4. In `AppClassifier.kt`, `isSettingsOrDeviceManager` unconditionally classified `permissioncontroller` as a settings tampering risk, triggering `enforceBlock()` during State 3.
+      - To permanently eliminate these conflicts, all home launcher detection, role dialog interception, and 4-state Truth Table policy evaluation were unified into a single authoritative engine: [`HomeRoleTruthTable.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/HomeRoleTruthTable.kt).
+  - **The Authoritative 4-State Truth Table Specification**:
+    - **State 1**: `SIREN IS default` AND `active session (lockdown/consequence/schedule)` $\to$ **`INTERCEPT`** (Immediately evict role dialog, assert QIEZKA lock overlay).
+    - **State 2**: `SIREN IS default` AND `non-active session (idle/standby)` $\to$ **`ALLOW`** (Permitted home setup outside lock hours; bypass all veto gates).
+    - **State 3**: `SIREN NOT default` AND `active session` $\to$ **`ALLOW`** (Permitted! Student must be completely free to select & configure SIREN as home).
+    - **State 4**: `SIREN NOT default` AND `non-active session (idle/standby)` $\to$ **`ALLOW`** (Permitted! Normal home app selection outside lock hours).
+    - **Non-Home Role Surfaces**: Evaluates to **`NOT_HOME_ROLE`** $\to$ Proceed to standard app, browser, and settings security classifiers.
+  - **Concrete Architectural Implementations**:
+    - **`HomeRoleTruthTable.kt` (`android/app/src/main/java/com/uncode/app/HomeRoleTruthTable.kt`)**:
+      - Created dedicated singleton object defining `Decision { INTERCEPT, ALLOW, NOT_HOME_ROLE }`.
+      - Implemented `isHomeRoleSurface()`: High-performance multi-tier inspection evaluating Activity class memory checks (`isHomeRoleActivity`), view tap events (`TYPE_VIEW_CLICKED` on "Set as default", "Default launcher"), node hierarchies (`isHomeAppSelectionPackageOrRoot`), and Android P+ window titles (`isHomeAppSelectionTitle`).
+      - Implemented `evaluate()`: Authoritative evaluator returning the exact Truth Table decision in sub-microsecond time.
+    - **`AppClassifier.kt` (`android/app/src/main/java/com/uncode/app/AppClassifier.kt`)**:
+      - Updated `isSettingsOrDeviceManager()`: Added explicit check `if (isHomeRoleActivity(activityCls)) return false`, guaranteeing that legitimate home role pickers (`RequestRoleActivity`, `DefaultHomePicker`) are never classified as settings tampering risks.
+    - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+      - At the top of `onAccessibilityEvent()`: Evaluates `HomeRoleTruthTable.evaluate()`. `INTERCEPT` immediately evicts and returns; `ALLOW` immediately returns, bypassing Stage 1 Master Veto entirely.
+      - In `TYPE_WINDOWS_CHANGED`: Routes window stack reordering through `HomeRoleTruthTable.evaluate()`.
+      - In `postAppAudit()`: Replaced scattered `interceptHomeLauncherChangeAttempt()` calls with unified `HomeRoleTruthTable.evaluate()`.
+      - In `isSystemOrLauncher()`: Evaluates `HomeRoleTruthTable.evaluate()`. `ALLOW` returns `true`, while `INTERCEPT` returns `false`.
+      - In `detectCurrentForegroundPackage()`: Purged synthetic spoofing of `"com.android.permissioncontroller"`, ensuring genuine foreground packages are returned.
+      - Purged obsolete legacy functions (`isFastHomeRoleEvent`, `interceptHomeLauncherChangeAttempt`), delegating node checks cleanly to `Companion.isHomeAppSelectionPackageOrRoot()`.
+    - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+      - Added `testHomeRoleTruthTableAuthoritativeFourStates()` validating all 4 states of the Truth Table (`INTERCEPT` for State 1, `ALLOW` for States 2, 3, and 4, and `NOT_HOME_ROLE` for non-home surfaces).
+      - Added `testIsSettingsOrDeviceManagerImmunityForHomeRoleActivities()` confirming home role dialogs are completely immune from settings tampering classification.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/HomeRoleTruthTable.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/HomeRoleTruthTable.kt)
+      - [`android/app/src/main/java/com/uncode/app/AppClassifier.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.kt)
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt)
+      - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `SIREN HomeProxy` (`com.siren.homeproxy`): Preserved as view-only; allowed to receive default home assignment in State 3.
+      - `AppClassifier.isSettingsOrDeviceManager`: General settings, App Info, and Force Stop remain 100% blocked by Stage 1 Master Veto.
+      - `LockAccessibilityService.kt`: Core window event handler and background ticker.
+      - `MainActivity.kt`: Authoritative recipient of BAL-compliant foreground launch Intent.
+    - *Step-by-Step On-Device Verification Protocol (Sensory - No ADB)*:
+      1. **Truth Table State 3 Verification (SIREN Not Default -> Allow Setting SIREN)**:
+         - *Action*: In a state where SIREN is not currently the default home launcher, tap "Set SIREN as default home" in QIEZKA/SIREN or open default home app settings.
+         - *Expected Result*: The role selection dialog / picker is NOT intercepted or dismissed; the student can freely select SIREN and confirm it as default home.
+      2. **Truth Table State 1 Verification (SIREN Default + Active Session -> Evict Rapid Taps)**:
+         - *Action*: With SIREN active as default launcher and an active focus lockdown session running, trigger default launcher change dialog and attempt to rapidly spam-tap candidate launcher items or "Set as default".
+         - *Expected Result*: The dialog is instantly dismissed within milliseconds by the extended retry cycle (10ms–500ms); no role change occurs, anti-tamper toast appears, and QIEZKA Lock overlay remains in the foreground.
+      3. **Anti-Tamper Settings Immunity Check**:
+         - *Action*: Attempt to open Android System Settings -> Apps -> QIEZKA -> Force Stop, or Accessibility settings to disable QIEZKA.
+         - *Expected Result*: Instantly vetoed and redirected back to Lock Screen / Home. Only the dedicated Home Role selection window is exempt when SIREN is not default.
+      4. **Automated Verification**:
+         - *Action*: Run `.\gradlew.bat compileDebugKotlin compileDebugJavaWithJavac`, `.\gradlew.bat testDebugUnitTest`, and `npx tsc --noEmit`.
+         - *Expected Result*: Pure Kotlin and Java compilation succeed (`BUILD SUCCESSFUL`), all unit test suites pass (`BUILD SUCCESSFUL`), and TypeScript reports 0 errors.
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **In-App Browser Surface Interception, Auto-Adding Newly Installed Apps & Homework Auto-ID Assignment (Patch 28 Follow-Up 6)**:
+  - **Why It Was Mandated (Forensic Findings & Behavioral Gaps)**:
+    - *Live Device Forensic Findings*:
+      - Live device inspection demonstrated that while the local DNS sinkhole successfully blocked `m.facebook.com` (`net::ERR_NAME_NOT_RESOLVED`), the Accessibility Service did not evict or dismiss the in-app browser tab.
+      - Diagnostic analysis revealed that Facebook Messenger (`com.facebook.orca`) was in the allowed messaging whitelist. `LockAccessibilityService` evaluated `isBrowserPackage(pkg, null)`, which only checked package names, returning `false` for `com.facebook.orca`. Because `com.facebook.orca` was neither classified as a browser nor blocked as an application, the in-app browser (`com.facebook.browser.lite.BrowserLiteActivity`) completely bypassed Stage 2 Web Gate audits.
+      - Furthermore, `extractUrlFromBrowser` lacked toolbar header candidate URL extraction (such as `m.facebook.com`), and `closeCustomTab` only evaluated Chrome/Samsung view IDs rather than generic Close buttons (`contentDescription="Close"`).
+    - *Newly Installed Apps Auto-Add Gap*:
+      - In `src/App.tsx`, `allowedApps` was only initialized during initial onboarding (`!prev.allowedAppsInitialized`). Once initialized, subsequent background queries to `getInstalledApps()` returned `prev` unchanged, failing to automatically add newly installed applications that passed all detection filters.
+    - *Homework Auto-ID Assignment Requirement*:
+      - Homework items without an explicit `id` (e.g. from legacy sessions, schedules, or imported backup files) could corrupt state, deduplication, rescheduling, and consequence clearance.
+  - **Concrete Architectural Implementations**:
+    - **`AppClassifier.kt` (`android/app/src/main/java/com/uncode/app/AppClassifier.kt`)**:
+      - Implemented `@JvmStatic fun isInAppBrowserActivity(activityCls: String?): Boolean`, detecting known in-app browser and custom tab activities across host applications (Meta `BrowserLiteActivity`, AndroidX/Chromium `CustomTabActivity`, `InAppBrowser`, `WebViewActivity`, etc.).
+    - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+      - Implemented `isBrowserSurface(pkg, activityCls, root)`: Unifies package checks, activity class checks, and structural hierarchy detection (`hasInAppBrowserStructure`).
+      - Routed all in-app browser surfaces directly to Stage 2 Web Gate (`postBrowserAudit`), guaranteeing real-time inspection even within permitted messaging apps.
+      - Enhanced `extractUrlFromBrowser`: Added `extractUrlFromInAppBrowser`, scanning top toolbar nodes (`bounds.top < 500`) for domain strings (`m.facebook.com`) and WebView network error text (`https://m.facebook.com/...`).
+      - Enhanced `closeCustomTab`: Added `findAndClickCloseButton` matching universal close actions (`contentDescription="Close"`, `"Navigate up"`, `"Back"`, `"Tutup"`), smoothly dismissing the blocked in-app browser tab without interrupting or locking the host messaging app.
+    - **`src/types.ts` (`src/types.ts`)**:
+      - Implemented universal `ensureHomeworkId(hw)` and `sanitizeHomework(hw)`, guaranteeing that every homework object possesses a non-empty string ID (`hw_<timestamp>_<random>`).
+    - **`src/App.tsx` (`src/App.tsx`)**:
+      - Updated `getInstalledApps()` resolution handler (and `handleVisibilityChange` foreground resume): Automatically detects newly installed apps by comparing against cached installed IDs, auto-adding any newly installed app that passes detection (`!isHardcoded && !isLauncher && !isAppBlacklisted`) to `settings.allowedApps`.
+      - Wrapped `setCompletedHomeworks` with `sanitizeHomework`, guaranteeing valid IDs across all state transitions.
+      - Applied `sanitizeHomework` during boot data loading in `loadAll()`.
+    - **`src/components/SettingsOverlay.tsx` (`src/components/SettingsOverlay.tsx`)**:
+      - Applied `sanitizeHomework` to `data.completedHomeworks` during backup restore.
+    - **`src/components/HomeworksPage.tsx` (`src/components/HomeworksPage.tsx`)**:
+      - Applied `sanitizeHomework` when filtering and deduplicating failed homeworks, ensuring unique React keys and reliable reschedule targeting.
+    - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+      - Added `testIsInAppBrowserActivity` verifying pattern recognition across Meta `BrowserLiteActivity`, AndroidX Custom Tabs, and generic in-app web activities.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/AppClassifier.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.kt)
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt)
+      - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`src/types.ts`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/types.ts)
+      - [`src/App.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx)
+      - [`src/components/SettingsOverlay.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/SettingsOverlay.tsx)
+      - [`src/components/HomeworksPage.tsx`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/components/HomeworksPage.tsx)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.kt`: Inspects all foreground activity transitions and background ticker audits against `isBrowserSurface`.
+      - Messaging & Social Apps (`com.facebook.orca`, Telegram, Discord, WhatsApp, etc.): In-app browser tabs loading blocked domains are cleanly auto-closed without terminating or locking the host messaging application.
+      - `src/App.tsx` & `SettingsOverlay.tsx`: Guarantees persistent consistency of `allowedApps` and `completedHomeworks`.
+    - *Step-by-Step On-Device Verification Protocol (Sensory - No ADB)*:
+      1. **In-App Browser Remediation Check (`m.facebook.com` in Messenger)**:
+         - *Action*: During active focus lockdown or consequence mode, open Facebook Messenger and tap a link pointing to `https://m.facebook.com`.
+         - *Expected Result*: The in-app browser opens, the service identifies the domain as distracting, displays the warning toast (*"⚠️ Distracting website. Returning to safe page."*), and automatically closes the browser tab (clicking Close or auto-back), returning cleanly to the Messenger conversation. Messenger remains unlocked and permitted.
+      2. **In-App Browser Allowed Site Immunity Check**:
+         - *Action*: In Messenger during active focus lockdown, tap a link pointing to an allowed educational site (e.g. `https://en.wikipedia.org` or `https://khanacademy.org`).
+         - *Expected Result*: The educational page renders inside the in-app browser without interruption or eviction.
+      3. **Newly Installed Passed App Auto-Addition Check**:
+         - *Action*: With QIEZKA onboarding already completed, install a new permitted study app from Google Play Store (e.g. *AnkiDroid* or *Google Classroom*). Return to QIEZKA.
+         - *Expected Result*: The newly installed application is automatically present in the Allowed Apps list without requiring manual re-initialization. Distracting apps (e.g. games, social media) are not added.
+      4. **Homework Auto-ID Assignment Check**:
+         - *Action*: Import a backup JSON or review legacy homework logs where homework items lacked an `id` field.
+         - *Expected Result*: The homework items load properly with auto-generated unique IDs (`hw_<timestamp>_<random>`), and can be rescheduled or cleared cleanly without orphaning consequence state.
+      5. **Automated Verification**:
+         - *Action*: Execute `.\gradlew.bat compileDebugKotlin compileDebugJavaWithJavac`, `.\gradlew.bat testDebugUnitTest`, and `npx tsc --noEmit`.
+         - *Expected Result*: All Kotlin/Java sources compile cleanly (`BUILD SUCCESSFUL`), all unit tests pass (`BUILD SUCCESSFUL`), and TypeScript reports 0 errors.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+- **Universal Link-Shim DNS Forwarding, Redirect Settling Delay & Redirection Wrapper Sanitization (Patch 28 Follow-Up 7)**:
+  - **Why It Was Mandated (Forensic Findings & Root Cause Analysis)**:
+    - *Platform Hyperlink Wrapping Collision*:
+      - External links tapped within major communication and search platforms (Facebook Messenger, Instagram, Threads, Google, YouTube, LinkedIn, Slack, Reddit, Twitter/X) are not opened directly; platforms route outbound traffic through proprietary redirection wrappers / link shims (`l.facebook.com/l.php?u=...`, `lm.facebook.com`, `l.instagram.com`, `google.com/url?q=...`, `youtube.com/redirect?q=...`, `t.co`, etc.).
+    - *DNS Layer Premature Sinkholing*:
+      - In `LocalDnsVpnService`, `WebClassifier.classifyDomain("l.facebook.com")` checked `KnownDistractingWeb.SOCIAL_MEDIA_DOMAINS` (`facebook.com`). Because `l.facebook.com` ended with `.facebook.com`, DNS sinkholed it to `0.0.0.0` / NXDOMAIN (`net::ERR_NAME_NOT_RESOLVED`), completely preventing the browser from contacting the shim to receive the HTTP 302 redirect to legitimate academic/study destinations (e.g. Wikipedia, Canvas, Google Docs).
+    - *Accessibility Race Condition & Parameter False Positives*:
+      - Auditing in-transit redirect pages at $t=0\text{ms}$ resulted in misclassification of the wrapper host rather than the settled destination.
+      - Furthermore, naive query parameter extraction (e.g. extracting `dest=...` or `redirect=...`) introduces severe false positives on settled destination pages (e.g., visiting an allowed university portal or SSO login screen that retains a leftover `dest=chatgpt.com` parameter).
+  - **Concrete Architectural Implementations**:
+    - **`WebBlocklistConstants.kt` (`android/app/src/main/java/com/uncode/app/WebBlocklistConstants.kt`)**:
+      - Defined `PURE_LINK_SHIM_DOMAINS`: Dedicated outbound redirect forwarders (`l.facebook.com`, `lm.facebook.com`, `l.instagram.com`, `l.threads.net`, `slack-redir.net`, `out.reddit.com`, `t.co`) that serve strictly HTTP 302/301 redirects to outbound destinations and host zero social media feeds, stories, reels, or chats.
+      - Added `@JvmStatic fun isPureLinkShimDomain(domainOrUrl: String?): Boolean` for canonical host matching.
+    - **`WebClassifier.kt` (`android/app/src/main/java/com/uncode/app/WebClassifier.kt`)**:
+      - `classifyDomain`: Pure link shim domains (`isPureLinkShimDomain`) are forwarded to upstream DNS resolvers (Cloudflare/Google) rather than sinkholed, allowing the browser to resolve the redirect host and follow outbound links. Core social media domains (`facebook.com`, `m.facebook.com`, `www.facebook.com`, `fb.com`, `fbcdn.net`, `instagram.com`) remain **100% strictly blocked and sinkholed**.
+      - `classify`: Pure link shims in transit are granted a settling delay by returning `ClassificationResult.pendingLoad("Redirect in transit: awaiting settled destination")`.
+      - Implemented `extractExplicitRedirectTarget`: Safely inspects standard link shim parameters (`u=`, `q=`, `url=`). If the target explicitly points to a known blacklisted domain (e.g. `tiktok.com`), it blocks immediately; otherwise it permits the settling delay. Avoids inspecting generic parameters (`dest=`, `next=`), preventing false positives on legitimate settled pages.
+      - `isDestinationUrl`: Outbound search redirects (`/url?q=`, `/url?url=`) on Google are recognized as destination URLs to undergo settling and classification.
+    - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+      - In `inspectBrowserWindow`: When `res.isPending` is returned for in-app browsers, or when `isPureLinkShimDomain` is encountered in general web containers, the service schedules progressive poll audits (`PROGRESSIVE_DOM_POLL_DELAYS`: 300ms, 700ms, 1200ms, 2000ms).
+      - Once the browser follows the HTTP 302 redirect and lands on the destination page, the service audits the **settled destination website** by its actual host, cleanly allowing safe destinations (e.g. Wikipedia) and blocking distracting destinations (e.g. TikTok).
+    - **`WebTruthTableTest.kt` (`android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt`)**:
+      - Added `testPureLinkShimDnsClassification`: Verifies DNS classification allows pure link shims (`l.facebook.com`, `lm.facebook.com`, `t.co`) while strictly blocking core social media domains (`facebook.com`, `m.facebook.com`, `fbcdn.net`).
+      - Added `testLinkShimTransitSettlingDelay`: Verifies transit settling delay (`isPending = true`) for safe destinations, instant blocking for blacklisted destinations, instant blocking for core Facebook pages, and immunity against false positives from leftover `dest=` query parameters on settled pages.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/WebBlocklistConstants.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebBlocklistConstants.kt)
+      - [`android/app/src/main/java/com/uncode/app/WebClassifier.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.kt)
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt)
+      - [`android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LocalDnsVpnService.kt`: Queries `WebClassifier.classifyDomain` for every outbound DNS packet.
+      - `LockAccessibilityService.kt`: Invokes `WebClassifier.classify` on in-app and browser URL changes.
+      - Browser & WebView surfaces across all installed apps: Ensures outbound link clicks from permitted apps (Messenger, Slack, etc.) resolve safely without locking the user out of educational content.
+    - *Step-by-Step On-Device Verification Protocol (Sensory - No ADB)*:
+      1. **Messenger Safe Link Shim Resolution Check**:
+         - *Action*: In Facebook Messenger, tap an external link pointing to `https://en.wikipedia.org` or `https://github.com`.
+         - *Expected Result*: The in-app browser opens, DNS resolves `l.facebook.com` without throwing `net::ERR_NAME_NOT_RESOLVED`, the HTTP 302 redirect executes within the progressive settling delay, the page settles on Wikipedia/GitHub, and the tab remains open and interactive without eviction.
+      2. **Messenger Distracting Link Shim Eviction Check**:
+         - *Action*: In Messenger, tap a link pointing to `https://www.tiktok.com` or `https://poki.com`.
+         - *Expected Result*: The in-app browser opens, the service identifies the destination as a distracting website, displays the warning toast (*"⚠️ Distracting website. Returning to safe page."*), and immediately closes the tab, returning to Messenger.
+      3. **Core Facebook Browsing Block Invariant Check**:
+         - *Action*: In Chrome, Firefox, or in-app browser, attempt to navigate directly to `https://m.facebook.com` or `https://facebook.com`.
+         - *Expected Result*: DNS sinkholes `facebook.com` / `m.facebook.com` (`net::ERR_NAME_NOT_RESOLVED`), and Accessibility immediately closes the tab. Core social media browsing remains 100% blocked.
+      4. **Settled Destination Query Parameter Immunity Check**:
+         - *Action*: Navigate to an allowed educational or institutional portal whose URL contains a redirection parameter (e.g. `https://en.wikipedia.org/wiki/Science?dest=chatgpt.com`).
+         - *Expected Result*: The page evaluates the actual host (`en.wikipedia.org`) and is allowed. The query parameter does not trigger a false-positive block.
+      5. **Automated Verification**:
+         - *Action*: Execute `.\gradlew.bat compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest`.
+         - *Expected Result*: Compilation and all unit tests pass with `BUILD SUCCESSFUL`.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks
