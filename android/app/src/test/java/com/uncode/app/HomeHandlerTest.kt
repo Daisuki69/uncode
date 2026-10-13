@@ -79,7 +79,8 @@ class HomeHandlerTest {
         assertTrue(AppClassifier.isStage1Vetoed("com.android.provision", null))
 
         assertTrue(AppClassifier.isStage1Vetoed("com.xiaomi.joyose", null))
-        assertTrue(AppClassifier.isStage1Vetoed("com.zhiliaoapp.musically", null))
+        assertFalse(AppClassifier.isStage1Vetoed("com.zhiliaoapp.musically", null))
+        assertTrue(KnownDistracting.isKnownDistracting("com.zhiliaoapp.musically", null))
 
         assertFalse(AppClassifier.isStage1Vetoed("com.sec.android.app.launcher", null))
         assertFalse(AppClassifier.isStage1Vetoed("com.google.android.apps.nexuslauncher", null))

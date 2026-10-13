@@ -4936,6 +4936,450 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
          - *Expected Result*: Verified; APK compilation left entirely to user.
 
+
+- **Phase 4 Kotlin Migration: Auxiliary Services & Network Filter (EnforcementCoreService, FloatingOverlayService, LocalDnsVpnService) (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Decoupled Background Services & Network Filter Layer)**:
+    - *Progressing the Master Kotlin Migration by Focusing on Lifecycle Components*:
+      - Following Phase 2 (Receivers and Content Provider), Phase 3 (Classifier engines) was deferred to prioritize the self-contained, low-risk auxiliary services and network filter.
+      - Historically, `EnforcementCoreService.java`, `FloatingOverlayService.java`, and `LocalDnsVpnService.java` managed critical Android service lifecycles: headless background watchdogs, draggable WindowManager floating countdown badges, and on-device loopback DNS packet filtering (sinkholing distracting domains to NXDOMAIN).
+      - Migrating these services to Kotlin consolidates coroutine-ready lifecycle management, strict null safety, and clean companion object `@JvmStatic` interfaces while preserving 100% binary compatibility with remaining Java enforcement services (`LockPlugin.java`, `LockAccessibilityService.java`).
+  - **Concrete Architectural Implementations**:
+    - **`EnforcementCoreService.kt` (`android/app/src/main/java/com/uncode/app/EnforcementCoreService.kt`)**:
+      - Converted headless background watchdog to Kotlin.
+      - Preserves `@JvmStatic fun ensureRunning(context: Context)` companion helper.
+      - Employs `START_STICKY` lifecycle pulse to keep Accessibility services and floating overlay active without launching UI activities.
+    - **`FloatingOverlayService.kt` (`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`)**:
+      - Converted draggable WindowManager floating countdown timer service to Kotlin.
+      - Preserves `@JvmStatic` helpers: `startService(context, lockEndTime, title)` and `stopService(context)`.
+      - Preserves `WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY`, boundary clamping, drag touch listener, 250ms high-precision wall-clock ticker, and tap-to-foreground `MainActivity` intent routing.
+    - **`LocalDnsVpnService.kt` (`android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt`)**:
+      - Converted ultra-lightweight loopback Android `VpnService` to Kotlin.
+      - Preserves `@JvmStatic` companion endpoints: `startVpn(context)`, `stopVpn(context)`, `updateNotification(context)`, and `@JvmField @Volatile var isRunning: Boolean`.
+      - Maintains virtual DNS IPs (`10.111.222.1` & `fd00:111:222::1`), multi-threaded socket worker pool, packet parsing, NXDOMAIN sinkhole responses, and protected upstream DNS socket forwarding.
+    - **Safe Backup & Purge of Obsolete Java Sources**:
+      - Master backup copies preserved in `scratch/backup_phase4/`.
+      - Safely removed legacy files `EnforcementCoreService.java`, `FloatingOverlayService.java`, and `LocalDnsVpnService.java` from the active source tree.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/EnforcementCoreService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/EnforcementCoreService.kt)
+      - [`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt)
+      - [`android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockPlugin.java`: Calls `FloatingOverlayService.startService`/`stopService`, `LocalDnsVpnService.startVpn`/`stopVpn`/`updateNotification`.
+      - `LockAccessibilityService.java`: Calls `FloatingOverlayService.startService`, `LocalDnsVpnService.startVpn`/`stopVpn`, inspects `LocalDnsVpnService.isRunning`.
+      - `AlarmReceiver.kt`: Calls `FloatingOverlayService.startService`/`stopService` and `EnforcementCoreService.ensureRunning`.
+      - `ScheduleManager.kt`: Calls `FloatingOverlayService.stopService`.
+      - `BootReceiver.kt`: Calls `EnforcementCoreService.ensureRunning` and `FloatingOverlayService.startService`/`stopService`.
+      - `SirenReviveReceiver.kt`: Calls `EnforcementCoreService.ensureRunning`.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Floating Countdown Overlay & Edge Dragging Verification**:
+         - *Action*: In QIEZKA, tap "Test Lock Now" (or trigger a scheduled study session). Minimize QIEZKA or switch to the Home screen / allowed app (e.g. Calculator).
+         - *Expected Result*: A floating timer badge/pill appears on the screen showing the active countdown clock (e.g., `29:55`). Dragging the pill moves it smoothly across the display and snaps cleanly to the nearest screen edge upon release. Tapping the pill immediately brings QIEZKA to the foreground. When the lock session completes, the floating overlay cleanly vanishes.
+      2. **Local DNS VPN Status Bar Key & Sinkhole Activation**:
+         - *Action*: When a lock session starts (or Consequence Mode is engaged), look at the Android top status bar.
+         - *Expected Result*: The Android VPN key icon (🔑) appears in the status bar alongside a persistent notification ("WebClassifier On-Device Protection Active"). When the lockdown ends (or homework is submitted), the VPN key icon cleanly disappears from the status bar.
+      3. **Headless Background Watchdog & Task Switcher Survival**:
+         - *Action*: While in active lockdown, open Android Recent Apps and swipe QIEZKA away to dismiss the app card.
+         - *Expected Result*: Lockdown remains fully operational without crashing or releasing the phone; `EnforcementCoreService` preserves the background sticky pulse.
+      4. **Automated Verification**:
+         - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed (`BUILD SUCCESSFUL in 27s`), unit tests pass (`BUILD SUCCESSFUL in 11s`, 0 failures), and TypeScript typecheck reports 0 errors.
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Phase 5 Kotlin Migration: Native Bridge Layer (MainActivity, LockPlugin) (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Native Activity Root & Capacitor Two-Way IPC Modernization)**:
+    - *Transitioning the Core Application Gateway & Two-Way IPC Engine*:
+      - Following Phase 1 (leaf managers), Phase 2 (receivers & content provider), and Phase 4 (auxiliary background & network services), Phase 5 migrated the central native coordination engine: [MainActivity.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.java) and [LockPlugin.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.java).
+      - `MainActivity` acts as the root entry point extending Capacitor's `BridgeActivity`, controlling application lifecycle state, hardware back-press dispatching, and portrait orientation locking.
+      - `LockPlugin` serves as the primary two-way IPC bridge with 36 distinct `@PluginMethod` endpoints connecting the React/TypeScript frontend (`systemBridge.ts`) to all native Android subsystems (session lifecycle, consequence states, web protection, unified service policies, app inventory extraction, system settings deep links, SAF document streaming, and SIREN launcher discovery).
+      - Migrating these components to idiomatic Kotlin enforces null safety, coroutine-friendly architecture, and clean `@JvmStatic` companion interfaces ensuring 100% binary and source compatibility across remaining Java services (`LockAccessibilityService.java`) while preserving the React/TypeScript frontend completely intact.
+  - **Concrete Architectural Implementations**:
+    - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+      - Converted root activity to Kotlin class `class MainActivity : BridgeActivity()`.
+      - Exposes `@JvmStatic fun isRunning(): Boolean` and `@JvmStatic fun getInstance(): MainActivity?` via `companion object`.
+      - Enforces portrait orientation lock: `requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT`.
+      - Registers native plugin via `registerPlugin(LockPlugin::class.java)`.
+      - Wires hardware `onBackPressedDispatcher`: intercepts Back button presses, queries `LockPlugin.hasBackListeners()`, delegates to `LockPlugin.triggerBackPressed()` if active, and falls back to `moveTaskToBack(true)`.
+      - Maintains thread-safe lifecycle tracking (`sIsRunning` and `sInstance`) across `onCreate()`, `onResume()`, and `onDestroy()`.
+    - **`LockPlugin.kt` (`android/app/src/main/java/com/uncode/app/LockPlugin.kt`)**:
+      - Converted core IPC bridge to Kotlin class `class LockPlugin : Plugin()`, annotated with `@CapacitorPlugin(name = "LockPlugin")`.
+      - Fully ported all 36 exact `@PluginMethod` endpoints:
+        1. *Session Lifecycle*: `startLockdown(call)` (with silent IME/keyboard whitelisting, 90-min clamp, SharedPreferences synchronization, exact alarm scheduling, and overlay dispatch), `endLockdown(call)`, `getLockStatus(call)`.
+        2. *Consequence Enforcement*: `setConsequenceActive(call)` (initiates full consequence enforcement, starts floating indicator, posts status notification).
+        3. *Operating & Web Protection Governance*: `setOperatingMode(call)` (`safemode` vs `hardcore`), `setWebProtectionMode(call)` (`accessibility` vs `dual_hybrid`), `setAllowYoutube(call)`, `setServicePolicy(call)`, `getActiveServices(call)`, `getRegisteredServices(call)`, `setBlockWebGames(call)`, `setDnsFilterProfile(call)`, `setEnforceSafeSearch(call)`, `requestVpnPermission(call)` (with `@ActivityCallback private fun vpnPermissionCallback(...)`).
+        4. *Schedules & Clocks*: `syncTimeOffset(call)`, `syncSchedules(call)`.
+        5. *App Inventory & Security Sanitization*: `getInstalledApps(call)` (background query of launcher, browser, music, and camera apps with bloatware/anti-tamper filtering, Stage 3 system gateway bypass, and 96x96 Base64 PNG icon generation), `sanitizeImportApps(call)`.
+        6. *Permissions & Settings Deep Links*: `override fun checkPermissions(call)` (evaluates Device Admin, Accessibility, Battery Optimization, Notifications, and Exact Alarm), `requestBatteryOptimization(call)`, `requestNotificationPermission(call)` (with `@PermissionCallback private fun notificationPermCallback(...)`), `openNotificationSettings(call)`, `openAccessibilitySettings(call)`, `openAppInfo(call)`, `openDeviceAdminSettings(call)` (with `@ActivityCallback private fun deviceAdminResult(...)`), `openDeviceAdminList(call)`.
+        7. *Data Management (SAF Stream)*: `exportBackup(call)` (with `@ActivityCallback private fun exportBackupResult(...)` streaming JSON from cache to SAF URI), `importBackup(call)` (with `@ActivityCallback private fun importBackupResult(...)` reading UTF-8 JSON from SAF URI).
+        8. *Launcher & SIREN Bridge*: `getInstalledLaunchers(call)`, `setSelectedLauncher(call)`, `clearSelectedLauncher(call)`, `getSelectedLauncher(call)`, `getSirenStatus(call)`, `requestSirenHomeRole(call)`.
+        9. *System UI*: `exitToHome(call)` (executes `moveTaskToBack(true)` on UI thread), `showToast(call)`.
+      - Exposes `@JvmStatic fun clearLockdownState(context: Context?)` and `@JvmStatic fun startConsequenceState(context: Context?, scheduleId: String?, whitelist: Set<String>?)` in `companion object`.
+      - Preserves hardware Back listeners bridge: `fun hasBackListeners(): Boolean = hasListeners("backPressed")` and `fun triggerBackPressed() = notifyListeners("backPressed", JSObject())`.
+    - **Safe Backup & Purge of Obsolete Java Sources**:
+      - Master backup copies preserved in `scratch/backup_phase5/MainActivity.java` and `scratch/backup_phase5/LockPlugin.java`.
+      - Safely removed legacy Java files `MainActivity.java` and `LockPlugin.java` from active sources.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt)
+      - [`android/app/src/main/java/com/uncode/app/LockPlugin.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockPlugin.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `AndroidManifest.xml`: Declares `MainActivity` as the primary launcher activity.
+      - `src/systemBridge.ts`: Primary TypeScript IPC client invoking all 36 `@PluginMethod` bindings.
+      - `src/App.tsx`: Hardware back navigation, session state lifecycle, schedule sync, consequence mode, exitToHome.
+      - `src/components/Dashboard.tsx`: Allowed apps modal via `getInstalledApps()`.
+      - `src/components/SettingsOverlay.tsx`: Launcher selection, SIREN bridge, backup export/import, unified service policies, mode toggles.
+      - `src/components/PermissionWalkthrough.tsx` & `src/components/Onboarding.tsx`: System permission status checks and deep link setting navigation.
+      - `FloatingOverlayService.kt`: Tapping floating countdown ball launches `MainActivity`; started and stopped by `LockPlugin`.
+      - `AlarmReceiver.kt`: Fires alarms and launches `MainActivity`; managed by `LockPlugin`.
+      - `LocalDnsVpnService.kt`: Started and stopped by `LockPlugin`.
+      - `ScheduleManager.kt`: Rescheduled and synchronized by `LockPlugin`.
+      - `HomeHandlerTest.kt`: Unit test suite testing `MainActivity.isRunning()` and `MainActivity.getInstance()`.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Authentic Hardware Back-Button Handling Across Screens**:
+         - *Sub-Screen Navigation*: Tap Settings (or Logs, or Create Schedule) -> Press the Android Back button once -> The screen smoothly navigates backward returning to the Dashboard.
+         - *Dashboard Double-Back Exit*: On the Dashboard, press the Android Back button once -> A toast notification appears at the bottom: *"Press back again to exit"*. Press Back a second time within 2 seconds -> QIEZKA cleanly minimizes to the Android launcher (`moveTaskToBack(true)`).
+         - *Lockdown Minimization for Allowed Apps*: Start a lockdown session (Dashboard -> Start Lock) -> Press the Back button -> QIEZKA cleanly minimizes to the home screen so you can use your whitelisted apps while the Floating Countdown Ball remains visible and active on screen. Tap the floating ball: QIEZKA opens back up to the Lock Screen immediately.
+      2. **Installed Apps Discovery & Whitelist Picker**:
+         - Tap "Allowed Apps" on Dashboard (or in Create Schedule) -> A modal dialog appears displaying user-launchable apps installed on the device with their authentic native Base64 PNG icons and readable labels. Distracting apps (games, social media), system settings, device managers, and keyboards are filtered out and do not appear in the selectable whitelist.
+      3. **Live Permissions & Deep Linking**:
+         - Open Settings -> Permissions (or Onboarding / Permission Walkthrough) -> Status indicators (green checkmarks / red warnings) accurately reflect current system states for Accessibility, Device Admin, Battery Optimization, and Notifications. Tapping each setting opens the appropriate system settings screen.
+      4. **Full Lockdown Session Lifecycle (Start, Float Ball, End)**:
+         - Start a test lock session -> Fullscreen Lock Screen engages with the large countdown timer ticking down, floating timer ball overlay appears on screen edge, and persistent status notification appears in the notification shade. On emergency release or 00:00 timer, the floating countdown ball disappears, notifications clear, and app returns to Dashboard.
+      5. **Consequence Mode State Engagement**:
+         - Engage a consequence state -> Persistent Android notification appears: *"⚠️ QIEZKA Consequence Mode - Distracting apps are restricted..."*, and floating overlay appears indicating Consequence Mode. Completing or rescheduling the task dismisses both.
+      6. **Mode & Policy Toggles Persistence**:
+         - In Settings, toggle Operating Mode between Safe Mode and Hardcore Mode; toggle Web Protection Mode (prompts system VPN permission on Dual Hybrid); toggle Unified Services (YouTube, AI). Close and re-open Settings to confirm state persistence.
+      7. **Launcher Bridge & SIREN Status**:
+         - In Settings -> Launcher Configuration -> See installed launchers listed (e.g. System Launcher, KISS, Nova); select a launcher to mark it as active. SIREN HomeProxy section renders showing installation status and default home status. Tapping "Set as Default Home" triggers the system default home chooser.
+      8. **Data Management SAF Export & Import**:
+         - In Settings -> Data Management, tap Export Backup -> System document picker saves `backup.json` and displays success toast. Tap Import Backup -> System document picker loads file, sanitizes packages, and restores settings.
+      9. **Automated Gradle & TypeScript Validation**:
+         - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed (`BUILD SUCCESSFUL in 32s`), unit tests pass (`BUILD SUCCESSFUL`), and TypeScript compiler reports 0 errors.
+      10. **User Rule 2 Compliance Check**:
+          - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+          - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Phase 3A Kotlin Migration: On-Device Web Intelligence Engine (WebClassifier) (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Autonomous Web Security Engine & Multi-Tier Classification Modernization)**:
+    - *Transitioning the On-Device Web Security Engine*:
+      - Following the successful migration of Phase 1 (leaf managers), Phase 2 (receivers & content provider), Phase 4 (auxiliary background & network services), and Phase 5 (native activity root & bridge layer), Phase 3 is de-bundled into single-file migrations to maximize safety and precision.
+      - Phase 3A migrated the on-device web intelligence engine: [WebClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.java) &rarr; [WebClassifier.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.kt).
+      - `WebClassifier` serves as the authoritative real-time destination URL analyzer, deep DOM crawler (up to 25 depth levels, 350 nodes), educational SafeSearch Virtual IP provider, and local DNS threat evaluator.
+      - It is invoked synchronously by both [LocalDnsVpnService.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt) (evaluating all loopback UDP port 53 DNS queries) and [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java) (auditing browser address bars, long-press context menus, in-app web views, and web page content).
+      - Migrating `WebClassifier` to idiomatic Kotlin enforces null-safety across complex URL parsing and node hierarchies, simplifies string token searches, leverages Kotlin collection idioms, and provides `@JvmStatic` companion endpoints and `@JvmField` properties on `ClassificationResult` ensuring seamless binary interoperability with Java callers while keeping the React/TypeScript frontend intact.
+  - **Concrete Architectural Implementations**:
+    - **`WebClassifier.kt` (`android/app/src/main/java/com/uncode/app/WebClassifier.kt`)**:
+      - Converted core intelligence engine to `class WebClassifier private constructor()`.
+      - Nested data model `class ClassificationResult(@JvmField val isBlocked: Boolean, @JvmField val isPending: Boolean, @JvmField val reason: String?)`:
+        - Implements secondary constructor `constructor(isBlocked: Boolean, reason: String?) : this(isBlocked, false, reason)` and static factory helpers (`allowed()`, `blocked()`, `pendingLoad()`) for complete binary parity with Java callers.
+      - Thread-safe decision cache: `private val decisionCache = ConcurrentHashMap<String, ClassificationResult>()` cleared via `@JvmStatic fun clearCache()`.
+      - Single-gate destination URL validator: `@JvmStatic fun isDestinationUrl(text: String?): Boolean` distinguishing search engine queries (Google, Bing, Yahoo, DuckDuckGo, Ecosia, Baidu, Naver) from destination domains and URLs.
+      - Browser Shell & Context Menu Evaluators:
+        - `@JvmStatic fun isLinkContextMenu(root: AccessibilityNodeInfo?): Boolean` detects browser hyperlink long-press context menus.
+        - `@JvmStatic fun isLinkContextMenuSubtree(node: AccessibilityNodeInfo?): Boolean` identifies preview sheets and link dialog headers.
+        - `@JvmStatic fun isBrowserShellWidget(node: AccessibilityNodeInfo?): Boolean` identifies browser new tab shortcuts and Discover feed cards.
+      - Deep DOM Crawler:
+        - `@JvmStatic fun classifyDom(root: AccessibilityNodeInfo?, allowYoutube: Boolean, allowedDomains: Set<String>?): ClassificationResult` traverses up to 25 depth levels and 350 nodes, evaluating title bars, layout hierarchies, game HUD tokens, and sparse loading skeletons.
+      - Standalone PWA & In-App Web Evaluators:
+        - `@JvmStatic fun classifyStandalonePwa(windowTitle: String?, root: AccessibilityNodeInfo?, allowYoutube: Boolean, allowedDomains: Set<String>?): ClassificationResult`.
+        - `@JvmStatic fun classifyInAppWeb(root: AccessibilityNodeInfo?, allowYoutube: Boolean, allowedDomains: Set<String>?): ClassificationResult` auditing embedded browser webviews (e.g. Baidu, Naver).
+      - Unified Web & DNS Classifiers:
+        - `@JvmStatic fun classify(rawUrl: String?, root: AccessibilityNodeInfo?, allowYoutube: Boolean, allowedDomains: Set<String>?): ClassificationResult`.
+        - `@JvmStatic fun classifyDomain(domain: String?, allowYoutube: Boolean, allowedDomains: Set<String>?): ClassificationResult` matching incoming hostnames against distraction, gaming, adult, gambling, crypto, and piracy hostnames at loopback DNS level.
+      - Educational SafeSearch Virtual IPs:
+        - `@JvmStatic fun getSafeSearchVip(domain: String?): ByteArray?` routing Google (`216.239.38.120`), Bing (`204.79.197.220`), and DuckDuckGo (`52.142.124.215`) to strict educational SafeSearch VIPs.
+    - **Safe Backup & Purge of Obsolete Java Source**:
+      - Master backup copy preserved in `scratch/backup_phase3a/WebClassifier.java`.
+      - Safely removed legacy Java file `WebClassifier.java` from active sources.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/WebClassifier.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.kt)
+      - [`scratch/backup_phase3a/WebClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/scratch/backup_phase3a/WebClassifier.java) (backup preserved)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LocalDnsVpnService.kt`: Direct Caller (Network layer) evaluating all loopback UDP port 53 DNS queries against `WebClassifier.classifyDomain(lowerDomain, allowYoutube, allowedDomains)` and retrieving SafeSearch VIP via `WebClassifier.getSafeSearchVip(domain)`.
+      - `LockAccessibilityService.java`: Direct Caller (DOM & URL layer) calling `WebClassifier.classify(url, root, allowYoutube, allowedDomains)`, `WebClassifier.classifyDom(root, ...)`, `WebClassifier.classifyInAppWeb(root, ...)`, `WebClassifier.isDestinationUrl(text)`, `WebClassifier.isLinkContextMenu(root)`, `WebClassifier.clearCache()`.
+      - `LockPlugin.kt`: Direct Caller (Cache sync) calling `WebClassifier.clearCache()` when policy changes occur.
+      - `WebTruthTableTest.kt`: Automated unit test suite executing 80+ assertions testing URL checking, SafeSearch VIPs, DNS domains, and unified policy overrides.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Search Query & SERP Immunity (Single Gate Verification)**:
+         - *Action*: Start a lockdown session (or Dual Hybrid mode). Open a web browser (Chrome, Samsung Internet, Firefox), tap the address bar, and type an academic search query (e.g. *"quantum mechanics lecture notes"* or *"how to solve calculus integrals"*).
+         - *Expected Result*: The browser does not kick you out or back-press while typing in the omnibox. Search results on Google (`google.com/search?q=...`) or Bing load and render normally.
+      2. **Academic Safe-List Immunity**:
+         - *Action*: In the browser, navigate to educational and study resources: `https://en.wikipedia.org/wiki/Linear_algebra`, `https://github.com`, `https://www.desmos.com/calculator`, or Google Docs.
+         - *Expected Result*: All academic websites load completely with full interactive functionality and zero interference.
+      3. **Distraction Website Eviction & NXDOMAIN Sinkhole**:
+         - *Action*: While in lockdown, attempt to visit a known gaming or social web portal (e.g. `https://poki.com`, `https://y8.com`, `https://www.tiktok.com`).
+         - *Expected Result*: Accessibility engine immediately detects the blocked destination and executes Back navigation, displaying an alert toast. Under Dual Hybrid VPN mode, the browser immediately fails with `DNS_PROBE_FINISHED_NXDOMAIN` or connection error without loading external game assets.
+      4. **Unified Policy YouTube Web Toggle**:
+         - *Action*: In Settings, ensure "Allow YouTube in Browser" is enabled. In the browser, navigate to `https://www.youtube.com/watch?v=...` (coding lecture).
+         - *Expected Result*: Video page loads and plays educational content. Then turn the toggle OFF in Settings and reload the page: YouTube is immediately blocked.
+      5. **Automated Gradle & TypeScript Validation**:
+         - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed (`BUILD SUCCESSFUL in 36s`), all 14 unit test suites (including 80+ assertions in `WebTruthTableTest`) pass with 0 failures, and TypeScript compiler reports 0 errors.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Unified Policy Flow Realignment & CDN Sinkhole Resolution (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Resolving Gating Disconnect & Restoring Ground Truth Flowchart)**:
+    - *Forensic Diagnosis of Policy Failure*:
+      - Live on-device testing revealed that toggling on "Videos (YouTube & Baidu Video)" or "AI (ChatGPT, Gemini, Claude)" in App Settings failed to allow these services during focus lockdown or consequence mode.
+      - Deep architectural investigation identified two root causes:
+        1. **Native Flow Inversion**: [AppClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java) line 1133 bundled `KnownDistracting.isKnownDistracting(pkg, appLabel)` directly into `isStage1Vetoed(...)`. Because YouTube and AI assistants are classified as distracting packages, they were vetoed at Stage 1 (Master Veto Gate). Both [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java) and [AppClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java) short-circuited at Stage 1, rendering Stage 2's Dual Gate Truth Table (`YES KnownDistracting, YES KnownSafe -> ALLOW`) unreachable dead code.
+        2. **Web CDN Sinkholing**: `UnifiedPolicyRegistry.SERVICES["youtube"].domains` and [WebClassifier.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.kt) included `youtube.com` and `m.youtube.com` but omitted video streaming chunk domains (`googlevideo.com`) and asset/thumbnail CDNs (`ytimg.com`, `youtube-nocookie.com`). When users navigated to YouTube in a browser, the initial page loaded, but streaming chunks and thumbnails were classified as distracting without being in `effectiveAllowed`. Consequently, [LocalDnsVpnService.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt) sinkholed them to `NXDOMAIN` (0.0.0.0), crashing video playback.
+    - *Realignment with Ground Truth 3-Stage Pipeline*:
+      - Realigned the native gating logic with the authoritative architectural flowchart (`README.md:2102-2125`):
+        - **Stage 1 (Master Veto Gate)** evaluates strictly: (1) Anti-Tamper (`isSettingsOrDeviceManager`: Settings, Device Care, Phone Managers, Setup Wizards, Provisioners), (2) Hardware Task Killers (`isStage1Bloat`: Joyose, GameSpace, Glance, PalmStore), and (3) Hostile Circumvention / Evasion Proxies (`isHostileEvasionProxy`: Tor, Psiphon, bypass VPN tunnels, multilingual proxy tools). Consumer distractions (TikTok, games, YouTube, AI) pass Stage 1.
+        - **Stage 2 (Dual Gate Truth Table)** evaluates `KnownDistracting` against `KnownSafe` (incorporating active Unified Policy services). Unchecked distractions (games, social media) are blocked, while user-allowed services (YouTube, AI) are granted execution (`YES KnownDistracting, YES KnownSafe -> ALLOW`).
+        - **Stage 3 (Universal System Gateway)** evaluates system partition OEM apps (`SYSALLOW`).
+      - Preserved Home launcher vetting in [InstalledLauncherDetector.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.kt) and [LauncherStateManager.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LauncherStateManager.kt) by explicitly enforcing `isStage1Vetoed(pkg) || KnownDistracting.isKnownDistracting(pkg)`.
+  - **Concrete Architectural Implementations**:
+    - **`AppClassifier.java` (`android/app/src/main/java/com/uncode/app/AppClassifier.java`)**:
+      - Restructured `isStage1Vetoed(pkg, appLabel, activityCls)`: Removed `KnownDistracting.isKnownDistracting(pkg, appLabel)` and replaced with `isHostileEvasionProxy(pkg, appLabel)`.
+      - Preserved Master Veto protection against settings, provisioners, device managers, task-killing bloatware, and evasion proxies.
+      - Re-enabled Stage 2 Dual Gate Truth Table execution in `isPackageBlocked(Context, String, Set<String>)`.
+    - **`KnownDistracting.kt` (`android/app/src/main/java/com/uncode/app/KnownDistracting.kt`)**:
+      - Added `HOSTILE_EVASION_PACKAGES` set containing 33 known circumvention tools, onion browsers, cloud renderers, and bypass VPNs.
+      - Added `@JvmStatic fun isHostileEvasionProxy(packageName: String?, appLabel: String?): Boolean`.
+      - Added `@JvmStatic fun hasEvasionPackageSignature(lower: String): Boolean` and `@JvmStatic fun hasEvasionLabelSignature(lowerLabel: String): Boolean` matching multilingual evasion keywords across Russian, Chinese, Japanese, Arabic, and Spanish.
+    - **`UnifiedPolicyRegistry.kt` (`android/app/src/main/java/com/uncode/app/UnifiedPolicyRegistry.kt`)**:
+      - Added `"googlevideo.com"`, `"ytimg.com"`, and `"youtube-nocookie.com"` to `SERVICES["youtube"].domains`.
+    - **`WebClassifier.kt` (`android/app/src/main/java/com/uncode/app/WebClassifier.kt`)**:
+      - Updated `buildEffectiveAllowed(allowYoutube, allowedDomains)` to dynamically include all domains from `UnifiedPolicyRegistry.SERVICES["youtube"]` when `allowYoutube == true`.
+      - Delegated `classifyDomain(domain, allowYoutube, allowedDomains)` directly to `buildEffectiveAllowed` to ensure single-source parity between DNS sinkhole and URL inspection.
+    - **`InstalledLauncherDetector.kt` & `LauncherStateManager.kt`**:
+      - Enforced dual veto `AppClassifier.isStage1Vetoed(pkg, null) || KnownDistracting.isKnownDistracting(pkg)` in launcher candidate validation and preference persistence.
+    - **Unit Test Synchronization**:
+      - Synchronized [HomeHandlerTest.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt), [WebTruthTableTest.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt), and [UnifiedPolicyTest.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/UnifiedPolicyTest.kt) to validate evasion proxies, DNS CDN allowance, and Truth Table policy overrides.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java)
+      - [`android/app/src/main/java/com/uncode/app/KnownDistracting.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/KnownDistracting.kt)
+      - [`android/app/src/main/java/com/uncode/app/UnifiedPolicyRegistry.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/UnifiedPolicyRegistry.kt)
+      - [`android/app/src/main/java/com/uncode/app/WebClassifier.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/WebClassifier.kt)
+      - [`android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/InstalledLauncherDetector.kt)
+      - [`android/app/src/main/java/com/uncode/app/LauncherStateManager.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LauncherStateManager.kt)
+      - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+      - [`android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/WebTruthTableTest.kt)
+      - [`android/app/src/test/java/com/uncode/app/UnifiedPolicyTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/UnifiedPolicyTest.kt)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.java`: Direct Caller (Foreground Window Interceptor) querying `AppClassifier.isStage1Vetoed(...)` and `AppClassifier.isPackageBlocked(this, pkg, whitelist)`.
+      - `LocalDnsVpnService.kt`: Direct Caller (Network DNS) querying `WebClassifier.classifyDomain(domain, allowYoutube, allowedDomains)`.
+      - `KnownSafe.kt`: Direct Caller querying `UnifiedPolicyRegistry.isPackageAllowedByService(...)` to populate `KnownSafe`.
+      - `LockPlugin.kt`: Direct Caller synchronizing `uncode_lock.xml` preferences and invalidating decision caches.
+      - `InstalledLauncherDetector.kt` & `LauncherStateManager.kt`: Direct Callers vetting launchers against Stage 1 veto and distractions.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Native YouTube App with Unified Policy Enabled**:
+         - *Action*: In App Settings, toggle **Videos (YouTube & Baidu Video)** to **ON**. Start an active focus lockdown session. From home screen or app drawer, launch native YouTube (`com.google.android.youtube`) or YouTube ReVanced.
+         - *Expected Result*: YouTube opens immediately and remains active without lock overlay or auto-back eviction. Videos can be searched and watched while floating timer bubble remains visible.
+      2. **Native YouTube App with Unified Policy Disabled**:
+         - *Action*: In App Settings, toggle **Videos (YouTube & Baidu Video)** to **OFF**. Start an active focus lockdown session. Launch native YouTube.
+         - *Expected Result*: Within 200ms, YouTube is evicted back to the launcher with a lock warning toast (*"Focus Mode Active"*).
+      3. **Web YouTube Browsing & Video Streaming (CDN Verification)**:
+         - *Action*: With YouTube toggle **ON** during lockdown, open Chrome or Samsung Internet and navigate to `https://m.youtube.com`. Tap on an educational video.
+         - *Expected Result*: Home feed video thumbnails render crisply (`ytimg.com` allowed). Video stream immediately plays without infinite buffering spinners or network errors (`googlevideo.com` allowed).
+         - *Action (Toggle OFF)*: With YouTube toggle **OFF**, navigate to `https://m.youtube.com`.
+         - *Expected Result*: Browser tab is immediately auto-backed or closed with a warning toast (*"YouTube is blocked during focus mode"*).
+      4. **AI Assistant App & Web Gating (Gemini / ChatGPT)**:
+         - *Action*: In App Settings, toggle **AI** to **ON**. Start lockdown. Launch ChatGPT or Gemini app; visit `https://chatgpt.com` or `https://gemini.google.com` in browser.
+         - *Expected Result*: Native apps and web endpoints open and interact normally.
+         - *Action (Toggle OFF)*: Toggle **AI** to **OFF**. Launch ChatGPT or Gemini.
+         - *Expected Result*: App launch triggers instant eviction; web navigation triggers immediate auto-back.
+      5. **Anti-Tamper Shield & Bloatware Isolation (Stage 1 Master Veto Gate Integrity)**:
+         - *Action*: While in lockdown (with YouTube or AI toggled ON), attempt to open Android **Settings** (`com.android.settings`), App Info for QIEZKA, or Game Turbo/Joyose bloatware.
+         - *Expected Result*: Instantly evicted by Stage 1 Master Veto with zero delay, preserving anti-tamper security.
+      6. **Consumer Distraction Eviction (Games & Social Feeds)**:
+         - *Action*: While in lockdown (with YouTube or AI toggled ON), attempt to launch **TikTok** (`com.zhiliaoapp.musically`), **Instagram**, **Roblox**, or a mobile game.
+         - *Expected Result*: Instantly evicted back to the launcher within 200ms. Enabling YouTube policy does not leak access to games or social media feeds.
+      7. **Home Launcher Navigation & Floating Bubble**:
+         - *Action*: From YouTube or ChatGPT, press the Home gesture or button.
+         - *Expected Result*: Returns smoothly to the default launcher. Floating countdown bubble remains visible and interactive.
+      8. **Automated Gradle & TypeScript Validation**:
+         - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed (`BUILD SUCCESSFUL in 36s`), all 14 unit test suites pass with 0 failures, and TypeScript compiler reports 0 errors.
+      9. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Native App Eviction Clean-Up: Eliminating Conflicting Back Presses in enforceBlock (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Resolving the Self-Destructive App Thrashing Loop)**:
+    - *Forensic Diagnosis of the Fighting Loop*:
+      - During focus lockdown, when a student attempted to open a blocked native application (e.g. mobile games, TikTok, or unapproved apps), the device entered an intense, flickering oscillation loop between the QIEZKA Lock Screen and the home launcher.
+      - Investigation traced this to a fundamental collision between synthetic Back actions in `enforceBlock()` and React's hardware back handling:
+        1. When a distracting app opened, `enforceBlock()` in [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java) called `launchLockOverlay()` (to summon QIEZKA Lock Screen) while simultaneously firing `performGlobalAction(GLOBAL_ACTION_BACK)` at 0ms, 100ms, and 250ms.
+        2. In [MainActivity.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt), `onBackPressedDispatcher` caught this synthetic Back event and passed it to React via `LockPlugin.triggerBackPressed()`.
+        3. In [App.tsx](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/src/App.tsx) line 178, the hardware back handler specifies: `if (appState === 'locked') { exitToHome(); return; }`. This was designed so students could intentionally press Back to access allowed study apps while the Floating Overlay Ball remains pinned.
+        4. However, because `enforceBlock()` bombarded the system with synthetic Back presses upon summoning the overlay, React immediately executed `exitToHome()`, commanding the Android OS to minimize QIEZKA (`moveTaskToBack(true)`).
+        5. The delayed ticker checks in `enforceBlock()` (at 100ms and 250ms) saw that QIEZKA was no longer in the foreground, firing `launchLockOverlay()` and `GLOBAL_ACTION_BACK` again—causing QIEZKA to repeatedly launch itself and minimize itself in a continuous fight.
+    - *Strict Flowchart Realignment (`README.md:2104-2114`)*:
+      - **Native Apps**: Flowchart mandates `BLOCK["🚫 BLOCK AND EVICT TO QIEZKA (not route EVICT TO HOMESCREEN)"]`. Native app blocks must strictly summon the QIEZKA Lock overlay and **never** send synthetic Back key events.
+      - **Websites**: Flowchart mandates `BLOCKS["Auto Back Until Safe Site, If theres nothing to back on then go to HomePage"]`. Distracting websites inside browsers stay inside the browser and execute in-browser Auto-Back (`remediateBlockedBrowserTab`), **never** summoning QIEZKA.
+  - **Concrete Architectural Implementations**:
+    - **`LockAccessibilityService.java` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.java`)**:
+      - In `enforceBlock(String pkg)`: Completely purged all three calls to `performGlobalAction(GLOBAL_ACTION_BACK)` (immediate call at line 2508, 100ms burst at line 2518, and 250ms burst at line 2528). Native app blocking now exclusively and cleanly executes `launchLockOverlay()`.
+      - In `evictHomeLauncherChange(AccessibilityNodeInfo dialogRoot)`: Retained dialog cancellation via `clickCancelOnNode` and purged delayed `performGlobalAction(GLOBAL_ACTION_BACK)` bursts at 25ms, 60ms, and 120ms that were bleeding into `launchLockOverlay()`.
+      - Preserved `remediateBlockedBrowserTab()`: In-browser Auto-Back for websites remains 100% intact, maintaining complete separation of concerns between web remediation and native app eviction.
+    - **Safe Backup**:
+      - Master backup preserved in `scratch/backup_eviction_cleanup/LockAccessibilityService.java`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`scratch/backup_eviction_cleanup/LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/scratch/backup_eviction_cleanup/LockAccessibilityService.java) (backup preserved)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.java`: Evaluates all foreground package transitions (`onAccessibilityEvent`, `TYPE_WINDOWS_CHANGED`, background ticker) against `isStage1Vetoed` and `isPackageBlocked`. All blocked native apps cleanly route to `launchLockOverlay()`.
+      - `MainActivity.kt`: Target activity receiving `launchLockOverlay()` intents. Will no longer receive unintended `onBackPressed()` key events triggered by its own background service.
+      - `App.tsx`: Hardware back listener on the `'locked'` screen will now only fire when the student physically presses the hardware Back button/gesture to minimize QIEZKA for whitelisted study apps.
+      - `FloatingOverlayService.kt`: Overlay countdown ball remains completely stable with zero jitter from task-switching loops.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Native App Block Stability (Eliminating Self-Fighting Loop)**:
+         - *Action*: Start an active focus lockdown session. From the home screen or app drawer, attempt to launch a known distracting native app (e.g. TikTok, Instagram, Roblox, or YouTube when disallowed).
+         - *Expected Result*: The fullscreen QIEZKA Lock Screen instantly takes the foreground. The screen **remains solidly on the QIEZKA Lock Screen** without flickering, flashing, stuttering, or bouncing back to the home launcher.
+      2. **Intentional Hardware Back Press for Allowed Apps**:
+         - *Action*: While on the QIEZKA Lock Screen during an active lockdown session, physically tap the device Back button or perform the Back edge gesture.
+         - *Expected Result*: QIEZKA smoothly minimizes to the home screen. The Floating Countdown Ball remains visible and responsive at the edge of the screen. Tapping the floating ball returns immediately to the Lock Screen.
+      3. **Website Auto-Back Isolation (Browser Retains In-Place Remediation)**:
+         - *Action*: While in active lockdown, open Chrome or Samsung Internet and visit a distracting website (e.g. `https://poki.com` or `https://y8.com`).
+         - *Expected Result*: A brief toast appears (*"⚠️ Distracting website. Returning to safe page."*). The browser automatically executes Back navigation, returning to the previous safe page or New Tab Page. **QIEZKA DOES NOT summon its overlay over the browser.**
+      4. **Stage 1 Master Veto Gate (Anti-Tamper Settings Eviction)**:
+         - *Action*: While in active lockdown, attempt to open Android **Settings** (`com.android.settings`) or App Info.
+         - *Expected Result*: Settings is instantly evicted, and QIEZKA Lock Screen takes the foreground cleanly without rapid oscillations.
+      5. **Automated Gradle & TypeScript Validation**:
+         - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed (`BUILD SUCCESSFUL`), all 14 unit test suites pass with 0 failures, and TypeScript compiler reports 0 errors.
+      6. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+- **Language-Agnostic Stage 1 Default Home Launcher Selection Interception & Multi-Tier SIREN Role Resolution (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Preventing Default Home App Selection Bypass Across All Languages)**:
+    - *Forensic Diagnosis of Un-Evicted Role Dialog*:
+      - Live forensic investigation via ADB root (`su -c`) revealed that third-party home launchers (e.g., Smart Launcher, Nova, Lawnchair) could summon the Android OS Role request dialog (`com.android.permissioncontroller/com.android.permissioncontroller.role.ui.RequestRoleActivity` displaying *"Set [Launcher] as your default home app?"*) which remained static on screen without being dismissed, despite SIREN HomeProxy actively holding the default launcher role and an active lockdown session/schedule running.
+      - Investigation traced this bypass to four underlying factors:
+        1. **Pre-Existing Static Window**: Smart Launcher requested the role dialog before the accessibility service reconnected; because the dialog was already static in the foreground, Android OS never dispatched a new `TYPE_WINDOW_STATE_CHANGED` accessibility event to `onAccessibilityEvent()`.
+        2. **Master Gate Resolution Flaw**: In [LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java), `isSirenDefaultLauncher()` relied solely on `pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)`. While a system role dialog is contested in modern Android (API 29+), `MATCH_DEFAULT_ONLY` in an unprivileged app sandbox often resolves to the system `ResolverActivity` or `null`. This caused `isSirenDefaultLauncher()` to cache `false`, which disarmed `isHomeChangeInterceptorActive()` completely.
+        3. **Window Audit Evaluation**: In `interceptHomeLauncherChangeAttempt()`, window title evaluation was nested inside `if (wRoot != null)`. When `w.getTitle()` was null and `wRoot` was inaccessible during window transitions, the ticker bypassed the window without action.
+        4. **Language-Dependent Flaws**: Previous logic included checks against visible English strings (`"Default"`, `"Launcher"`, `"not set as default"`, and text-based button matching for `"Cancel"`), which failed on non-English system locales.
+    - *Strict Language-Agnostic Directive*:
+      - Per architectural requirement, all role interception and dialog dismissals must operate purely on system activity class names, internal package identifiers, and universal Android framework resource IDs (`android:id/button2`, `com.android.permissioncontroller:id/list`), with zero dependency on UI display text.
+  - **Concrete Architectural Implementations**:
+    - **`LockAccessibilityService.java` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.java`)**:
+      - *Multi-Tier `isSirenDefaultLauncher(Context)`*:
+        - Tier 1: Uses reflection to invoke hidden Android API `pm.getHomeActivities(homeActivities)` to directly query the operating system's configured preferred home component name (`ComponentName`) from PackageManager. If `LauncherStateManager.SIREN_PACKAGE` matches, immediately returns true.
+        - Tier 2: Retains `pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)` checking against `LauncherStateManager.SIREN_PACKAGE`.
+        - Tier 3: Adds standard resolution fallback `pm.resolveActivity(homeIntent, 0)` checking against `LauncherStateManager.SIREN_PACKAGE`.
+        - 100% language-agnostic: strictly evaluates package name equality (`"com.siren.homeproxy"`).
+      - *Connect-Time Eviction*: In `onServiceConnected()`, immediately invokes `interceptHomeLauncherChangeAttempt(null, null, null)` so any pre-existing role dialog opened while the service was cycling is evicted upon connection.
+      - *100% Language-Agnostic Fast Event Gate (`isFastHomeRoleEvent`)*: Evaluates exact system Activity class names (`RequestRoleActivity`, `DefaultAppActivity`, `HomeSettingsActivity`, `DefaultHomePicker`, `RoleSearchActivity`, `SpecialAppAccessActivity`) and taps within `com.android.permissioncontroller`. Completely purged all visible English text inspections.
+      - *Structural Window & Node Topology Matching (`isHomeAppSelectionPackageOrRoot`)*: Evaluates exact activity class names on root views and detects `com.android.permissioncontroller:id/list` paired with `android:id/button2` / `android:id/button1` or `com.android.permissioncontroller:id/title_and_subtitle` without reading any human-readable strings.
+      - *Universal Negative Button Dismissal (`clickCancelOnNode`)*: Exclusively clicks `android:id/button2` (`DialogInterface.BUTTON_NEGATIVE`) by Android system resource ID. Purged text-based searches for `"Cancel"`.
+      - *Decoupled Window Audit*: Evaluates `w.getTitle()` independently of `wRoot != null` in `getWindows()`.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.java`: `onServiceConnected`, `onAccessibilityEvent`, and background ticker (`onTickerTick`) all route through `interceptHomeLauncherChangeAttempt` and `isHomeChangeInterceptorActive`.
+      - `LauncherStateManager.kt`: Serves `SIREN_PACKAGE` constant to `isSirenDefaultLauncher`.
+      - `KnownSafe.kt`: Distinguishes launchers via `isLauncherApp`.
+      - Companion App SIREN HomeProxy: Relies on QIEZKA maintaining default launcher status during active study sessions.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Pre-Existing & New Role Dialog Eviction (Active Schedule + SIREN Default)**:
+         - *Action*: Ensure SIREN HomeProxy is the default home app and a study schedule is active. Open Smart Launcher (or Nova / Lawnchair) settings and tap "Set as default launcher".
+         - *Expected Result*: The OS Role selection dialog is immediately dismissed (within ≤ 1s). The QIEZKA lock overlay is re-asserted with toast: *"🛡️ Changing default home launcher is restricted by QIEZKA"*.
+      2. **Non-English Language Independence Verification**:
+         - *Action*: Change system device language to Spanish, Japanese, Chinese, or German. Open third-party launcher settings and request default home status while in active lockdown.
+         - *Expected Result*: The foreign-language default home dialog is instantly dismissed. Eviction does not fail due to translated button or title text.
+      3. **Idle State Freedom (No Active Schedule)**:
+         - *Action*: Disengage lockdown and verify no schedules are active. Open third-party launcher settings and request default launcher.
+         - *Expected Result*: The OS Role selection dialog opens normally without QIEZKA interfering. The user can freely choose another launcher.
+      4. **Automated Gradle & TypeScript Validation**:
+         - *Action*: Run `gradlew compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed, all unit test suites pass, and TypeScript reports 0 errors.
+      5. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
+
+- **Phase 3B Kotlin Migration: On-Device App Intelligence Classifier (AppClassifier) (Patch 28 Follow-Up)**:
+  - **Why It Was Mandated (Autonomous App Intelligence Engine & 5-Layer Classifier Hierarchy Modernization)**:
+    - *Progressing the 6-Phase Master Kotlin Migration*:
+      - Following the successful migration of Phase 1 (leaf managers), Phase 2 (receivers & content provider), Phase 4 (auxiliary background & network services), Phase 5 (native activity root & bridge layer), and Phase 3A (on-device web intelligence engine `WebClassifier.kt`), Phase 3B migrated the central on-device application classification intelligence engine: [AppClassifier.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.java) -> [AppClassifier.kt](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.kt).
+      - `AppClassifier` serves as the authoritative on-device evaluator classifying candidate applications in $<5\text{ms}$ through Android ApplicationInfo metadata, package signatures, and semantic label heuristics, preserving QIEZKA's client-side BYOK architecture with zero token overhead and zero external server dependencies.
+      - Migrating `AppClassifier` to idiomatic Kotlin consolidates null-safety across complex Android PackageManager queries, replaces legacy thread locks with concurrent lock-free collections, modernizes compatibility with Android 13–15 (API 33–35) package querying APIs, and provides `@JvmStatic` companion endpoints and `@JvmField` constants ensuring 100% binary bytecode compatibility with remaining Java services ([LockAccessibilityService.java](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.java)) while keeping the React/TypeScript frontend completely intact.
+  - **Concrete Architectural Implementations**:
+    - **`AppClassifier.kt` (`android/app/src/main/java/com/uncode/app/AppClassifier.kt`)**:
+      - Converted core intelligence engine to Kotlin singleton `object AppClassifier`.
+      - *Modern Android 13–15 (API 33–35) Compatibility*: Implemented backward-compatible helper methods `getApplicationInfoCompat`, `getPackageInfoCompat`, `queryIntentActivitiesCompat`, and `queryIntentServicesCompat` utilizing `PackageManager.ApplicationInfoFlags.of(flags)` and `PackageManager.PackageInfoFlags.of(flags)` on Android 13+ with `@Suppress("DEPRECATION")` fallbacks for Android 10–12 (API 29–32), eliminating compiler deprecation warnings and future-proofing against 64-bit flag requirements.
+      - *Thread-Safe Lock-Free Concurrency*: Maintained `decisionCache` via `ConcurrentHashMap<String, Boolean>()` and `dynamicBrowserPackages` via `ConcurrentHashMap.newKeySet<String>()` providing lock-free concurrency across background accessibility scraping threads, network VPN threads, and UI/IPC threads.
+      - *3-Stage Pipeline & Flowchart Realignment Preservation*:
+        - Stage 1 Master Veto Gate (`isStage1Vetoed`): Evaluates anti-tamper protections (Settings, Device Care, Phone Managers, Setup Wizards, Provisioners), hardware bloatware/game boosters (Joyose, GameSpace, Glance, PalmStore), and hostile circumvention/evasion proxies (Tor, Psiphon, bypass VPNs).
+        - Stage 2 Dual Gate Truth Table (`isPackageBlocked`): Evaluates `KnownDistracting` against `KnownSafe` (incorporating active `UnifiedPolicyRegistry` services). User-enabled services (YouTube, AI) are granted execution (`YES KnownDistracting, YES KnownSafe -> ALLOW`), unmanaged distractions are blocked (`YES KnownDistracting, NO KnownSafe -> BLOCK`), and safe academic tools are permitted.
+        - Stage 2 Special Branches: Web browsers (`isBrowserPackage`) permitted at package level for in-depth URL/DOM inspection by `WebClassifier`; Home launchers (`KnownSafe.isLauncherApp`) permitted unconditionally.
+        - Stage 3 Universal System Gateway (`isPassedStage3SystemAllow`): Automatically permits legitimate system partition OEM utilities (`FLAG_SYSTEM`) while excluding bloatware, games, or social feeds.
+      - *5-Layer Local Heuristics Hierarchy (`evaluatePackage`)*:
+        - Layer 1: Permanent Exemptions & SIM/Carrier Alerts (`isSimOrCarrierService`: STK, Cell Broadcast, Globe, Smart, DITO emergency services).
+        - Layer 2: Fake Calculator Vaults (`isFakeCalculatorVault`: inspects genuine vs fake calculator permission requests including Camera, Storage, and System Alert Window).
+        - Layer 4a: Negative Distraction Heuristics (`hasNegativeDistractionSignals`: games, gambling, rhythm games, remote desktop/VNC, virtual cloners/sandboxes, dating, short-dramas, manga, shopping).
+        - Layer 3: Declared Android OS Category (`ApplicationInfo.category`): blocks `CATEGORY_GAME`, `CATEGORY_SOCIAL` (unless messaging/conferencing), `CATEGORY_VIDEO` (unless conferencing), `CATEGORY_NEWS`; allows `CATEGORY_ACCESSIBILITY`, `MAPS`, `AUDIO`, `IMAGE`, `PRODUCTIVITY` (unless remote desktop).
+        - Layer 4b: Positive Academic Promotion (`hasPositiveAcademicSignals`: promotes uncategorized apps with educational keywords to ALLOW with green `Auto` badge).
+        - Layer 5: Conservative Fallback (blocks unknown third-party apps).
+      - *Portal Super-App Gating*: Permitted Baidu (`com.baidu.searchbox`) and NAVER (`com.nhn.android.search`) for academic search while vetoing internal video reels, feed flows, and web novels (`isDistractingSubActivity`, `isPortalSuperAppVideoViewId`); disallowed Phoenix Browser and UC Browser unconditionally (`isDisallowedPortalSuperApp`).
+      - *Direct Messaging vs Social Feeds*: Permitted direct communication apps (`isMessagingApp`: Telegram, Messenger, WhatsApp, Signal) and online lecture platforms (`isMeetingOrVideoConferenceApp`: Meet, Zoom, Teams, Webex) while strictly isolating social algorithmic feeds (Facebook, Instagram, TikTok, Reddit).
+    - **Safe Backup & Purge of Obsolete Java Source**:
+      - Master backup copy preserved in `scratch/backup_phase3b/AppClassifier.java`.
+      - Safely removed legacy Java file `AppClassifier.java` from active sources.
+  - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+    - *Affected Files*:
+      - [`android/app/src/main/java/com/uncode/app/AppClassifier.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AppClassifier.kt)
+      - [`scratch/backup_phase3b/AppClassifier.java`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/scratch/backup_phase3b/AppClassifier.java) (backup preserved)
+      - [`README.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/README.md)
+    - *Known Dependents & Callers*:
+      - `LockAccessibilityService.java`: Direct Caller (Foreground Window Interceptor) querying 14 methods including `isStage1Vetoed`, `isPackageBlocked`, `isBrowserPackage`, `isSettingsOrDeviceManager`, `isStage1Bloat`, `isPortalSuperApp`, `isDistractingSubActivity`, `isPortalSuperAppVideoViewId`, `isSimOrCarrierService`, and `refreshBrowserCache`.
+      - `InstalledLauncherDetector.kt`: Direct Caller querying `AppClassifier.isStage1Vetoed(pkg, null)`.
+      - `LauncherStateManager.kt`: Direct Caller querying `AppClassifier.isStage1Vetoed(pkg, null)`.
+      - `KnownSafe.kt`: Direct Caller querying `AppClassifier.isBrowserPackage(pkg)` and `AppClassifier.isStage1Vetoed(pkg, null)`.
+      - `BlacklistConstants.kt`: Direct Caller querying `AppClassifier.isSettingsOrDeviceManager` and `AppClassifier.isStage1Bloat`.
+      - `LockPlugin.kt`: Direct Caller invalidating decision caches via `AppClassifier.clearCache()` upon whitelist changes.
+      - `HomeHandlerTest.kt`: Unit test suite testing Portal Super-App video view IDs, Baidu/Naver components, and launcher vetting.
+      - `WebTruthTableTest.kt`: Unit test suite executing 80+ assertions testing super-apps, browser detection, distracting sub-activities, shopping app blocks, and Stage 1 vetoes.
+      - `UnifiedPolicyTest.kt`: Unit test suite verifying Truth Table overrides and active unified service propagation.
+    - *Step-by-Step On-Device Verification Instructions (Human-Facing Sensory Protocol - No ADB)*:
+      1. **Stage 1 Master Veto Gate (Anti-Tamper & Settings Eviction)**:
+         - *Action*: Start an active focus lockdown session in QIEZKA (Dashboard -> Start Lock). Attempt to open Android **Settings** (`com.android.settings`), App Info for QIEZKA, or OEM Security Center / Device Care.
+         - *Expected Result*: Settings is evicted immediately within $\le 200\text{ms}$. QIEZKA Lock Screen re-takes the foreground cleanly without oscillations. Access to force-stop or permissions revocation is completely blocked.
+      2. **Stage 2 Dual Gate with Unified Policy (YouTube & AI Assistants)**:
+         - *Action*: In QIEZKA Settings, toggle **Videos (YouTube)** to **ON**. Start lockdown. From the home launcher, launch the native **YouTube** app.
+         - *Expected Result*: YouTube opens smoothly and remains in the foreground (`YES Distracting, YES Safe -> ALLOW`). The floating countdown bubble remains visible and responsive.
+         - *Action (Toggle OFF)*: In Settings, toggle **Videos (YouTube)** to **OFF**. Re-launch YouTube.
+         - *Expected Result*: YouTube is immediately evicted back to the lock screen with a warning toast (`YES Distracting, NO Safe -> BLOCK`).
+      3. **Consumer Distraction Eviction (Games, Social Feeds & E-Commerce)**:
+         - *Action*: While in active lockdown, attempt to launch **TikTok**, **Instagram**, **Roblox**, or an online shopping app (**Shopee**, **Lazada**, **Amazon**).
+         - *Expected Result*: Each app is instantly intercepted and evicted to QIEZKA Lock Screen within 200ms. Apps claiming productivity categories but containing shopping/gaming keywords are reliably blocked by Layer 4a heuristics.
+      4. **Web Browser & Portal Super-App Gating**:
+         - *Action*: While in lockdown, open **Chrome** or **Samsung Internet** -> Browser opens and functions normally (URL/DOM audited by `WebClassifier`).
+         - *Action*: Open **Baidu** (`com.baidu.searchbox`) or **NAVER** (`com.nhn.android.search`) -> General search functions normally; tapping the "Video" / "Shorts" / "Reels" tab triggers immediate eviction or auto-collapse.
+         - *Action*: Attempt to launch **Phoenix Browser** or **UC Browser** -> Instantly blocked at the package level (`isDisallowedPortalSuperApp`).
+      5. **Academic App Promotion & Secret Calculator Vaults**:
+         - *Action*: Launch an unlisted offline scientific calculator or textbook reader (e.g. Desmos, unlisted school portal) -> App is promoted and allowed with the green `Auto` badge.
+         - *Action*: Launch a known "Calculator Vault / Secret Vault" -> Detected and blocked immediately by `isFakeCalculatorVault`.
+      6. **Dynamic Whitelist Cache Synchronization**:
+         - *Action*: Add an unlisted study app to "Allowed Apps" on the Dashboard during lockdown.
+         - *Expected Result*: `decisionCache` is cleared. Launching the newly whitelisted app opens immediately without being blocked.
+      7. **Automated Gradle & TypeScript Validation**:
+         - *Action*: Run `.\android\gradlew.bat -p android compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest` and `npx tsc --noEmit`.
+         - *Expected Result*: Kotlin and Java compilation succeed (`BUILD SUCCESSFUL in 1m 59s`), all unit test suites pass with 0 failures, and TypeScript compiler reports 0 errors.
+      8. **User Rule 2 Compliance Check**:
+         - *Action*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+         - *Expected Result*: Verified; APK compilation left entirely to user.
+
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks
