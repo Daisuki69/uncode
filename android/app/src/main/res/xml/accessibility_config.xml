@@ -5,7 +5,7 @@
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked|typeWindowsChanged|typeViewFocused"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
-    android:notificationTimeout="50"
+    android:notificationTimeout="0"
     android:canRetrieveWindowContent="true"
     android:isAccessibilityTool="true"
     android:settingsActivity=""

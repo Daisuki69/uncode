@@ -317,6 +317,29 @@ object AppClassifier {
     fun isBrowserPackage(pkg: String?): Boolean = isBrowserPackage(null, pkg, null)
 
     /**
+     * Identifies in-app browser and custom tab activities inside non-browser host apps
+     * (e.g. Facebook Messenger, Instagram, TikTok, Telegram, Twitter/X, Discord, Reddit, Slack, LINE, etc.)
+     */
+    @JvmStatic
+    fun isInAppBrowserActivity(activityCls: String?): Boolean {
+        if (activityCls.isNullOrBlank()) return false
+        val lower = activityCls.lowercase(Locale.ROOT)
+        return lower.contains("browserlite") ||
+               lower.contains(".browser.lite.") ||
+               lower.contains("customtabactivity") ||
+               lower.contains("customtabsactivity") ||
+               lower.contains("chromecustomtab") ||
+               lower.contains("inappbrowser") ||
+               lower.contains("inappweb") ||
+               lower.contains("webviewactivity") ||
+               lower.contains("webbrowseractivity") ||
+               lower.contains("internalbrowser") ||
+               lower.contains("webcontaineractivity") ||
+               lower.contains("urlhandleractivity") ||
+               lower.endsWith(".browseractivity")
+    }
+
+    /**
      * Checks if a package is a Progressive Web App (PWA), Trusted Web Activity (TWA),
      * or Chromium WebAPK container shortcut.
      */
@@ -1101,6 +1124,39 @@ object AppClassifier {
     }
 
     /**
+     * Identifies legitimate system role assignment activities for default home launcher selection
+     * (e.g. RequestRoleActivity in PermissionController, DefaultHomePicker in Settings).
+     * These activities are dedicated to assigning or reassigning the default home app.
+     */
+    @JvmStatic
+    fun isHomeRoleActivity(activityOrTitle: String?): Boolean {
+        if (activityOrTitle.isNullOrBlank()) return false
+        val lower = activityOrTitle.lowercase(Locale.ROOT).trim()
+        return lower.endsWith(".requestroleactivity") ||
+               lower == "requestroleactivity" ||
+               lower.contains(".requestroleactivity") ||
+               lower.contains("requestroleactivity") ||
+               lower.endsWith(".defaulthomepicker") ||
+               lower == "defaulthomepicker" ||
+               lower.contains(".defaulthomepicker") ||
+               lower.contains("defaulthomepicker") ||
+               lower.endsWith(".defaulthomesettingsactivity") ||
+               lower == "defaulthomesettingsactivity" ||
+               lower.contains(".defaulthomesettingsactivity") ||
+               lower.contains("defaulthomesettingsactivity") ||
+               lower.endsWith(".defaultappactivity") ||
+               lower == "defaultappactivity" ||
+               lower.contains(".defaultappactivity") ||
+               lower.contains("defaultappactivity") ||
+               lower.endsWith(".homesettingsactivity") ||
+               lower == "homesettingsactivity" ||
+               lower.contains(".homesettingsactivity") ||
+               lower.contains("homesettingsactivity") ||
+               lower.contains("rolesearchactivity") ||
+               lower.contains("specialappaccessactivity")
+    }
+
+    /**
      * Identifies Android Settings, MIUI Security Center, and OEM Device Care/Phone Managers
      * that provide UI to force-stop QIEZKA, clear app data, or revoke permissions.
      */
@@ -1110,6 +1166,11 @@ object AppClassifier {
 
         // System picker and pairing dialogs hosted inside Settings.apk are NOT settings or device managers
         if (isSystemSettingsDialog(activityCls)) {
+            return false
+        }
+
+        // Default Home Launcher selection dialogs and role activities are handled exclusively by HomeRoleTruthTable
+        if (isHomeRoleActivity(activityCls)) {
             return false
         }
 
