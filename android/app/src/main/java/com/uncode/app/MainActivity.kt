@@ -54,6 +54,7 @@ class MainActivity : BridgeActivity() {
         super.onResume()
         sIsRunning = true
         sInstance = this
+        QiezkaWidgetProvider.syncLauncherIconVisibility(this)
     }
 
     override fun onDestroy() {

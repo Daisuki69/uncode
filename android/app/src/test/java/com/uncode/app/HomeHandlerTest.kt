@@ -867,6 +867,13 @@ class HomeHandlerTest {
         assertFalse(AppClassifier.isInAppBrowserActivity(null))
         assertFalse(AppClassifier.isInAppBrowserActivity(""))
     }
+
+    @Test
+    fun testQiezkaWidgetProviderContract() {
+        val provider = QiezkaWidgetProvider()
+        assertTrue(provider is android.appwidget.AppWidgetProvider)
+        assertEquals("com.uncode.app.MainActivityLauncher", QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS)
+    }
 }
 
 

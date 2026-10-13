@@ -5,4 +5,5 @@
     <string name="package_name">com.uncode.app</string>
     <string name="custom_url_scheme">com.uncode.app</string>
     <string name="accessibility_service_description">QIEZKA uses this service to block distracting apps and Quick Settings access during study lockdown sessions. Notification shade remains accessible.</string>
+    <string name="widget_description">Quick access widget with QIEZKA app icon.</string>
 </resources>

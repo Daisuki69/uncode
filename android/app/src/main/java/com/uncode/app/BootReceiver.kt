@@ -14,6 +14,9 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (Intent.ACTION_BOOT_COMPLETED != intent.action) return
 
+        // Sync dynamic app drawer icon visibility based on active home screen widgets
+        QiezkaWidgetProvider.syncLauncherIconVisibility(context)
+
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val timeOffset = prefs.getLong("time_offset", 0L)
         val effectiveNow = System.currentTimeMillis() + timeOffset
