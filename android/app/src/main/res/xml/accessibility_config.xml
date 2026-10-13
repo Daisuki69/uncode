@@ -7,6 +7,7 @@
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:notificationTimeout="50"
     android:canRetrieveWindowContent="true"
+    android:isAccessibilityTool="true"
     android:settingsActivity=""
 />
 <!--

@@ -249,10 +249,10 @@ object KnownSafe {
     }
 
     @JvmField
-    val dynamicLauncherPackages: MutableSet<String> = hashSetOf()
+    val dynamicLauncherPackages: MutableSet<String> = java.util.Collections.synchronizedSet(hashSetOf())
 
     @JvmField
-    val dynamicLauncherLabels: MutableSet<String> = hashSetOf()
+    val dynamicLauncherLabels: MutableSet<String> = java.util.Collections.synchronizedSet(hashSetOf())
 
     /**
      * Authoritatively verifies whether a package represents a genuine Home Launcher

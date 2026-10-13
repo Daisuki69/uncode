@@ -527,6 +527,40 @@ class HomeHandlerTest {
     }
 
     @Test
+    fun testInstalledLauncherCandidateRecognition() {
+        // Known launcher name substrings and titles
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Action Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Niagara Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Launcher OS"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("HiOS Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Microsoft Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("CMM Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Lawnchair"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Nova Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Smart Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Trebuchet"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("Pixel Launcher"))
+        assertTrue(LockAccessibilityService.isInstalledLauncherCandidate("One UI Home"))
+
+        // Non-launcher candidates must return false
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Camera"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Calculator"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Settings"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("AnkiDroid"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate("Total Commander"))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate(null))
+        assertFalse(LockAccessibilityService.isInstalledLauncherCandidate(""))
+
+        // Activity class & title matching for Home Role Dialog
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("Set Niagara Launcher as your default home app?"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("Default home app"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("RequestRoleActivity"))
+        assertTrue(LockAccessibilityService.isHomeAppSelectionTitle("DefaultHomePicker"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Display Settings"))
+        assertFalse(LockAccessibilityService.isHomeAppSelectionTitle("Battery"))
+    }
+
+    @Test
     fun testStage3SystemAllowSecondaryAppClassifierOptionB() {
         val sysApp = android.content.pm.ApplicationInfo().apply {
             flags = android.content.pm.ApplicationInfo.FLAG_SYSTEM
