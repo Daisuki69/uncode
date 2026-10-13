@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/accessibility_service_description"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked|typeWindowsChanged|typeViewFocused"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:notificationTimeout="50"
+    android:canRetrieveWindowContent="true"
+    android:settingsActivity=""
+/>
+<!--
+    Note: android:packageNames is intentionally omitted.
+    Omitting it means the service watches ALL packages,
+    which is required for foreground app blocking on non-rooted devices.
+-->

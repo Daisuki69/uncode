@@ -86,8 +86,8 @@ class AlarmReceiver : BroadcastReceiver() {
                 // Start Floating Assistive Timer Ball Overlay
                 FloatingOverlayService.startService(context, safeLockEndTime, title)
 
-                if (!alreadyActive && LockAccessibilityService.instance != null) {
-                    LockAccessibilityService.instance.onScheduleStartTriggered()
+                if (!alreadyActive) {
+                    LockAccessibilityService.instance?.onScheduleStartTriggered()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "triggerScheduleStartDirectly error: ${e.message}")
@@ -412,9 +412,7 @@ class AlarmReceiver : BroadcastReceiver() {
         FloatingOverlayService.startService(context, lockEndTime, sessionTitle)
 
         // Instantly enforce blocking if user is currently inside a non-whitelisted app
-        if (LockAccessibilityService.instance != null) {
-            LockAccessibilityService.instance.onScheduleStartTriggered()
-        }
+        LockAccessibilityService.instance?.onScheduleStartTriggered()
     }
 
     private fun handleLockEnd(context: Context, intent: Intent, prefs: SharedPreferences) {
