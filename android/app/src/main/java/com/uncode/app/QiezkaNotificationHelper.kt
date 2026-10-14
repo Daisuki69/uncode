@@ -124,6 +124,7 @@ object QiezkaNotificationHelper {
     const val BASE_NOTIF_ID_AUX = 1100
     const val KEY_TEXT_REPLY = "key_resource_query_reply"
     const val ACTION_RESOURCE_QUERY = "com.uncode.app.ACTION_RESOURCE_QUERY"
+    const val ACTION_REVIVE_RESOURCE_QUERY = "com.uncode.app.ACTION_REVIVE_RESOURCE_QUERY"
 
     @JvmStatic
     fun formatNotFoundText(query: String): String {
@@ -192,6 +193,21 @@ object QiezkaNotificationHelper {
             .setAllowGeneratedReplies(true)
             .build()
 
+        // DeleteIntent for automatic revival when swiped away or dismissed by user
+        val deleteIntent = Intent(context, ResourceQueryReceiver::class.java).apply {
+            action = ACTION_REVIVE_RESOURCE_QUERY
+        }
+        var deletePFlags = PendingIntent.FLAG_UPDATE_CURRENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            deletePFlags = deletePFlags or PendingIntent.FLAG_IMMUTABLE
+        }
+        val deletePendingIntent = PendingIntent.getBroadcast(
+            context,
+            NOTIF_ID_RESOURCE_QUERY,
+            deleteIntent,
+            deletePFlags
+        )
+
         val bigTextStyle = NotificationCompat.BigTextStyle().bigText(text)
         if (!title.isNullOrBlank()) {
             bigTextStyle.setBigContentTitle(title)
@@ -201,8 +217,9 @@ object QiezkaNotificationHelper {
             .setSmallIcon(R.drawable.ic_qiezka_notif)
             .setContentText(text)
             .setStyle(bigTextStyle)
-            .setOngoing(true)
+            .setOngoing(false) // Normal swipeable notification like other notifications
             .setContentIntent(contentIntent)
+            .setDeleteIntent(deletePendingIntent)
             .addAction(replyAction)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)

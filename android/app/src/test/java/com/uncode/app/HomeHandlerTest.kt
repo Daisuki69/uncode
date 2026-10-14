@@ -932,6 +932,7 @@ class HomeHandlerTest {
         assertEquals(1100, QiezkaNotificationHelper.BASE_NOTIF_ID_AUX)
         assertEquals("key_resource_query_reply", QiezkaNotificationHelper.KEY_TEXT_REPLY)
         assertEquals("com.uncode.app.ACTION_RESOURCE_QUERY", QiezkaNotificationHelper.ACTION_RESOURCE_QUERY)
+        assertEquals("com.uncode.app.ACTION_REVIVE_RESOURCE_QUERY", QiezkaNotificationHelper.ACTION_REVIVE_RESOURCE_QUERY)
         assertEquals("Determinants 99 does not exist", QiezkaNotificationHelper.formatNotFoundText("Determinants 99"))
         assertEquals("Human something does not exist", QiezkaNotificationHelper.formatNotFoundText("Human something"))
     }

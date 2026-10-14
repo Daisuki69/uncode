@@ -6309,6 +6309,23 @@ for a genuine distracting app successfully disguises, will be tested and hardene
       - *Verification Method*: Run `.\gradlew.bat testDebugUnitTest` (passed with 61 tests). On-device verification:
         1. Query `human` -> Shade receives Main Card (`Determinants 1` with Reply button) and Auxiliary Cards (`Determinants 5`, `Determinants 4`, etc., without Reply buttons).
         2. Tap Reply on Main Card, query another term -> ONLY Main Card collapses; auxiliary cards retain in shade.
+
+  - **Non-Major Refinement (Sub-Patch 31.3): Normal Notification Conversion & Automatic Revival Engine**:
+    - **Why It Was Mandated (User Autonomy & Persistent Access Guarantee)**:
+      1. *Normal Notification Conversion (`setOngoing(false)`)*: Setting `setOngoing(true)` forced the main resource query card to remain permanently pinned in the Android notification shade. Removing ongoing status allows students to freely swipe the card away whenever they want a clean shade.
+      2. *Automatic Revival via `deleteIntent`*: If a student swiped away the card or it collapsed, they lost the ability to perform future resource lookups without restarting the application or device. Attaching a `deleteIntent` (`PendingIntent.getBroadcast`) bound to `ACTION_REVIVE_RESOURCE_QUERY` guarantees that whenever the card is swiped away or dismissed, Android OS automatically fires the intent, triggering `ResourceQueryReceiver` to instantly revive a fresh, clean search card back into the shade.
+      3. *Robust Storage Resolution*: Extended `studom_resources` resolution across multiple candidate paths (`filesDir`, `Documents/studom_resources`, and `getExternalFilesDir`) to guarantee reliable access across all OEM storage environments.
+    - **Concrete Architectural Implementations**:
+      - `QiezkaNotificationHelper.kt`: Changed `setOngoing(true)` to `setOngoing(false)` in `buildResourceQueryNotification()`, added constant `ACTION_REVIVE_RESOURCE_QUERY = "com.uncode.app.ACTION_REVIVE_RESOURCE_QUERY"`, and attached `deletePendingIntent` to builder.
+      - `ResourceQueryReceiver.kt`: Added handler for `ACTION_REVIVE_RESOURCE_QUERY` in `onReceive()` that immediately re-posts the clean search card, and upgraded `searchAllResourceMatches()` to inspect candidate storage paths.
+      - `AndroidManifest.xml`: Registered `ACTION_REVIVE_RESOURCE_QUERY` inside `ResourceQueryReceiver`'s `<intent-filter>`.
+      - `HomeHandlerTest.kt`: Added assertion verifying `ACTION_REVIVE_RESOURCE_QUERY` constant and updated unit test suite.
+    - **Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*: `ResourceQueryReceiver.kt`, `QiezkaNotificationHelper.kt`, `AndroidManifest.xml`, `HomeHandlerTest.kt`, `HISTORY.md`.
+      - *Verification Method*: Run `.\gradlew.bat testDebugUnitTest` (passed with 61 tests). On-device verification:
+        1. Swipe away the main search card -> Card swipes away cleanly (normal notification) -> Card automatically revives right back in the shade with the "Reply" button.
+        2. Query `determinants` -> Collapses and re-notifies with results.
+        3. Swipe away a result card -> Card revives back to clean search prompt.
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks

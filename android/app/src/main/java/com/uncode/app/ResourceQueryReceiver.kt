@@ -28,10 +28,18 @@ import java.io.File
 class ResourceQueryReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent == null || intent.action != QiezkaNotificationHelper.ACTION_RESOURCE_QUERY) return
+        if (intent == null) return
+
+        // 1. Automatic Revival on Swipe / Dismiss
+        if (intent.action == QiezkaNotificationHelper.ACTION_REVIVE_RESOURCE_QUERY) {
+            QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
+            return
+        }
+
+        if (intent.action != QiezkaNotificationHelper.ACTION_RESOURCE_QUERY) return
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        // 1. Immediately collapse ONLY the Main Notification (ID = 1006). Auxiliary cards retain!
+        // 2. Immediately collapse ONLY the Main Notification (ID = 1006). Auxiliary cards retain!
         nm?.cancel(QiezkaNotificationHelper.NOTIF_ID_RESOURCE_QUERY)
 
         val bundle = RemoteInput.getResultsFromIntent(intent) ?: return
@@ -92,8 +100,12 @@ class ResourceQueryReceiver : BroadcastReceiver() {
          */
         @JvmStatic
         fun searchAllResourceMatches(context: Context, query: String): List<Pair<String, String>> {
-            val file = File(context.filesDir, "studom_resources")
-            if (!file.exists()) return emptyList()
+            val candidateFiles = listOf(
+                File(context.filesDir, "studom_resources"),
+                File(context.filesDir, "Documents/studom_resources"),
+                File(context.getExternalFilesDir(null), "studom_resources")
+            )
+            val file = candidateFiles.firstOrNull { it.exists() } ?: return emptyList()
             return try {
                 val json = file.readText(Charsets.UTF_8)
                 searchAllInJsonString(json, query)
