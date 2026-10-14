@@ -874,6 +874,105 @@ class HomeHandlerTest {
         assertTrue(provider is android.appwidget.AppWidgetProvider)
         assertEquals("com.uncode.app.MainActivityLauncher", QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS)
     }
+
+    @Test
+    fun testUnifiedNotificationTitlesAndBodies() {
+        assertEquals("⏰ QIEZKA Upcoming Lockdown", QiezkaNotificationHelper.TITLE_UPCOMING_LOCKDOWN)
+        assertEquals("⏳ QIEZKA Lock Timer", QiezkaNotificationHelper.TITLE_LOCK_TIMER)
+        assertEquals("⚠️ Homework Expired — Consequence Active", QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE)
+        assertEquals("Distracting apps are restricted.", QiezkaNotificationHelper.BODY_SESSION_PROGRESS)
+
+        assertEquals("Math Homework is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle("Math Homework"))
+        assertEquals("Study Session is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle(null))
+        assertEquals("Study Session is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle("   "))
+    }
+
+    @Test
+    fun testUnifiedToastFormatting() {
+        assertEquals("⚠️ facebook.com. Returning to safe page.", QiezkaNotificationHelper.formatSafePageToast("facebook.com"))
+        assertEquals("⚠️ Video. Returning to safe page.", QiezkaNotificationHelper.formatSafePageToast("⚠️ Video."))
+        assertEquals("⚠️ Video. Returning to safe page.", QiezkaNotificationHelper.formatSafePageToast(QiezkaNotificationHelper.REASON_VIDEO))
+        assertEquals("⚠️ Miniplayer. Returning to safe page.", QiezkaNotificationHelper.formatSafePageToast(QiezkaNotificationHelper.REASON_MINIPLAYER))
+        assertEquals("⚠️ Shopping section. Returning to safe page.", QiezkaNotificationHelper.formatSafePageToast(QiezkaNotificationHelper.REASON_SHOPPING))
+
+        assertEquals("🛡️ Settings is restricted by QIEZKA", QiezkaNotificationHelper.formatSettingsRestrictedToast())
+        assertEquals("🛡️ TikTok is restricted by QIEZKA", QiezkaNotificationHelper.formatAppRestrictedToast("TikTok"))
+        assertEquals("🛡️ YouTube is restricted by QIEZKA", QiezkaNotificationHelper.formatAppRestrictedToast("🛡️ YouTube"))
+    }
+
+    @Test
+    fun testQiezkaWidgetProviderLauncherAliasConstant() {
+        assertEquals("com.uncode.app.MainActivityLauncher", QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS)
+    }
+
+    @Test
+    fun testExplicitMainActivityClassTarget() {
+        assertEquals("com.uncode.app.MainActivity", MainActivity::class.java.name)
+        assertEquals("com.uncode.app.MainActivityLauncher", QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS)
+    }
+
+    @Test
+    fun testFloatingOverlayConsequenceText() {
+        assertEquals("⚠️", FloatingOverlayService.OVERLAY_CONSEQUENCE_TEXT)
+    }
+
+    @Test
+    fun testLocalDnsVpnServiceNotificationConsolidationConstants() {
+        assertEquals("qiezka_dns_vpn", LocalDnsVpnService.OLD_CHANNEL_ID)
+        assertEquals(8801, LocalDnsVpnService.OLD_NOTIF_ID)
+        assertEquals("qiezka_status_v2", AlarmReceiver.CHANNEL_ID_STATUS)
+        assertEquals(1001, AlarmReceiver.NOTIF_ID_STATUS)
+    }
+
+    @Test
+    fun testResourceQueryNotificationConstants() {
+        assertEquals("qiezka_resource_query", QiezkaNotificationHelper.CHANNEL_ID_RESOURCE_QUERY)
+        assertEquals("Resource Query", QiezkaNotificationHelper.CHANNEL_NAME_RESOURCE_QUERY)
+        assertEquals(1006, QiezkaNotificationHelper.NOTIF_ID_RESOURCE_QUERY)
+        assertEquals(1100, QiezkaNotificationHelper.BASE_NOTIF_ID_AUX)
+        assertEquals("key_resource_query_reply", QiezkaNotificationHelper.KEY_TEXT_REPLY)
+        assertEquals("com.uncode.app.ACTION_RESOURCE_QUERY", QiezkaNotificationHelper.ACTION_RESOURCE_QUERY)
+        assertEquals("Determinants 99 does not exist", QiezkaNotificationHelper.formatNotFoundText("Determinants 99"))
+        assertEquals("Human something does not exist", QiezkaNotificationHelper.formatNotFoundText("Human something"))
+    }
+
+    @Test
+    fun testResourceQueryCaseInsensitiveMatching() {
+        val mockJson = """
+            [
+              {
+                "id": "ethics_8",
+                "title": "Ethics Week 8",
+                "content": "Determinants 1 | Human something\nDeterminants 5 | Human something 2\nDeterminants 4 | Human something 4\nNot 43 | Human determinants 4"
+              }
+            ]
+        """.trimIndent()
+
+        // 1. Search "determinants" matches all 4 lines
+        val matchesDeterminants = ResourceQueryReceiver.searchAllInJsonString(mockJson, "determinants")
+        assertEquals(4, matchesDeterminants.size)
+        assertEquals("Ethics Week 8", matchesDeterminants[0].first)
+        assertEquals("Determinants 1 | Human something", matchesDeterminants[0].second)
+        assertEquals("Determinants 5 | Human something 2", matchesDeterminants[1].second)
+        assertEquals("Determinants 4 | Human something 4", matchesDeterminants[2].second)
+        assertEquals("Not 43 | Human determinants 4", matchesDeterminants[3].second)
+
+        // 2. Search "human" matches all 4 lines (in definitions and terms)
+        val matchesHuman = ResourceQueryReceiver.searchAllInJsonString(mockJson, "human")
+        assertEquals(4, matchesHuman.size)
+        assertEquals("Determinants 1 | Human something", matchesHuman[0].second)
+
+        // 3. Exact term match "Determinants 5" matches single line
+        val matchExact = ResourceQueryReceiver.searchAllInJsonString(mockJson, "Determinants 5")
+        assertEquals(1, matchExact.size)
+        assertEquals("Determinants 5 | Human something 2", matchExact[0].second)
+
+        // 4. Non-existent query -> returns empty list and single search returns null
+        val matchNone = ResourceQueryReceiver.searchAllInJsonString(mockJson, "Determinants 99")
+        assertTrue(matchNone.isEmpty())
+        assertNull(ResourceQueryReceiver.searchInJsonString(mockJson, "Determinants 99"))
+        assertEquals("Determinants 99 does not exist", QiezkaNotificationHelper.formatNotFoundText("Determinants 99"))
+    }
 }
 
 

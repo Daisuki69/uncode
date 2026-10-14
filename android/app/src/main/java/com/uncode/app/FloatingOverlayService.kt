@@ -2,6 +2,7 @@ package com.uncode.app
 
 import android.animation.ValueAnimator
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -37,7 +38,8 @@ class FloatingOverlayService : Service() {
         const val EXTRA_LOCK_END_TIME = "lock_end_time"
         const val EXTRA_TITLE = "title"
 
-        const val NOTIF_ID_OVERLAY = 1004
+        const val NOTIF_ID_OVERLAY = AlarmReceiver.NOTIF_ID_STATUS
+        const val OVERLAY_CONSEQUENCE_TEXT = "⚠️"
 
         @JvmStatic
         fun startService(context: Context, lockEndTime: Long) {
@@ -148,11 +150,9 @@ class FloatingOverlayService : Service() {
         try {
             AlarmReceiver.createNotificationChannels(this)
 
-            var launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            if (launchIntent == null) {
-                launchIntent = Intent().setClassName(packageName, "com.uncode.app.MainActivity")
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             }
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 
             var pFlags = PendingIntent.FLAG_UPDATE_CURRENT
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -163,8 +163,8 @@ class FloatingOverlayService : Service() {
 
             val notification = NotificationCompat.Builder(this, AlarmReceiver.CHANNEL_ID_STATUS)
                 .setSmallIcon(R.drawable.ic_qiezka_notif)
-                .setContentTitle("🔒 QIEZKA Lockdown Active")
-                .setContentText("$sessionTitle is in progress. Floating timer enabled.")
+                .setContentTitle(QiezkaNotificationHelper.formatSessionProgressTitle(sessionTitle))
+                .setContentText(QiezkaNotificationHelper.BODY_SESSION_PROGRESS)
                 .setOngoing(true)
                 .setContentIntent(contentIntent)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -314,14 +314,13 @@ class FloatingOverlayService : Service() {
 
     private fun launchQiezka() {
         try {
-            val launch = packageManager.getLaunchIntentForPackage(packageName)
-            if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            val launch = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 val isConsequence = prefs?.getBoolean("consequence_active", false) ?: false
-                launch.putExtra("route", if (isConsequence) "logs" else "locked")
-                startActivity(launch)
+                putExtra("route", if (isConsequence) "logs" else "locked")
             }
+            startActivity(launch)
         } catch (e: Exception) {
             Log.e(TAG, "launchQiezka from floating ball failed: ${e.message}")
         }
@@ -358,7 +357,7 @@ class FloatingOverlayService : Service() {
             if (floatingView?.visibility != View.VISIBLE) {
                 floatingView?.visibility = View.VISIBLE
             }
-            tvTimer?.text = "⚠️ RETRY"
+            tvTimer?.text = OVERLAY_CONSEQUENCE_TEXT
             return
         }
 
@@ -371,7 +370,7 @@ class FloatingOverlayService : Service() {
                 .putBoolean("consequence_active", true)
                 .remove("lock_end_time")
                 .apply()
-            tvTimer?.text = "⚠️ RETRY"
+            tvTimer?.text = OVERLAY_CONSEQUENCE_TEXT
             return
         }
 
@@ -411,17 +410,8 @@ class FloatingOverlayService : Service() {
             .apply()
 
         AlarmReceiver.cancelLockEndAlarm(this)
-        AlarmReceiver.createNotificationChannels(this)
-        @Suppress("DEPRECATION")
-        AlarmReceiver.showNotificationStatic(
-            this,
-            AlarmReceiver.NOTIF_ID_COMPLETED,
-            AlarmReceiver.CHANNEL_ID_ALERTS,
-            "🎉 Study Session Complete!",
-            "Great work! Your lock timer expired and all apps are now unlocked.",
-            Notification.PRIORITY_HIGH,
-            false
-        )
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        nm?.cancel(NOTIF_ID_OVERLAY)
 
         removeFloatingView()
         stopForeground(true)

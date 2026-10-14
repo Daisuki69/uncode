@@ -17,6 +17,9 @@ class BootReceiver : BroadcastReceiver() {
         // Sync dynamic app drawer icon visibility based on active home screen widgets
         QiezkaWidgetProvider.syncLauncherIconVisibility(context)
 
+        // Ensure always-active resource query notification is running
+        QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
+
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val timeOffset = prefs.getLong("time_offset", 0L)
         val effectiveNow = System.currentTimeMillis() + timeOffset
@@ -131,8 +134,8 @@ class BootReceiver : BroadcastReceiver() {
                     context,
                     AlarmReceiver.NOTIF_ID_COMPLETED,
                     AlarmReceiver.CHANNEL_ID_ALERTS,
-                    "⚠️ Scheduled Lockdown Missed",
-                    "A scheduled study session was missed while device was powered off. Distracting apps are restricted in Consequence Mode.",
+                    QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE,
+                    "",
                     NotificationCompat.PRIORITY_HIGH,
                     false
                 )

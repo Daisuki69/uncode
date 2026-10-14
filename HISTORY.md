@@ -5959,12 +5959,18 @@ for a genuine distracting app successfully disguises, will be tested and hardene
       - Added `QiezkaWidgetProvider.syncLauncherIconVisibility(context)` on `ACTION_BOOT_COMPLETED` so drawer icon visibility is automatically reconciled across phone reboots.
     - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
       - Added assertion validating `QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS == "com.uncode.app.MainActivityLauncher"`.
+    - **`FloatingOverlayService.kt` (`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`)**:
+      - Decoupled `launchQiezka()` and `startAsForegroundService()` from `packageManager.getLaunchIntentForPackage(packageName)` to use explicit `Intent(this, MainActivity::class.java)`. This ensures that tapping the floating ball or notification always brings QIEZKA forward cleanly even when the launcher alias is disabled.
+    - **`AlarmReceiver.kt` (`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`)**:
+      - Decoupled `scheduleExactAlarm()` (for `AlarmClockInfo`'s `showPi`) and `showNotificationStatic()` from `packageManager.getLaunchIntentForPackage(context.packageName)` to use explicit `Intent(context, MainActivity::class.java)`, guaranteeing non-null intents regardless of drawer stealth status.
   - **Comprehensive Verification Plan & Matrix (User Rule 3)**:
     - *Affected Files*:
       - [`android/app/src/main/AndroidManifest.xml`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/AndroidManifest.xml)
       - [`android/app/src/main/java/com/uncode/app/QiezkaWidgetProvider.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/QiezkaWidgetProvider.kt)
       - [`android/app/src/main/java/com/uncode/app/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt)
       - [`android/app/src/main/java/com/uncode/app/BootReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/BootReceiver.kt)
+      - [`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt)
+      - [`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AlarmReceiver.kt)
       - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
       - [`HISTORY.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/HISTORY.md)
     - *Known Dependents & Callers*:
@@ -5991,6 +5997,318 @@ for a genuine distracting app successfully disguises, will be tested and hardene
          - *Verification*: `BUILD SUCCESSFUL` (0 compilation errors, all unit tests pass).
       5. **User Rule 2 Compliance Check**:
          - *Verification*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+---
+
+### Patch 30: Unified Notification Hierarchy & Standardized Toast Enforcement Protocol
+- **Why It Was Mandated (Architectural Rationale & Redundancy Elimination)**:
+  - Prior to this patch, entering an active lockdown session caused notification clutter in the Android notification shade:
+    1. `FloatingOverlayService` started its own ongoing foreground service notification.
+    2. `AlarmReceiver` dispatched a separate high-priority `NOTIF_ID_STATUS` notification (`"🔒 QIEZKA Lockdown Engaged"`).
+    3. `LockAccessibilityService`'s native auto-start routines concurrently dispatched duplicate `NOTIF_ID_STATUS` notifications.
+    4. Concurrently active VPN services (`LocalDnsVpnService`) posted generic `"Local DNS Sinkhole VPN Active"` notifications.
+    - These simultaneous alerts created overlapping, redundant notifications that annoyed users and polluted the system status tray.
+  - Furthermore, toast messages across browser remediation, sub-activity evictions, Picture-in-Picture dismissals, settings access restrictions, and app package blocks lacked consistency in wording, emoji syntax, and formatting.
+  - To achieve a clean, distraction-free student UX, the notification and toast subsystem was overhauled with a strict unification contract:
+    - **Single Ongoing Notification Guarantee**: When a lockdown session is active, exactly **one** ongoing notification is displayed, owned and updated directly by `FloatingOverlayService` with title `"<Session Title> is in progress."` and body `"Distracting apps are restricted."`. All duplicate `NOTIF_ID_STATUS` alerts from `AlarmReceiver` and `LockAccessibilityService` are eliminated.
+    - **Unified Notification Titles**:
+      - Upcoming schedule alerts: `"⏰ QIEZKA Upcoming Lockdown"`
+      - Lockdown countdown warnings: `"⏳ QIEZKA Lock Timer"`
+      - Consequence mode expiration: `"⚠️ Homework Expired — Consequence Active"` with an empty body (`""`).
+    - **Dual Standard Toast Formats**:
+      - Pattern 1 (Safe Page Redirections): `"⚠️ <Reason>. Returning to safe page."` (e.g. `"⚠️ facebook.com. Returning to safe page."`, `"⚠️ Video. Returning to safe page."`, `"⚠️ Miniplayer. Returning to safe page."`, `"⚠️ Shopping section. Returning to safe page."`).
+      - Pattern 2 (Access Restrictions): `"🛡️ <Target> is restricted by QIEZKA"` (e.g. `"🛡️ Settings is restricted by QIEZKA"`, `"🛡️ TikTok is restricted by QIEZKA"`).
+- **Concrete Architectural Implementations**:
+  - **`QiezkaNotificationHelper.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`)**:
+    - Centralized notification title and body constants: `TITLE_UPCOMING_LOCKDOWN`, `TITLE_LOCK_TIMER`, `TITLE_CONSEQUENCE_ACTIVE`, `BODY_SESSION_PROGRESS`.
+    - Implemented `formatSessionProgressTitle(title: String?)`: Resolves cleaned session title or defaults to `"Study Session is in progress."`.
+    - Implemented `formatSafePageToast(reason: String)`: Trims emojis and periods, formatting strictly to `"⚠️ <CleanReason>. Returning to safe page."`.
+    - Implemented `formatSettingsRestrictedToast()`: Returns `"🛡️ Settings is restricted by QIEZKA"`.
+    - Implemented `formatAppRestrictedToast(appName: String)`: Trims redundant shield emojis and formats strictly to `"🛡️ <AppName> is restricted by QIEZKA"`.
+    - Implemented `resolveAppLabel(context, packageName)`: Resolves human-readable application labels using Android `PackageManager`.
+    - Implemented `showToastThrottled(context, message, cooldownMs)`: Throttles high-frequency toast calls on the main looper to prevent notification spam during rapid accessibility triggers.
+  - **`FloatingOverlayService.kt` (`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`)**:
+    - Established as the sole provider of the active lockdown ongoing notification (`NOTIF_ID_STATUS`).
+    - Configured foreground notification with `formatSessionProgressTitle(activeSessionTitle)` and `BODY_SESSION_PROGRESS`.
+    - Dynamically updates active notification title when schedule titles are updated during active sessions.
+  - **`AlarmReceiver.kt` (`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`)**:
+    - Removed duplicate `showNotificationStatic(..., NOTIF_ID_STATUS, ...)` from `handleScheduleStart` and `startLockdownFromAlarm`.
+    - Standardized upcoming warning notification title to `QiezkaNotificationHelper.TITLE_UPCOMING_LOCKDOWN`.
+    - Standardized consequence expiration alert to `QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE` with empty body, and actively cancels `NOTIF_ID_STATUS` on expiration.
+  - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+    - Removed duplicate `NOTIF_ID_STATUS` notifications from `checkAndAutoStartScheduledLock` (standard and midnight-cross windows) and ticker auto-start.
+    - Updated `checkAndFireAdvanceScheduleWarning` and `checkAndFireLockdownTimerWarning` to use `TITLE_UPCOMING_LOCKDOWN` and `TITLE_LOCK_TIMER`.
+    - Unified consequence expiration alerts to `TITLE_CONSEQUENCE_ACTIVE` with empty body and cancels `NOTIF_ID_STATUS`.
+    - Standardized `remediateBlockedBrowserTab` toast to `formatSafePageToast(reason)`.
+    - Standardized `remediateDistractingSubActivity` toast to `formatSafePageToast(reason)` (`Video` or `Shopping section`).
+    - Standardized `auditAndRemediatePictureInPicture` toast to `formatSafePageToast(REASON_MINIPLAYER)`.
+    - Standardized `enforceBlock(pkg)` to display throttled `formatSettingsRestrictedToast()` or `formatAppRestrictedToast(appLabel)`.
+    - Standardized `evictHomeLauncherChange` toast to `formatSettingsRestrictedToast()`.
+  - **`LocalDnsVpnService.kt` (`android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt`)**:
+    - Harmonized VPN foreground notification during active lockdown to display session title progress and `BODY_SESSION_PROGRESS`, matching `FloatingOverlayService`.
+  - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+    - Added unit test `testUnifiedNotificationTitlesAndBodies` validating all notification constants and session title generators.
+    - Added unit test `testUnifiedToastFormatting` validating Pattern 1 and Pattern 2 formatting rules and emoji stripping logic.
+- **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+  - *Affected Files*:
+    - [`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt)
+    - [`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt)
+    - [`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AlarmReceiver.kt)
+    - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt)
+    - [`android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt)
+    - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - [`HISTORY.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/HISTORY.md)
+  - *Known Dependents & Callers*:
+    - `NotificationManager`: Displays status bar icons and shade notification entries.
+    - Android Toast Service (`Toast.makeText`): Renders on-screen educational feedback to student.
+    - Native Ticker & Alarm Timers: Invoke warning methods and state transitions.
+  - *Step-by-Step On-Device Sensory Verification Protocol (No ADB)*:
+    1. **Single Ongoing Notification Check (Active Lockdown)**:
+       - *Action*: Start or enter an active study session named "Physics Review".
+       - *Pull down notification shade*: Observe the active QIEZKA notifications.
+       - *Verification*: Only **1** ongoing QIEZKA notification is present.
+       - *Verification*: Title is `"Physics Review is in progress."` and body is `"Distracting apps are restricted."`. No overlapping duplicate status notification appears.
+    2. **Upcoming Lockdown Warning Check**:
+       - *Action*: Schedule a session 1 minute in the future and wait for the advance warning alert.
+       - *Verification*: Notification title displays `"⏰ QIEZKA Upcoming Lockdown"`.
+    3. **Lock Timer Countdown Warning Check**:
+       - *Action*: Let a session run down to its final minutes/seconds.
+       - *Verification*: Countdown warning notification title displays `"⏳ QIEZKA Lock Timer"`.
+    4. **Consequence Expiration Check**:
+       - *Action*: Allow a lockdown session timer to expire without passing evaluation.
+       - *Verification*: Notification title displays `"⚠️ Homework Expired — Consequence Active"` and body text is completely empty. The ongoing status notification is removed.
+    5. **Browser Block Toast Check (Pattern 1)**:
+       - *Action*: During active lockdown, open Chrome and navigate to a restricted URL (e.g. `facebook.com`).
+       - *Verification*: Toast appears with text: `"⚠️ facebook.com. Returning to safe page."` and the tab is safely remediated.
+    6. **Distracting Sub-Activity / Video Toast Check (Pattern 1)**:
+       - *Action*: Open an app with restricted reels/videos or trigger Picture-in-Picture.
+       - *Verification*: Toast appears with text: `"⚠️ Video. Returning to safe page."` or `"⚠️ Miniplayer. Returning to safe page."`.
+    7. **App Block Toast Check (Pattern 2)**:
+       - *Action*: Attempt to open a blacklisted app (e.g. TikTok).
+       - *Verification*: Toast appears with text: `"🛡️ TikTok is restricted by QIEZKA"` and QIEZKA lock is immediately asserted.
+    8. **Settings Tamper Toast Check (Pattern 2)**:
+       - *Action*: Attempt to open Android Settings or change default launcher.
+       - *Verification*: Toast appears with text: `"🛡️ Settings is restricted by QIEZKA"`.
+    9. **Automated Verification**:
+       - *Action*: Run `.\gradlew.bat compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest`.
+       - *Verification*: All 56 unit tests pass with `BUILD SUCCESSFUL`.
+    10. **User Rule 2 Compliance Check**:
+        - *Verification*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+
+#### Non-Major Update: Explicit MainActivity Intent Routing & Launcher Alias Stealth Resilience
+- **Why This Change Was Made**:
+  - When an active QIEZKA home screen widget is placed, the widget stealth manager dynamically disables the launcher activity alias (`.MainActivityLauncher`) via `setComponentEnabledSetting` so the QIEZKA app icon disappears from the system app drawer.
+  - However, standard Android calls to `packageManager.getLaunchIntentForPackage("com.uncode.app")` only resolve intent filters for *enabled* launcher components. When `.MainActivityLauncher` was disabled, `getLaunchIntentForPackage` returned `null`.
+  - This caused silent failures across multiple critical background services:
+    1. **Lock Enforcement Failure**: In `LockAccessibilityService.kt`, `launchLockOverlay()` failed to launch the lockdown screen because `getLaunchIntentForPackage` was `null`.
+    2. **CPU Starvation**: Because the blocked app (e.g., Facebook) stayed in the foreground, `enforceBlock()` re-triggered in a rapid loop every 100ms–300ms, burning 54.5% CPU (TID in state `R`) and freezing the main UI thread.
+    3. **Floating Ball Freeze**: In `FloatingOverlayService.kt`, tapping the floating timer ball failed to launch QIEZKA, and the floating ball became unresponsive under the CPU load.
+    4. **Alarm & Boot Resilience**: `AlarmReceiver.kt` and `BootReceiver.kt` also risked failing to resolve launch intents or failing to synchronize launcher visibility on cold boot.
+- **Key Architectural Changes**:
+  - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+    - Converted `launchLockOverlay()` from `packageManager.getLaunchIntentForPackage(packageName)` to an explicit `Intent(this, MainActivity::class.java)` with flags `FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_CLEAR_TOP or FLAG_ACTIVITY_SINGLE_TOP or FLAG_ACTIVITY_REORDER_TO_FRONT`.
+    - Because `MainActivity` is permanently enabled (`exported="true"`), this intent **always succeeds** regardless of whether the launcher alias is enabled or disabled.
+    - Added an enforcement debounce timestamp (`lastEnforceBlockTimestamp`) to prevent rapid event loop thrashing.
+  - **`FloatingOverlayService.kt` (`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`)**:
+    - Converted `launchQiezka()` to construct an explicit `Intent(this, MainActivity::class.java)`.
+    - Converted `startAsForegroundService()` notification content intent to target `MainActivity::class.java` explicitly.
+  - **`AlarmReceiver.kt` (`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`)**:
+    - In `scheduleExactAlarm()`, replaced `packageManager.getLaunchIntentForPackage(context.packageName)` with explicit `Intent(context, MainActivity::class.java)`.
+    - In `showNotificationStatic()`, replaced `getLaunchIntentForPackage` with explicit `Intent(context, MainActivity::class.java)`.
+  - **`BootReceiver.kt` (`android/app/src/main/java/com/uncode/app/BootReceiver.kt`)**:
+    - Added `QiezkaWidgetProvider.syncLauncherIconVisibility(context)` on boot completed to guarantee proper drawer icon state after device reboot.
+  - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+    - Added unit test `testExplicitMainActivityClassTarget` validating the explicit class target and alias constant contract.
+- **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+  - *Affected Files*:
+    - [`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt)
+    - [`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt)
+    - [`android/app/src/main/java/com/uncode/app/AlarmReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/AlarmReceiver.kt)
+    - [`android/app/src/main/java/com/uncode/app/BootReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/BootReceiver.kt)
+    - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - [`HISTORY.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/HISTORY.md)
+  - *Known Dependents & Callers*:
+    - Accessibility Window State Detector: Triggers `launchLockOverlay()` when blocked apps enter the foreground.
+    - Floating Timer Ball View: Triggers `launchQiezka()` on user tap.
+    - AlarmManager & Android Notification Shade: Triggers `MainActivity` when alarms or notifications are tapped.
+    - Android OS Boot Sequence: Triggers `BootReceiver` on boot complete.
+  - *Step-by-Step On-Device Sensory Verification Protocol (No ADB)*:
+    1. **Widget Stealth + Lock Enforcement Verification**:
+       - *Action*: Place a QIEZKA home screen widget. Verify QIEZKA disappears from the app drawer.
+       - *Action*: Start an active lockdown session, then open a restricted app (e.g. Facebook).
+       - *Verification*: QIEZKA lock overlay appears immediately over Facebook. No infinite loop, no CPU spike, no stutter.
+    2. **Floating Ball Tap Verification in Stealth Mode**:
+       - *Action*: With the home screen widget placed (stealth mode active), tap the floating timer ball.
+       - *Verification*: QIEZKA `MainActivity` immediately opens to the foreground without delay.
+    3. **Widget Removal Restoration Verification**:
+       - *Action*: Long-press and remove the QIEZKA widget from the home screen.
+       - *Action*: Open the app drawer.
+       - *Verification*: QIEZKA app icon is immediately restored and visible in the app drawer.
+    4. **Cold Boot Failsafe Verification**:
+       - *Action*: Reboot the device.
+       - *Verification*: App drawer visibility correctly matches widget presence (hidden if widget exists on home screen, visible if no widgets exist).
+    5. **Automated Unit Tests**:
+       - *Action*: Run `.\gradlew.bat compileDebugUnitTestKotlin testDebugUnitTest`.
+       - *Verification*: `BUILD SUCCESSFUL` with all unit tests passing.
+    6. **User Rule 2 Compliance Check**:
+       - *Verification*: No APK build commands (`assembleDebug`, `assembleRelease`) were executed.
+
+#### Non-Major Update: Elimination & Complete Deletion of QIEZKA Web Guard Notification Channel
+- **Why This Change Was Made**:
+  - In Patch 30, the architectural doctrine established the "Single Ongoing Notification Guarantee", requiring that exactly one ongoing notification is displayed during focus lockdown (`FloatingOverlayService`).
+  - Previously, `LocalDnsVpnService` retained its own separate notification channel (`"qiezka_dns_vpn"`) and notification ID (`8801`), only minimizing it to `IMPORTANCE_MIN` and `PRIORITY_MIN` with title `"QIEZKA Web Guard"`.
+  - While silent, this notification still lingered in Android's notification shade under "Silent notifications" and preserved a dedicated channel in device App Notification Settings, failing the deletion requirement.
+  - This update eliminates the `"QIEZKA Web Guard"` notification completely from both the shade and system settings:
+    1. Actively purges the legacy `"qiezka_dns_vpn"` notification channel from Android OS via `NotificationManager.deleteNotificationChannel()`.
+    2. Actively cancels legacy notification ID `8801`.
+    3. Retargets `LocalDnsVpnService`'s foreground service attachment directly to the unified ongoing lockdown notification (`AlarmReceiver.NOTIF_ID_STATUS` / `AlarmReceiver.CHANNEL_ID_STATUS`), allowing Android OS to merge both services into the single ongoing notification.
+    4. Ensures zero changes to core DNS filtering, socket routing, or sinkhole logic—strictly modifying notification lifecycle.
+- **Key Architectural Changes**:
+  - **`LocalDnsVpnService.kt` (`android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt`)**:
+    - Replaced `CHANNEL_ID = "qiezka_dns_vpn"` and `NOTIF_ID = 8801` with legacy cleanup constants `OLD_CHANNEL_ID` and `OLD_NOTIF_ID`.
+    - Added `cleanupLegacyNotification()` which calls `NotificationManager.deleteNotificationChannel(OLD_CHANNEL_ID)` and `NotificationManager.cancel(OLD_NOTIF_ID)`.
+    - Pointed `buildNotification()` to `AlarmReceiver.CHANNEL_ID_STATUS` and `AlarmReceiver.NOTIF_ID_STATUS` with `QiezkaNotificationHelper.formatSessionProgressTitle(sessionTitle)` and `QiezkaNotificationHelper.BODY_SESSION_PROGRESS`.
+    - In `onStartCommand()`, calls `cleanupLegacyNotification()` and attaches to `AlarmReceiver.NOTIF_ID_STATUS`.
+    - In `onDestroy()`, calls `stopForeground(STOP_FOREGROUND_DETACH)` to preserve `FloatingOverlayService`'s ongoing notification if co-running, while ensuring legacy notifications are cancelled.
+    - In `updateNotification()`, dispatches to `AlarmReceiver.NOTIF_ID_STATUS`, preventing any lingering notification.
+  - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+    - Added unit test `testLocalDnsVpnServiceNotificationConsolidationConstants` validating the legacy channel ID, legacy notification ID, and consolidated target constants.
+- **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+  - *Affected Files*:
+    - [`android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/LocalDnsVpnService.kt)
+    - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - [`HISTORY.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/HISTORY.md)
+  - *Known Dependents & Callers*:
+    - `LockAccessibilityService.kt`: Starts and stops `LocalDnsVpnService` based on `isVpnMode && isEnforcing`.
+    - `LockPlugin.kt`: Initiates VPN mode changes and updates notifications.
+    - Android Notification Shade & System Settings (`NotificationManager`): Renders notification channels and status items.
+  - *Step-by-Step On-Device Sensory Verification Protocol (No ADB)*:
+    1. **Verification of Zero "QIEZKA Web Guard" in Notification Shade**:
+       - *Action*: Start an active lockdown session with dual hybrid / VPN mode active.
+       - *Pull down notification shade*: Check both active alerts and the "Silent notifications" section.
+       - *Verification*: Confirm there is **no** notification titled `"QIEZKA Web Guard"` or `"Protected"`. Only 1 ongoing notification exists: `"<Session Title> is in progress."` with `"Distracting apps are restricted."`.
+    2. **Verification of Channel Purge in Android Settings**:
+       - *Action*: Go to **Settings → Apps → QIEZKA → Notifications → Notification Categories**.
+       - *Verification*: Confirm that `"QIEZKA Web Guard"` is completely absent from the list of notification categories.
+    3. **DNS Sinkhole Continuity Verification**:
+       - *Action*: During active lockdown with hybrid protection, open Chrome and visit a blocked website (e.g. `facebook.com` or `tiktok.com`).
+       - *Verification*: Web page fails to load (DNS sinkhole blocks resolution), verifying that DNS filtering operates seamlessly without requiring its own distinct notification.
+    4. **Automated Unit Tests**:
+       - *Action*: Run `.\gradlew.bat compileDebugUnitTestKotlin testDebugUnitTest`.
+       - *Verification*: `BUILD SUCCESSFUL` with all unit tests passing.
+    5. **User Rule 2 Compliance Check**:
+       - *Verification*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+---
+
+### Patch 31: Interactive RemoteInput Direct-Reply Resource Query Notification Engine
+- **Why It Was Mandated (Architectural Rationale & Study Continuity)**:
+  - When students are studying, researching, or solving homework assignments on their mobile device (e.g. in Chrome, Google Docs, or textbook readers), they frequently need to recall specific formulas, definitions, dates, and flashcards stored in QIEZKA's course library.
+  - Previously, checking a study note required leaving the active app, opening QIEZKA, searching the resource library, copying or memorizing the definition, and switching back. This frequent context switching disrupted focus and triggered Android task switches that could risk lockdown friction.
+  - To provide instantaneous, zero-friction academic recall, this patch introduces an **always-active interactive direct-reply notification card**:
+    - Leverages Android's native `RemoteInput` inline reply architecture (identical to messaging apps like Messenger, WhatsApp, and Android Messages) right inside the notification shade.
+    - Operates 100% offline, scanning QIEZKA's on-device `studom_resources` using QIEZKA's Master Syntax (`[Term] | [Definition]`).
+    - Strictly case-insensitive matching allows students to quickly type `determinants 1`, `DETERMINANTS 1`, or `Determinants 1` and receive the exact term and definition (`"Determinants 1 | Human something"`).
+    - If a requested resource does not exist, it replaces the card with a clean, title-less error message (`"<query> does not exist"`), immediately re-attaching the direct-reply action so the student can seamlessly query again without breaking focus.
+    - Always active and ongoing on a silent `IMPORTANCE_LOW` notification channel (`"qiezka_resource_query"`), ensuring repeated searches never sound alert chimes or produce disruptive heads-up banners.
+- **Concrete Architectural Implementations**:
+  - **`ResourceQueryReceiver.kt` (`android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`)**:
+    - Created dedicated native `BroadcastReceiver` listening for `com.uncode.app.ACTION_RESOURCE_QUERY`.
+    - Extracts inline query strings via `RemoteInput.getResultsFromIntent(intent)`.
+    - Parses `studom_resources` (`context.filesDir/studom_resources`) with dual-mode parsing (Android `org.json` on-device with robust regex fallback for JVM unit test execution).
+    - Implemented `searchInContentAndTitle()`: scans line-by-line using QIEZKA's pipe delimiter syntax `[Term] | [Definition]` with case-insensitive `term.equals(query, ignoreCase = true)` and title fallback.
+    - When match is found: updates notification with title `"$term | $definition"` and text `definition`.
+    - When no match is found: updates notification with **no title** (`null`) and text `"$query does not exist"`.
+    - Continuously re-attaches the `RemoteInput` action on every update, ensuring an infinite, seamless lookup loop.
+  - **`QiezkaNotificationHelper.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`)**:
+    - Centralized constants: `CHANNEL_ID_RESOURCE_QUERY = "qiezka_resource_query"`, `CHANNEL_NAME_RESOURCE_QUERY = "QIEZKA Resource Query"`, `NOTIF_ID_RESOURCE_QUERY = 1006`, `KEY_TEXT_REPLY = "key_resource_query_reply"`, `ACTION_RESOURCE_QUERY = "com.uncode.app.ACTION_RESOURCE_QUERY"`, `PROMPT_RESOURCE_QUERY = "Type resource name to search (e.g. Determinants 1)"`.
+    - Implemented `formatNotFoundText(query)` returning `"$query does not exist"`.
+    - Implemented `createResourceQueryChannel()` configuring `IMPORTANCE_LOW`, silent, no vibration, no lights.
+    - Implemented `buildResourceQueryNotification()`: configures `RemoteInput` with `FLAG_MUTABLE` (Android 12+ compliant), `BigTextStyle`, and `setOngoing(true)`.
+    - Implemented `postAlwaysActiveResourceQueryNotification()` helper.
+  - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+    - Posts the always-active resource query notification in `onCreate()`.
+  - **`BootReceiver.kt` (`android/app/src/main/java/com/uncode/app/BootReceiver.kt`)**:
+    - Posts the always-active resource query notification on `ACTION_BOOT_COMPLETED` to guarantee persistence across phone reboots.
+  - **`AndroidManifest.xml` (`android/app/src/main/AndroidManifest.xml`)**:
+    - Registered `ResourceQueryReceiver` (`exported="false"`) with `ACTION_RESOURCE_QUERY` intent filter.
+  - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+    - Added unit test `testResourceQueryNotificationConstants` validating channel, action, key, and not-found string formatting.
+    - Added unit test `testResourceQueryCaseInsensitiveMatching` validating lowercase, uppercase, mixed-case with whitespace, and not-found query evaluation.
+- **Comprehensive Verification Plan & Matrix (User Rule 3)**:
+  - *Affected Files*:
+    - [`android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt)
+    - [`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt)
+    - [`android/app/src/main/java/com/uncode/app/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt)
+    - [`android/app/src/main/java/com/uncode/app/BootReceiver.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/BootReceiver.kt)
+    - [`android/app/src/main/AndroidManifest.xml`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/AndroidManifest.xml)
+    - [`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt)
+    - [`HISTORY.md`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/HISTORY.md)
+  - *Known Dependents & Callers*:
+    - Android SystemUI / Notification Shade: Renders the inline reply text box and captures keyboard entry.
+    - Android Broadcast Receiver Subsystem: Delivers the direct-reply intent to `ResourceQueryReceiver`.
+    - Android Boot Sequence: Dispatches `ACTION_BOOT_COMPLETED` to `BootReceiver`.
+    - `@capacitor/filesystem`: File `studom_resources` is the shared resource database.
+  - *Step-by-Step On-Device Sensory Verification Protocol (No ADB)*:
+    1. **Always-Active Notification Presence Check**:
+       - *Action*: Launch QIEZKA on your device (or restart the phone).
+       - *Pull down notification shade*: Observe the persistent notifications.
+       - *Verification*: A persistent notification titled `"QIEZKA Resource Query"` (or with prompt text `"Type resource name to search (e.g. Determinants 1)"`) is present with a `"Reply"` button.
+       - *Verification*: It is silent (`IMPORTANCE_LOW`) and persistent.
+    2. **Case-Insensitive Exact Match Check**:
+       - *Action*: In QIEZKA, ensure a saved resource contains the line: `Determinants 1 | Human something`.
+       - *Action*: Pull down shade, tap "Reply", type lowercase `determinants 1` (or uppercase `DETERMINANTS 1`), and tap Send.
+       - *Verification*: Text box collapses immediately, spinner clears.
+       - *Verification*: Notification updates to `"Determinants 1 | Human something"`.
+       - *Verification*: The "Reply" button remains attached.
+    3. **Subsequent Query Persistence Check**:
+       - *Action*: On the updated notification, tap "Reply" again without opening the app.
+       - *Action*: Type `Determinants 5` and tap Send.
+       - *Verification*: Notification collapses and updates to `"Determinants 5 | Human something2"`.
+    4. **Non-Existent Resource Error Check**:
+       - *Action*: Tap "Reply", type `Determinants 99` and tap Send.
+       - *Verification*: Notification collapses and displays **NO TITLE**, with text `"Determinants 99 does not exist"`.
+       - *Verification*: The "Reply" button is still attached.
+    5. **Recovery After Error Check**:
+       - *Action*: Tap "Reply" on the error notification.
+       - *Action*: Type `Determinants 4` and tap Send.
+       - *Verification*: Notification replaces the error text with `"Determinants 4 | Human something4"`.
+    6. **Automated Unit Tests**:
+       - *Action*: Run `.\gradlew.bat compileDebugUnitTestKotlin testDebugUnitTest`.
+       - *Verification*: `BUILD SUCCESSFUL` with all 61 unit tests passing.
+    7. **User Rule 2 Compliance Check**:
+       - *Verification*: Confirm no APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+
+  - **Non-Major Refinement (Sub-Patch 31.1): Shade Collapse, Dynamic Resource Set Title & Clean Input Architecture**:
+    - **Why It Was Mandated (Interaction Polish & Cognitive Clarity)**:
+      1. *True Notification Collapse*: Previously, inline replies relied on standard SystemUI notification replacement. By explicitly calling `notificationManager.cancel(NOTIF_ID_RESOURCE_QUERY)` immediately upon capturing the inline reply, the notification card literally removes itself from the notification shade immediately, providing a tactile, responsive collapse experience before re-notifying with the query result.
+      2. *Dynamic Resource Set Title Header*: Rather than showing redundant titles or static labels, the notification title now dynamically displays the parent title of the resource set (e.g., `"Ethics Week 8"`), while the notification body displays the exact matched line (e.g., `"Determinants 1 | Human something"`).
+      3. *Prefix Matching Support*: Allows shorthand term lookups (e.g., typing `"determinants"` matches `"Determinants 1 | Human something"` via two-pass matching: exact term first, then prefix term, then resource set title fallback).
+      4. *Zero-Branding & Placeholder Purge*: Completely purged all unwanted placeholders (`"Type resource name..."`), example strings (`"(e.g. Determinants 1)"`), and "QIEZKA" branding from the channel name (`"Resource Query"`) and `RemoteInput` field (`.setLabel(null)`).
+      5. *Title-less Not Found Display*: If no match is found, notification title is omitted (`null`) and body displays `"<query> does not exist"` with the reply action re-attached.
+    - **Concrete Architectural Implementations**:
+      - `QiezkaNotificationHelper.kt`: Updated `CHANNEL_NAME_RESOURCE_QUERY = "Resource Query"`, stripped `RemoteInput` label, removed `PROMPT_RESOURCE_QUERY` constant, and updated initial state to clean empty body without placeholders.
+      - `ResourceQueryReceiver.kt`: Added immediate `nm.cancel(NOTIF_ID_RESOURCE_QUERY)`, implemented `parseResources()` and multi-pass `searchInResources()` (Pass 1: exact term, Pass 2: prefix term, Pass 3: title), returning `Pair(resourceSetTitle, matchedLine)`.
+      - `HomeHandlerTest.kt`: Added unit assertions verifying clean channel name, dynamic resource set title, prefix matching (`"determinants"` -> `"Determinants 1"`), and not-found string formatting.
+    - **Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*: `ResourceQueryReceiver.kt`, `QiezkaNotificationHelper.kt`, `HomeHandlerTest.kt`, `HISTORY.md`.
+      - *Verification Method*: Run `.\gradlew.bat testDebugUnitTest` (passed with 61 tests). Manual on-device verification steps:
+        1. Type `determinants` -> Card collapses immediately from shade -> Reappears with Title: `Ethics Week 8`, Body: `Determinants 1 | Human something`.
+        2. Type `Determinants 99` -> Card collapses immediately -> Reappears with No Title, Body: `Determinants 99 does not exist`.
+        3. Check input field has no placeholder or example text.
+
+  - **Non-Major Refinement (Sub-Patch 31.2): Multi-Notification Query Results with Selective Collapse**:
+    - **Why It Was Mandated (Comprehensive Search Results & Granular Collapse Control)**:
+      1. *Multi-Match Notification Dispatch*: When a search query matches multiple entries across course resources (e.g. searching `"determinants"` or `"human"` matching multiple definitions), returning only a single result forced students to query repeatedly with verbose strings.
+      2. *Single Interactive Reply Controller*: To prevent notification clutter and confusion over which notification captures user replies, exactly ONE notification (the Main Notification, ID 1006) carries the `RemoteInput` "Reply" action and remains ongoing. Additional matching entries are dispatched as auxiliary, read-only notifications (`BASE_NOTIF_ID_AUX` = 1100..1109) that the student can reference or dismiss individually.
+      3. *Selective Collapse Mechanics*: When the student taps "Reply" on the Main Notification to run a new search, `notificationManager.cancel(1006)` collapses ONLY the main interactive card. Any auxiliary cards currently displayed in the notification shade RETAIN in place untouched, allowing the student to keep prior reference cards while simultaneously exploring new terms.
+    - **Concrete Architectural Implementations**:
+      - `QiezkaNotificationHelper.kt`: Added `BASE_NOTIF_ID_AUX = 1100` and `buildAuxiliaryNotification()` helper creating non-ongoing, read-only result cards without `RemoteInput`.
+      - `ResourceQueryReceiver.kt`: Implemented `searchAllInResources()` and `searchAllResourceMatches()`. In `onReceive()`, cancels ONLY `NOTIF_ID_RESOURCE_QUERY` (1006) on reply, updates ID 1006 with primary match + Reply action, and dispatches remaining matches to auxiliary IDs (1100+).
+      - `HomeHandlerTest.kt`: Added unit tests verifying `BASE_NOTIF_ID_AUX = 1100`, 4-line multi-match extraction for `"determinants"` and `"human"`, and non-existent query handling.
+    - **Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*: `ResourceQueryReceiver.kt`, `QiezkaNotificationHelper.kt`, `HomeHandlerTest.kt`, `HISTORY.md`.
+      - *Verification Method*: Run `.\gradlew.bat testDebugUnitTest` (passed with 61 tests). On-device verification:
+        1. Query `human` -> Shade receives Main Card (`Determinants 1` with Reply button) and Auxiliary Cards (`Determinants 5`, `Determinants 4`, etc., without Reply buttons).
+        2. Tap Reply on Main Card, query another term -> ONLY Main Card collapses; auxiliary cards retain in shade.
 ---
 
 ## 🔮 Future Roadmap & Ecosystem Forks

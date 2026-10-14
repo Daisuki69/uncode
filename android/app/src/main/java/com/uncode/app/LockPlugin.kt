@@ -167,8 +167,8 @@ class LockPlugin : Plugin() {
                     context,
                     AlarmReceiver.NOTIF_ID_STATUS,
                     AlarmReceiver.CHANNEL_ID_STATUS,
-                    "⚠️ QIEZKA Consequence Mode",
-                    notifMsg,
+                    QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE,
+                    "",
                     Notification.PRIORITY_HIGH,
                     true
                 )
