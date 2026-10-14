@@ -4,35 +4,20 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:gravity="center_vertical"
+    android:gravity="center"
     android:background="@drawable/bg_floating_bubble"
     android:elevation="12dp"
     android:clickable="true"
     android:focusable="false">
 
-    <ImageView
-        android:id="@+id/iv_floating_icon"
-        android:layout_width="18dp"
-        android:layout_height="18dp"
-        android:src="@drawable/ic_qiezka_notif"
-        android:tint="#F43F5E"
-        android:contentDescription="Lock Icon" />
-
     <TextView
         android:id="@+id/tv_floating_timer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
         android:text="--:--"
         android:textColor="#FFFFFF"
         android:textSize="14sp"
         android:textStyle="bold"
         android:typeface="monospace" />
-
-    <View
-        android:layout_width="6dp"
-        android:layout_height="6dp"
-        android:layout_marginStart="8dp"
-        android:background="#10B981" />
 
 </LinearLayout>

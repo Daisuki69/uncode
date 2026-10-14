@@ -942,28 +942,17 @@ open class LockAccessibilityService : AccessibilityService() {
                 .apply()
             AlarmReceiver.cancelLockEndAlarm(this)
             AlarmReceiver.createNotificationChannels(this)
-            val isHardcore = "hardcore".equals(currentPrefs.getString("operating_mode", "safemode"), ignoreCase = true)
-            val notifTitle = if (isHardcore) {
-                "⚠️ Homework Expired — Consequence Active (Hardcore)"
-            } else {
-                "⚠️ Homework Expired — Consequence Active"
-            }
-            val notifMsg = if (isHardcore) {
-                "Study timer expired without passing. Distracting apps remain restricted 24/7 (Hardcore Mode) until rescheduled and passed."
-            } else {
-                "Study timer expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed."
-            }
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(AlarmReceiver.NOTIF_ID_STATUS)
             AlarmReceiver.showNotificationStatic(
                 this,
                 AlarmReceiver.NOTIF_ID_COMPLETED,
                 AlarmReceiver.CHANNEL_ID_ALERTS,
-                notifTitle,
-                notifMsg,
+                QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE,
+                "",
                 Notification.PRIORITY_HIGH,
                 false
             )
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            nm?.cancel(AlarmReceiver.NOTIF_ID_STATUS)
             Log.i(TAG, "Lockdown expired — entered Consequence Mode")
         }
 
@@ -1940,13 +1929,8 @@ open class LockAccessibilityService : AccessibilityService() {
         Log.w(TAG, "remediateBlockedBrowserTab on $pkg for $url ($reason) hits=$consecutiveBlockedUrlHits")
 
         // 1. Display educational Toast notification informing student
-        if (now - lastBrowserToastTime > BROWSER_TOAST_COOLDOWN_MS) {
-            lastBrowserToastTime = now
-            val finalReason = reason ?: "Distracting website"
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(applicationContext, "⚠️ $finalReason. Returning to safe page.", Toast.LENGTH_SHORT).show()
-            }
-        }
+        val finalReason = if (!reason.isNullOrBlank()) reason else "Distracting website"
+        QiezkaNotificationHelper.showToastThrottled(applicationContext, QiezkaNotificationHelper.formatSafePageToast(finalReason))
 
         // 2. Custom Tab Remediation: If opened inside a Chrome Custom Tab, close it directly via close_button
         if (closeCustomTab(root, pkg)) {
@@ -2007,15 +1991,12 @@ open class LockAccessibilityService : AccessibilityService() {
         Log.w(TAG, "remediateDistractingSubActivity on $pkg ($activityCls) hits=$consecutiveSubActivityHits")
 
         // Educational Toast notice informing student
-        val isGeneralVideo = "portal_video_flow" == activityCls || !isVideoPolicyAllowed()
-        Handler(Looper.getMainLooper()).post {
-            val msg = if (isGeneralVideo) {
-                "⚠️ Videos are restricted during focus lockdown."
-            } else {
-                "⚠️ Short videos / reels are restricted during focus lockdown."
-            }
-            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+        val reason = if (activityCls != null && (activityCls.contains("shopping", ignoreCase = true) || activityCls.contains("mall", ignoreCase = true) || activityCls.contains("commerce", ignoreCase = true))) {
+            QiezkaNotificationHelper.REASON_SHOPPING
+        } else {
+            QiezkaNotificationHelper.REASON_VIDEO
         }
+        QiezkaNotificationHelper.showToastThrottled(applicationContext, QiezkaNotificationHelper.formatSafePageToast(reason))
 
         // If repeated persistent attempts (> 3 rapid clicks into reels):
         if (consecutiveSubActivityHits > 3) {
@@ -2589,22 +2570,14 @@ open class LockAccessibilityService : AccessibilityService() {
                 .apply()
             AlarmReceiver.cancelLockEndAlarm(this)
             AlarmReceiver.createNotificationChannels(this)
-            val notifTitle = if (isHardcore) {
-                "⚠️ Homework Expired — Consequence Active (Hardcore)"
-            } else {
-                "⚠️ Homework Expired — Consequence Active"
-            }
-            val notifMsg = if (isHardcore) {
-                "Study timer expired without passing. Distracting apps remain restricted 24/7 (Hardcore Mode) until rescheduled and passed."
-            } else {
-                "Study timer expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed."
-            }
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(AlarmReceiver.NOTIF_ID_STATUS)
             AlarmReceiver.showNotificationStatic(
                 this,
                 AlarmReceiver.NOTIF_ID_COMPLETED,
                 AlarmReceiver.CHANNEL_ID_ALERTS,
-                notifTitle,
-                notifMsg,
+                QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE,
+                "",
                 Notification.PRIORITY_HIGH,
                 false
             )
@@ -2697,15 +2670,6 @@ open class LockAccessibilityService : AccessibilityService() {
                             .putString("active_schedule_id", s.optString("id", ""))
                             .apply()
                         AlarmReceiver.scheduleLockEndAlarm(this, windowEnd, s.optString("id", ""))
-                        AlarmReceiver.showNotificationStatic(
-                            this,
-                            AlarmReceiver.NOTIF_ID_STATUS,
-                            AlarmReceiver.CHANNEL_ID_STATUS,
-                            "🔒 QIEZKA Lockdown Engaged",
-                            s.optString("title", "Study Session") + " is active (" + durationMinutes + " min). Distracting apps are blocked.",
-                            Notification.PRIORITY_HIGH,
-                            true
-                        )
                         isLockdownActive = true
                         FloatingOverlayService.startService(this, windowEnd, s.optString("title", "Study Session"))
 
@@ -2852,7 +2816,7 @@ open class LockAccessibilityService : AccessibilityService() {
                 this,
                 AlarmReceiver.NOTIF_ID_WARNING,
                 AlarmReceiver.CHANNEL_ID_ALERTS,
-                "⏰ QIEZKA Upcoming Lockdown",
+                QiezkaNotificationHelper.TITLE_UPCOMING_LOCKDOWN,
                 warnText,
                 Notification.PRIORITY_HIGH,
                 false
@@ -2888,7 +2852,7 @@ open class LockAccessibilityService : AccessibilityService() {
                 this,
                 AlarmReceiver.NOTIF_ID_WARNING,
                 AlarmReceiver.CHANNEL_ID_ALERTS,
-                "⏳ QIEZKA Lock Timer",
+                QiezkaNotificationHelper.TITLE_LOCK_TIMER,
                 warnText,
                 Notification.PRIORITY_HIGH,
                 false
@@ -2908,6 +2872,14 @@ open class LockAccessibilityService : AccessibilityService() {
         lastBlockedPackage = pkg
 
         Log.w(TAG, "enforceBlock on distracting app: $pkg — directly bringing QIEZKA lock to front (no home redirection, no back press)")
+
+        // Display unified restriction toast feedback
+        if ("com.android.settings" == pkg || AppClassifier.isSettingsOrDeviceManager(pkg, null)) {
+            QiezkaNotificationHelper.showToastThrottled(applicationContext, QiezkaNotificationHelper.formatSettingsRestrictedToast())
+        } else {
+            val appLabel = QiezkaNotificationHelper.resolveAppLabel(applicationContext, pkg)
+            QiezkaNotificationHelper.showToastThrottled(applicationContext, QiezkaNotificationHelper.formatAppRestrictedToast(appLabel))
+        }
 
         // Directly bring QIEZKA lock screen to front immediately (no synthetic back press)
         launchLockOverlay()
@@ -2968,14 +2940,7 @@ open class LockAccessibilityService : AccessibilityService() {
                                         } catch (ignore: Exception) {}
 
                                         // 2. Educational Toast notice (throttled)
-                                        if (now - lastBrowserToastTime >= 4000L) {
-                                            lastBrowserToastTime = now
-                                            Handler(Looper.getMainLooper()).post {
-                                                Toast.makeText(applicationContext,
-                                                    "⚠️ Video miniplayer / Picture-in-Picture is restricted during focus lockdown.",
-                                                    Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
+                                        QiezkaNotificationHelper.showToastThrottled(applicationContext, QiezkaNotificationHelper.formatSafePageToast(QiezkaNotificationHelper.REASON_MINIPLAYER))
 
                                         // 3. For portal super-apps (like NAVER): bring search homepage to front, killing PiP task
                                         if (isPortal) {
@@ -3152,40 +3117,39 @@ open class LockAccessibilityService : AccessibilityService() {
 
     private fun launchLockOverlay() {
         try {
-            val launch = packageManager?.getLaunchIntentForPackage(packageName)
-            if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            val launch = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 val isConsequence = prefs?.getBoolean("consequence_active", false) ?: false
-                launch.putExtra("route", if (isConsequence) "logs" else "locked")
+                putExtra("route", if (isConsequence) "logs" else "locked")
+            }
 
-                // Android 14/15/16 BAL compliance:
-                // Starting an activity directly from background is blocked by OS ActivityTaskManager.
-                // Wrap in PendingIntent with MODE_BACKGROUND_ACTIVITY_START_ALLOWED.
-                var optionsBundle: android.os.Bundle? = null
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    try {
-                        val activityOptions = ActivityOptions.makeBasic()
-                        val method = activityOptions.javaClass.getMethod("setPendingIntentBackgroundActivityStartMode", Int::class.javaPrimitiveType)
-                        method.invoke(activityOptions, 1) // ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED = 1
-                        optionsBundle = activityOptions.toBundle()
-                    } catch (ignore: Throwable) {}
-                }
-
-                val pi = PendingIntent.getActivity(
-                    this,
-                    0,
-                    launch,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
+            // Android 14/15/16 BAL compliance:
+            // Starting an activity directly from background is blocked by OS ActivityTaskManager.
+            // Wrap in PendingIntent with MODE_BACKGROUND_ACTIVITY_START_ALLOWED.
+            var optionsBundle: android.os.Bundle? = null
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 try {
-                    if (optionsBundle != null) {
-                        pi.send(this, 0, null, null, null, null, optionsBundle)
-                    } else {
-                        pi.send()
-                    }
-                } catch (e: Exception) {
-                    startActivity(launch)
+                    val activityOptions = ActivityOptions.makeBasic()
+                    val method = activityOptions.javaClass.getMethod("setPendingIntentBackgroundActivityStartMode", Int::class.javaPrimitiveType)
+                    method.invoke(activityOptions, 1) // ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED = 1
+                    optionsBundle = activityOptions.toBundle()
+                } catch (ignore: Throwable) {}
+            }
+
+            val pi = PendingIntent.getActivity(
+                this,
+                0,
+                launch,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            try {
+                if (optionsBundle != null) {
+                    pi.send(this, 0, null, null, null, null, optionsBundle)
+                } else {
+                    pi.send()
                 }
+            } catch (e: Exception) {
+                startActivity(launch)
             }
         } catch (e: Exception) {
             Log.e(TAG, "launchLockOverlay failed: ${e.message}")
@@ -3271,16 +3235,6 @@ open class LockAccessibilityService : AccessibilityService() {
                         .putString("active_schedule_id", s.optString("id", ""))
                         .apply()
                     AlarmReceiver.scheduleLockEndAlarm(this, schedEndTime, s.optString("id", ""))
-                    AlarmReceiver.createNotificationChannels(this)
-                    AlarmReceiver.showNotificationStatic(
-                        this,
-                        AlarmReceiver.NOTIF_ID_STATUS,
-                        AlarmReceiver.CHANNEL_ID_STATUS,
-                        "🔒 QIEZKA Lockdown Engaged",
-                        s.optString("title", "Study Session") + " is active (" + durationMinutes + " min). Distracting apps are blocked.",
-                        Notification.PRIORITY_HIGH,
-                        true
-                    )
                     FloatingOverlayService.startService(this, schedEndTime, s.optString("title", "Study Session"))
                     Log.i(TAG, "Native auto-start triggered for schedule: ${s.optString("id", "")}, lockEnd=$schedEndTime")
                     return true
@@ -3300,16 +3254,6 @@ open class LockAccessibilityService : AccessibilityService() {
                         .putString("active_schedule_id", s.optString("id", ""))
                         .apply()
                     AlarmReceiver.scheduleLockEndAlarm(this, yesterdayEnd, s.optString("id", ""))
-                    AlarmReceiver.createNotificationChannels(this)
-                    AlarmReceiver.showNotificationStatic(
-                        this,
-                        AlarmReceiver.NOTIF_ID_STATUS,
-                        AlarmReceiver.CHANNEL_ID_STATUS,
-                        "🔒 QIEZKA Lockdown Engaged",
-                        s.optString("title", "Study Session") + " is active (" + durationMinutes + " min). Distracting apps are blocked.",
-                        Notification.PRIORITY_HIGH,
-                        true
-                    )
                     FloatingOverlayService.startService(this, yesterdayEnd, s.optString("title", "Study Session"))
                     Log.i(TAG, "Native auto-start (midnight-cross) triggered for schedule: ${s.optString("id", "")}")
                     return true
@@ -3433,11 +3377,7 @@ open class LockAccessibilityService : AccessibilityService() {
         }
 
         // 3. Anti-Tamper Toast feedback
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(applicationContext,
-                "🛡️ Changing default home launcher is restricted by QIEZKA",
-                Toast.LENGTH_SHORT).show()
-        }
+        QiezkaNotificationHelper.showToastThrottled(applicationContext, QiezkaNotificationHelper.formatSettingsRestrictedToast())
 
         // 4. Re-assert QIEZKA Lock overlay directly (no back press, using BAL-compliant PendingIntent)
         launchLockOverlay()

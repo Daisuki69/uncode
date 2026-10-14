@@ -3,10 +3,12 @@ package com.uncode.app
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
+import androidx.core.app.NotificationCompat
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
@@ -46,8 +48,8 @@ class LocalDnsVpnService : VpnService() {
 
     companion object {
         private const val TAG = "LocalDnsVpnService"
-        private const val CHANNEL_ID = "qiezka_dns_vpn"
-        private const val NOTIF_ID = 8801
+        const val OLD_CHANNEL_ID = "qiezka_dns_vpn"
+        const val OLD_NOTIF_ID = 8801
         private const val PREFS_NAME = "uncode_lock"
 
         const val ACTION_STOP = "com.uncode.app.ACTION_STOP_VPN"
@@ -113,7 +115,7 @@ class LocalDnsVpnService : VpnService() {
                 if (instance != null) {
                     val notif = instance.buildNotification()
                     val nm = instance.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                    nm?.notify(NOTIF_ID, notif)
+                    nm?.notify(AlarmReceiver.NOTIF_ID_STATUS, notif)
                     return
                 }
                 val intent = Intent(context, LocalDnsVpnService::class.java).apply {
@@ -147,40 +149,40 @@ class LocalDnsVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        createNotificationChannel()
+        cleanupLegacyNotification()
         val notif = buildNotification()
 
         if (intent != null && "ACTION_UPDATE_NOTIF" == intent.action) {
             try {
                 if (Build.VERSION.SDK_INT >= 34) {
-                    startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+                    startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+                    startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
                 } else {
-                    startForeground(NOTIF_ID, notif)
+                    startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif)
                 }
             } catch (e: Exception) {
                 val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                nm?.notify(NOTIF_ID, notif)
+                nm?.notify(AlarmReceiver.NOTIF_ID_STATUS, notif)
             }
             return START_STICKY
         }
 
         if (Build.VERSION.SDK_INT >= 34) {
             try {
-                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+                startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
             } catch (e: Exception) {
                 Log.w(TAG, "systemExempted startForeground failed, falling back to specialUse: ${e.message}")
-                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+                startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
             } catch (e: Exception) {
-                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             }
         } else {
-            startForeground(NOTIF_ID, notif)
+            startForeground(AlarmReceiver.NOTIF_ID_STATUS, notif)
         }
 
         startDnsSinkhole()
@@ -190,11 +192,12 @@ class LocalDnsVpnService : VpnService() {
     override fun onDestroy() {
         stopDnsSinkhole()
         try {
+            cleanupLegacyNotification()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopForeground(STOP_FOREGROUND_DETACH)
             } else {
                 @Suppress("DEPRECATION")
-                stopForeground(true)
+                stopForeground(false)
             }
         } catch (e: Exception) {
             Log.w(TAG, "stopForeground error: ${e.message}")
@@ -889,33 +892,41 @@ class LocalDnsVpnService : VpnService() {
         return if (checksum == 0) 0xFFFF else checksum
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "QIEZKA Web Guard",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Active DNS sinkhole protecting focus sessions"
-            }
+    private fun cleanupLegacyNotification() {
+        try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            nm?.createNotificationChannel(channel)
-        }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm?.deleteNotificationChannel(OLD_CHANNEL_ID)
+            }
+            nm?.cancel(OLD_NOTIF_ID)
+        } catch (ignore: Exception) {}
     }
 
     private fun buildNotification(): Notification {
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
+        AlarmReceiver.createNotificationChannels(this)
+
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         }
 
-        return builder
-            .setContentTitle("QIEZKA Web Guard Active")
-            .setContentText("WebClassifier On-Device Protection Active")
-            .setSmallIcon(R.mipmap.ic_launcher)
+        var pFlags = PendingIntent.FLAG_UPDATE_CURRENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pFlags = pFlags or PendingIntent.FLAG_IMMUTABLE
+        }
+
+        val contentIntent = PendingIntent.getActivity(this, AlarmReceiver.NOTIF_ID_STATUS, launchIntent, pFlags)
+
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val sessionTitle = prefs?.getString("active_session_title", null)
+
+        return NotificationCompat.Builder(this, AlarmReceiver.CHANNEL_ID_STATUS)
+            .setSmallIcon(R.drawable.ic_qiezka_notif)
+            .setContentTitle(QiezkaNotificationHelper.formatSessionProgressTitle(sessionTitle))
+            .setContentText(QiezkaNotificationHelper.BODY_SESSION_PROGRESS)
             .setOngoing(true)
+            .setContentIntent(contentIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
             .build()
     }
 }

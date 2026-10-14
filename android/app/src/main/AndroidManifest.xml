@@ -171,6 +171,17 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- ===== Resource Query Receiver ===== -->
+        <!-- Handles inline direct-reply RemoteInput resource searches -->
+        <receiver
+            android:name=".ResourceQueryReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.uncode.app.ACTION_RESOURCE_QUERY" />
+            </intent-filter>
+        </receiver>
+
         <!-- ===== QIEZKA Home Screen App Widget ===== -->
         <!-- 1x1 quick launch widget displaying the QIEZKA app icon -->
         <receiver

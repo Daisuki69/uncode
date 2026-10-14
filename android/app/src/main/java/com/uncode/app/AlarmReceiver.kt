@@ -67,19 +67,9 @@ class AlarmReceiver : BroadcastReceiver() {
 
                 scheduleLockEndAlarm(context, safeLockEndTime, scheduleId)
 
-                // Only show notification and bring activity to front if this is a fresh transition into lockdown
+                // Ensure background enforcement core is running
                 if (!alreadyActive) {
                     createNotificationChannels(context)
-                    showNotificationStatic(
-                        context,
-                        NOTIF_ID_STATUS,
-                        CHANNEL_ID_STATUS,
-                        "🔒 QIEZKA Lockdown Active",
-                        "$title is currently active ($durationMinutes min). Distracting apps are blocked.",
-                        Notification.PRIORITY_HIGH,
-                        true
-                    )
-
                     EnforcementCoreService.ensureRunning(context)
                 }
 
@@ -181,7 +171,9 @@ class AlarmReceiver : BroadcastReceiver() {
 
             // Priority 2: setAlarmClock with ActivityOptions background start mode (bypasses BAL restrictions on Android 14/15/16)
             try {
-                val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                val launchIntent = Intent(context, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                }
                 var pFlags = PendingIntent.FLAG_UPDATE_CURRENT
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     pFlags = pFlags or PendingIntent.FLAG_IMMUTABLE
@@ -264,11 +256,9 @@ class AlarmReceiver : BroadcastReceiver() {
                     Log.w(TAG, "Cannot show notification: POST_NOTIFICATIONS is disabled in OS settings for ${context.packageName}")
                 }
 
-                var launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                if (launchIntent == null) {
-                    launchIntent = Intent().setClassName(context.getPackageName(), "com.uncode.app.MainActivity")
+                val launchIntent = Intent(context, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 
                 var pFlags = PendingIntent.FLAG_UPDATE_CURRENT
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -389,26 +379,15 @@ class AlarmReceiver : BroadcastReceiver() {
         // Schedule exact auto-release alarm
         scheduleLockEndAlarm(context, lockEndTime, scheduleId)
 
-        // Send high-priority notification with fullScreenIntent
-        val sessionTitle = if (!title.isNullOrBlank()) title else "Study Session"
-        showNotification(
-            context,
-            NOTIF_ID_STATUS,
-            CHANNEL_ID_STATUS,
-            "🔒 QIEZKA Lockdown Engaged",
-            "$sessionTitle is active ($durationMinutes min). Distracting apps are blocked.",
-            Notification.PRIORITY_HIGH,
-            true
-        )
-
-        // Bring up MainActivity if overlay permission is permitted
+        // Ensure background enforcement core is running
         try {
             EnforcementCoreService.ensureRunning(context)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure EnforcementCoreService on schedule start: ${e.message}")
         }
 
-        // Start Floating Assistive Timer Ball Overlay
+        // Start Floating Assistive Timer Ball Overlay (hosts the single unified ongoing session notification)
+        val sessionTitle = if (!title.isNullOrBlank()) title else "Study Session"
         FloatingOverlayService.startService(context, lockEndTime, sessionTitle)
 
         // Instantly enforce blocking if user is currently inside a non-whitelisted app
@@ -428,24 +407,12 @@ class AlarmReceiver : BroadcastReceiver() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         nm?.cancel(NOTIF_ID_STATUS)
 
-        val isHardcore = "hardcore".equals(prefs.getString("operating_mode", "safemode"), ignoreCase = true)
-        val notifTitle = if (isHardcore) {
-            "⚠️ Homework Expired — Consequence Active (Hardcore)"
-        } else {
-            "⚠️ Homework Expired — Consequence Active"
-        }
-        val notifMsg = if (isHardcore) {
-            "Study session expired without passing. Distracting apps remain restricted 24/7 (Hardcore Mode) until rescheduled and passed."
-        } else {
-            "Study session expired without passing. Distracting apps remain restricted during operating hours (7 PM – 3 AM) until rescheduled and passed."
-        }
-
         showNotification(
             context,
             NOTIF_ID_COMPLETED,
             CHANNEL_ID_ALERTS,
-            notifTitle,
-            notifMsg,
+            QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE,
+            "",
             Notification.PRIORITY_HIGH,
             false
         )
@@ -494,7 +461,7 @@ class AlarmReceiver : BroadcastReceiver() {
             context,
             notifId,
             CHANNEL_ID_ALERTS,
-            "⏰ QIEZKA Upcoming Lockdown",
+            QiezkaNotificationHelper.TITLE_UPCOMING_LOCKDOWN,
             warningText,
             Notification.PRIORITY_HIGH,
             false

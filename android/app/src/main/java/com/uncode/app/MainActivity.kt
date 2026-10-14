@@ -32,6 +32,7 @@ class MainActivity : BridgeActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         registerPlugin(LockPlugin::class.java)
         super.onCreate(savedInstanceState)
+        QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(this)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
