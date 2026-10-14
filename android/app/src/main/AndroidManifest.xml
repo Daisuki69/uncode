@@ -179,6 +179,7 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.uncode.app.ACTION_RESOURCE_QUERY" />
+                <action android:name="com.uncode.app.ACTION_REVIVE_RESOURCE_QUERY" />
             </intent-filter>
         </receiver>
 
