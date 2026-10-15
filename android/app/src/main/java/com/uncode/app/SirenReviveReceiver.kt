@@ -30,6 +30,7 @@ class SirenReviveReceiver : BroadcastReceiver() {
 
         try {
             EnforcementCoreService.ensureRunning(context)
+            QiezkaNotificationListener.requestRebind(context)
         } catch (e: Exception) {
             Log.e(TAG, "Error ensuring EnforcementCoreService running: ${e.message}")
         }

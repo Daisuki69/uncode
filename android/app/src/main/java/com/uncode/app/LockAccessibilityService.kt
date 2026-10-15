@@ -21,6 +21,7 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Browser
+import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -75,6 +76,18 @@ open class LockAccessibilityService : AccessibilityService() {
     private val packageManifestHostCache: MutableMap<String, String> = ConcurrentHashMap()
     private var lastBlockTimestamp: Long = 0L
     private var lastPipRemediationTime: Long = 0L
+
+    private var wasNotificationShadeActive = false
+    private var isSystemDialogReceiverRegistered = false
+    private val systemDialogReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            if ((action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_CLOSE_SYSTEM_DIALOGS) && context != null) {
+                wasNotificationShadeActive = false
+                ResourceQueryReceiver.onShadeCollapsed(context)
+            }
+        }
+    }
 
     companion object {
         private const val TAG = "LockAccessService"
@@ -188,22 +201,57 @@ open class LockAccessibilityService : AccessibilityService() {
                 return sCachedIsSirenDefault
             }
             try {
-                // 1. Android 10+ (API 29+) RoleManager authoritative check via reflection
+                // 1. Android 10+ (API 29+) RoleManager authoritative check for ROLE_ASSISTANT and ROLE_HOME
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     try {
                         val roleManager = context.getSystemService(RoleManager::class.java)
-                        if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                        if (roleManager != null) {
                             val method = roleManager.javaClass.getMethod("getRoleHolders", String::class.java)
-                            @Suppress("UNCHECKED_CAST")
-                            val holders = method.invoke(roleManager, RoleManager.ROLE_HOME) as? List<String>
-                            if (!holders.isNullOrEmpty()) {
-                                sCachedIsSirenDefault = holders.contains(LauncherStateManager.SIREN_PACKAGE)
-                                sLastSirenCheckTime = now
-                                return sCachedIsSirenDefault
+                            // Check ROLE_ASSISTANT first (Primary 24/7 Watchdog role)
+                            if (roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+                                @Suppress("UNCHECKED_CAST")
+                                val assistHolders = method.invoke(roleManager, RoleManager.ROLE_ASSISTANT) as? List<String>
+                                if (assistHolders?.contains(LauncherStateManager.SIREN_PACKAGE) == true) {
+                                    sCachedIsSirenDefault = true
+                                    sLastSirenCheckTime = now
+                                    return true
+                                }
+                            }
+                            // Check ROLE_HOME (Legacy fallback)
+                            if (roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                                @Suppress("UNCHECKED_CAST")
+                                val homeHolders = method.invoke(roleManager, RoleManager.ROLE_HOME) as? List<String>
+                                if (homeHolders?.contains(LauncherStateManager.SIREN_PACKAGE) == true) {
+                                    sCachedIsSirenDefault = true
+                                    sLastSirenCheckTime = now
+                                    return true
+                                }
                             }
                         }
                     } catch (ignore: Throwable) {}
                 }
+
+                // 2. Settings.Secure assistant check fallback
+                try {
+                    val defaultAssist = Settings.Secure.getString(
+                        context.contentResolver,
+                        "assistant"
+                    )
+                    if (defaultAssist?.contains(LauncherStateManager.SIREN_PACKAGE) == true) {
+                        sCachedIsSirenDefault = true
+                        sLastSirenCheckTime = now
+                        return true
+                    }
+                    val voiceService = Settings.Secure.getString(
+                        context.contentResolver,
+                        "voice_interaction_service"
+                    )
+                    if (voiceService?.contains(LauncherStateManager.SIREN_PACKAGE) == true) {
+                        sCachedIsSirenDefault = true
+                        sLastSirenCheckTime = now
+                        return true
+                    }
+                } catch (_: Exception) {}
 
                 // 2. Legacy PackageManager resolveActivity fallback
                 val pm = context.packageManager
@@ -773,6 +821,17 @@ open class LockAccessibilityService : AccessibilityService() {
             }
         } catch (ignore: Exception) {}
 
+        try {
+            if (!isSystemDialogReceiverRegistered) {
+                val filter = android.content.IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                    addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+                }
+                registerReceiver(systemDialogReceiver, filter)
+                isSystemDialogReceiverRegistered = true
+            }
+        } catch (ignore: Exception) {}
+
         Log.i(TAG, "LockAccessibilityService connected and ticker running")
     }
 
@@ -785,7 +844,60 @@ open class LockAccessibilityService : AccessibilityService() {
             auditHandler = null
         }
         tickerHandler.removeCallbacks(tickerRunnable)
+        try {
+            if (isSystemDialogReceiverRegistered) {
+                unregisterReceiver(systemDialogReceiver)
+                isSystemDialogReceiverRegistered = false
+            }
+        } catch (ignore: Exception) {}
         Log.i(TAG, "LockAccessibilityService onDestroy")
+    }
+
+    fun isNotificationShadeVisible(): Boolean {
+        try {
+            val currentWindows = windows ?: return false
+            val displayMetrics = resources.displayMetrics
+            val halfScreenHeight = displayMetrics.heightPixels / 2
+            val rect = android.graphics.Rect()
+
+            for (win in currentWindows) {
+                if (win.type == AccessibilityWindowInfo.TYPE_SYSTEM) {
+                    win.getBoundsInScreen(rect)
+                    // The status bar normally only occupies the top ~95px.
+                    // When the notification shade is pulled down, the system window expands to full screen height!
+                    if (rect.height() > halfScreenHeight && (win.isActive || win.isFocused)) {
+                        val rootPkg = win.root?.packageName?.toString()
+                        if (rootPkg == null || rootPkg == "com.android.systemui") {
+                            return true
+                        }
+                    }
+                }
+            }
+        } catch (ignore: Exception) {}
+        return false
+    }
+
+    private fun checkNotificationShadeCollapseHeartbeat() {
+        try {
+            val isShadeOpen = isNotificationShadeVisible()
+            if (wasNotificationShadeActive && !isShadeOpen) {
+                wasNotificationShadeActive = false
+                ResourceQueryReceiver.onShadeCollapsed(this)
+            } else if (isShadeOpen) {
+                wasNotificationShadeActive = true
+            }
+        } catch (ignore: Exception) {}
+    }
+
+    private fun trackNotificationShadeCollapse(event: AccessibilityEvent) {
+        try {
+            val eventType = event.eventType
+            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED) {
+                checkNotificationShadeCollapseHeartbeat()
+            }
+        } catch (ignore: Exception) {}
     }
 
     private fun refreshDynamicExemptPackages() {
@@ -882,6 +994,9 @@ open class LockAccessibilityService : AccessibilityService() {
 
         // Track foreground app switches
         val eventType = event.eventType
+
+        // Track notification shade collapse
+        trackNotificationShadeCollapse(event)
 
         // User Mandate: Scroll events must NEVER trigger inspections, DOM crawls, or app blocks
         if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
@@ -2547,6 +2662,9 @@ open class LockAccessibilityService : AccessibilityService() {
     }
 
     private fun onTickerTick() {
+        // Continuous heartbeat check for notification shade collapse
+        checkNotificationShadeCollapseHeartbeat()
+
         if (prefs == null) {
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         }

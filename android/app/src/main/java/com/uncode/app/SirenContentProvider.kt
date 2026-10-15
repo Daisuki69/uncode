@@ -28,6 +28,21 @@ class SirenContentProvider : ContentProvider() {
     }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
+        if ("ping" == method) {
+            val bundle = Bundle().apply {
+                putBoolean("alive", true)
+                putString("package", "com.uncode.app")
+            }
+            try {
+                context?.let { ctx ->
+                    EnforcementCoreService.ensureRunning(ctx)
+                    QiezkaNotificationListener.requestRebind(ctx)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error ensuring EnforcementCoreService on ping: ${e.message}")
+            }
+            return bundle
+        }
         if ("getLauncher" == method) {
             try {
                 val launcher = LauncherStateManager.getSelectedLauncher(context)
