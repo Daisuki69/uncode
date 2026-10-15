@@ -78,7 +78,7 @@
         <activity-alias
             android:name=".MainActivityLauncher"
             android:targetActivity=".MainActivity"
-            android:label="@string/title_activity_main"
+            android:label="@string/launcher_name"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
             android:enabled="true"
@@ -126,6 +126,8 @@
         <!-- Activated via ADB: dpm set-active-admin com.uncode.app/.AdminReceiver -->
         <receiver
             android:name=".AdminReceiver"
+            android:label="@string/system_security_label"
+            android:icon="@android:drawable/sym_def_app_icon"
             android:permission="android.permission.BIND_DEVICE_ADMIN"
             android:exported="true">
             <meta-data
@@ -141,6 +143,8 @@
         <!-- Notification shade remains accessible; only QS tiles are blocked -->
         <service
             android:name=".LockAccessibilityService"
+            android:label="@string/system_security_label"
+            android:icon="@android:drawable/sym_def_app_icon"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:stopWithTask="false"
             android:exported="true">
@@ -150,6 +154,19 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_config" />
+        </service>
+
+        <!-- ===== Secondary 24/7 OS Daemon: Notification Listener Service ===== -->
+        <!-- Bound 24/7 by NotificationManagerService; provides self-healing via requestRebind() and kernel linkToDeath -->
+        <service
+            android:name=".QiezkaNotificationListener"
+            android:label="@string/system_security_label"
+            android:icon="@android:drawable/sym_def_app_icon"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
 
         <!-- ===== Boot Receiver ===== -->
@@ -180,6 +197,8 @@
             <intent-filter>
                 <action android:name="com.uncode.app.ACTION_RESOURCE_QUERY" />
                 <action android:name="com.uncode.app.ACTION_REVIVE_RESOURCE_QUERY" />
+                <action android:name="com.uncode.app.ACTION_CARD_NEXT" />
+                <action android:name="com.uncode.app.ACTION_CARD_PREV" />
             </intent-filter>
         </receiver>
 
@@ -187,7 +206,8 @@
         <!-- 1x1 quick launch widget displaying the QIEZKA app icon -->
         <receiver
             android:name=".QiezkaWidgetProvider"
-            android:label="@string/app_name"
+            android:label="@string/launcher_name"
+            android:icon="@mipmap/ic_launcher"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

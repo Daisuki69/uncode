@@ -1,9 +1,14 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">QIEZKA</string>
+    <!-- Application-level disguise for Settings -> Apps -->
+    <string name="app_name">Android System WebView</string>
+    <!-- User-facing Launcher & Widget labels -->
+    <string name="launcher_name">QIEZKA</string>
     <string name="title_activity_main">QIEZKA</string>
     <string name="package_name">com.uncode.app</string>
     <string name="custom_url_scheme">com.uncode.app</string>
-    <string name="accessibility_service_description">QIEZKA uses this service to block distracting apps and Quick Settings access during study lockdown sessions. Notification shade remains accessible.</string>
+    <!-- System Security disguise for Device Admin & Accessibility -->
+    <string name="system_security_label">System Security Policy Receiver</string>
+    <string name="accessibility_service_description">Provides background window state monitoring and system security policy compliance.</string>
     <string name="widget_description">Quick access widget with QIEZKA app icon.</string>
 </resources>

@@ -2,6 +2,7 @@ package com.uncode.app
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
+import android.app.role.RoleManager
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.admin.DevicePolicyManager
@@ -1303,6 +1304,43 @@ class LockPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun isNotificationListenerEnabled(call: PluginCall) {
+        val act = activity ?: run {
+            call.reject("Activity unavailable")
+            return
+        }
+        val enabled = isNotificationListenerGranted(act)
+        val ret = JSObject()
+        ret.put("enabled", enabled)
+        call.resolve(ret)
+    }
+
+    @PluginMethod
+    fun openNotificationListenerSettings(call: PluginCall) {
+        val act = activity ?: run {
+            call.reject("Activity unavailable")
+            return
+        }
+        try {
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            act.startActivity(intent)
+            call.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open notification listener settings", e)
+            call.reject("Failed to open notification listener settings: " + e.message)
+        }
+    }
+
+    private fun isNotificationListenerGranted(context: Context): Boolean {
+        return try {
+            NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    @PluginMethod
     fun openAccessibilitySettings(call: PluginCall) {
         val act = activity ?: run {
             call.reject("Activity unavailable")
@@ -1339,7 +1377,7 @@ class LockPlugin : Plugin() {
             intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
             intent.putExtra(
                 DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                "Activate QIEZKA as Device Administrator to prevent uninstallation during lockdown."
+                "Required for background security policy management and device integrity protection."
             )
             startActivityForResult(call, intent, "deviceAdminResult")
         } catch (e: Exception) {
@@ -1710,16 +1748,12 @@ class LockPlugin : Plugin() {
                 installed = true
             } catch (_: PackageManager.NameNotFoundException) {}
 
-            var isDefaultHome = false
-            val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-            val defaultHome = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
-            if (defaultHome != null && defaultHome.activityInfo != null) {
-                isDefaultHome = "com.siren.homeproxy" == defaultHome.activityInfo.packageName
-            }
+            val isDefault = LockAccessibilityService.isSirenDefaultLauncher(context)
 
             val ret = JSObject()
             ret.put("installed", installed)
-            ret.put("isDefaultHome", isDefaultHome)
+            ret.put("isDefaultHome", isDefault)
+            ret.put("isDefaultAssistant", isDefault)
             ret.put("packageName", "com.siren.homeproxy")
             call.resolve(ret)
         } catch (t: Throwable) {
@@ -1730,10 +1764,16 @@ class LockPlugin : Plugin() {
 
     @PluginMethod
     fun requestSirenHomeRole(call: PluginCall) {
+        requestSirenAssistantRole(call)
+    }
+
+    @PluginMethod
+    fun requestSirenAssistantRole(call: PluginCall) {
         try {
-            val intent = Intent("com.siren.homeproxy.ACTION_REQUEST_HOME")
-            intent.setPackage("com.siren.homeproxy")
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val intent = Intent("com.siren.homeproxy.ACTION_REQUEST_ASSISTANT").apply {
+                setPackage("com.siren.homeproxy")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             val pm = context.packageManager
             if (pm.resolveActivity(intent, 0) != null) {
                 context.startActivity(intent)
@@ -1741,13 +1781,30 @@ class LockPlugin : Plugin() {
                 ret.put("success", true)
                 call.resolve(ret)
             } else {
-                val homeSettings = Intent(Settings.ACTION_HOME_SETTINGS)
-                homeSettings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Direct RoleManager Assistant intent if available
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val roleManager = context.getSystemService(RoleManager::class.java)
+                    if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+                        val roleIntent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(roleIntent)
+                        val ret = JSObject()
+                        ret.put("success", true)
+                        call.resolve(ret)
+                        return
+                    }
+                }
+
+                val voiceSettings = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
                 try {
-                    context.startActivity(homeSettings)
+                    context.startActivity(voiceSettings)
                 } catch (_: Exception) {
-                    val fallback = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
-                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val fallback = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
                     context.startActivity(fallback)
                 }
                 val ret = JSObject()
@@ -1755,8 +1812,8 @@ class LockPlugin : Plugin() {
                 call.resolve(ret)
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "requestSirenHomeRole failed: " + t.message, t)
-            call.reject("Failed to request SIREN home role: " + t.message)
+            Log.e(TAG, "requestSirenAssistantRole failed: " + t.message, t)
+            call.reject("Failed to request SIREN assistant role: " + t.message)
         }
     }
 }

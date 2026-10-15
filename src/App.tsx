@@ -266,13 +266,14 @@ export default function App() {
   // Load all data on mount
   useEffect(() => {
     async function loadAll() {
-      // 1. Parallelize all persistent storage reads (finishes in <10ms)
-      const [loadedSettings, loadedResources, loadedLogs, loadedCompletedHomeworks, loadedTimeOffset] = await Promise.all([
+      // 1. Parallelize all persistent storage reads & native lock check (<10ms)
+      const [loadedSettings, loadedResources, loadedLogs, loadedCompletedHomeworks, loadedTimeOffset, lockStatus] = await Promise.all([
         loadData<AppSettings>('studom_settings', { onboardingComplete: false, role: 'just a guy', schedules: [] }),
         loadData<SavedResource[]>('studom_resources', []),
         loadData<LogEntry[]>('studom_logs', []),
         loadData<import('./types').CompletedHomework[]>('studom_completed_homeworks', []),
-        loadData<number>('studom_timeOffset', 0)
+        loadData<number>('studom_timeOffset', 0),
+        getLockStatus().catch(() => null)
       ]);
       
       // Migrate old schedule
@@ -281,23 +282,6 @@ export default function App() {
         delete (loadedSettings as any).schedule;
       } else if (!loadedSettings.schedules) {
         loadedSettings.schedules = [];
-      }
-
-      if (loadedSettings.allowedApps && loadedSettings.allowedApps.length > 0) {
-        try {
-          const candidateIds = loadedSettings.allowedApps.map(a => a.id).filter(Boolean);
-          const activeServices = loadedSettings.activeServices || (loadedSettings.allowYoutube ? ['youtube'] : []);
-          const sanitizeRes = await sanitizeImportApps(candidateIds, activeServices);
-          const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
-          loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => 
-            cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !a.isLauncher && !a.isHardcoded
-          );
-        } catch (e) {
-          console.warn("Startup allowedApps sanitization failed", e);
-          loadedSettings.allowedApps = loadedSettings.allowedApps.filter(a => 
-            !isAppBlacklisted(a.id) && !a.isLauncher && !a.isHardcoded
-          );
-        }
       }
 
       // Check cached installed apps for initial allowed apps auto-population if needed
@@ -321,13 +305,8 @@ export default function App() {
         : 'accessibility';
       setWebProtectionMode(safeWebMode);
       setAllowYoutube(loadedSettings.allowYoutube ?? false);
-      const activeServices = loadedSettings.activeServices || (loadedSettings.allowYoutube ? ['youtube'] : []);
-      const registered = await getRegisteredServices();
-      for (const s of registered) {
-        const allowed = activeServices.includes(s.id);
-        setServicePolicy(s.id, allowed).catch(() => {});
-      }
       setBlockWebGames(true);
+
       // Enforce mutual exclusivity invariant on boot:
       // A homework can only have 1 unique identifier and cannot exist as an active schedule at the same time as a failed homework.
       const activeScheduleIds = new Set<string>(
@@ -352,7 +331,6 @@ export default function App() {
 
       // Check native lock status immediately upon loading
       try {
-        const lockStatus = await getLockStatus();
         const isConsequenceNativelyOrInSettings = (lockStatus && lockStatus.isConsequenceActive) || loadedSettings.consequenceActive;
         if (isConsequenceNativelyOrInSettings) {
           const hasFailedHomework = sanitizedCompletedHomeworks.some(h => !h.passed);
@@ -392,8 +370,37 @@ export default function App() {
         setAppState(loadedSettings.onboardingComplete ? 'dashboard' : 'onboarding');
       }
 
-      // Immediately mark as loaded to instantly render the app screen
+      // Immediately mark as loaded to instantly render the app screen (<10ms)
       setIsLoaded(true);
+
+      // 2. Run heavy allowedApps sanitization & service policies in background without delaying first frame
+      (async () => {
+        try {
+          if (loadedSettings.allowedApps && loadedSettings.allowedApps.length > 0) {
+            const candidateIds = loadedSettings.allowedApps.map(a => a.id).filter(Boolean);
+            const activeServices = loadedSettings.activeServices || (loadedSettings.allowYoutube ? ['youtube'] : []);
+            const sanitizeRes = await sanitizeImportApps(candidateIds, activeServices);
+            const cleanSet = new Set(sanitizeRes.cleanPackageIds || []);
+            setSettings(prev => ({
+              ...prev,
+              allowedApps: (prev.allowedApps || []).filter(a =>
+                cleanSet.has(a.id) && !isAppBlacklisted(a.id) && !a.isLauncher && !a.isHardcoded
+              )
+            }));
+          }
+        } catch (e) {
+          console.warn("Background allowedApps sanitization failed", e);
+        }
+
+        try {
+          const activeServices = loadedSettings.activeServices || (loadedSettings.allowYoutube ? ['youtube'] : []);
+          const registered = await getRegisteredServices();
+          for (const s of registered) {
+            const allowed = activeServices.includes(s.id);
+            setServicePolicy(s.id, allowed).catch(() => {});
+          }
+        } catch {}
+      })();
 
       // 2. Query fresh installed apps asynchronously in background without holding the loading screen
       getInstalledApps().then(installed => {
@@ -1053,9 +1060,9 @@ const isOperatingHours = (timeOffset: number = 0, operatingMode?: 'safemode' | '
 
   if (!isLoaded) {
     return (
-      <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center text-red-500 font-black">
-        <Loader2 className="w-12 h-12 animate-spin mb-4" />
-        <span className="uppercase tracking-widest text-xs font-bold text-gray-500">Decrypting QIEZKA...</span>
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center text-red-600 font-black">
+        <Loader2 className="w-10 h-10 animate-spin mb-3 text-red-600" />
+        <span className="uppercase tracking-widest text-xs font-bold text-gray-500">Loading QIEZKA...</span>
       </div>
     );
   }

@@ -52,7 +52,11 @@ interface LockPluginInterface {
 
   requestNotificationPermission(): Promise<void>;
 
-  openNotificationSettings(): Promise<void>;
+  openNotificationSettings(): Promise<void>;
+
+  isNotificationListenerEnabled(): Promise<{ enabled: boolean }>;
+
+  openNotificationListenerSettings(): Promise<void>;
 
   exportBackup(options: { tempFileName: string; defaultName: string }): Promise<{ success?: boolean; canceled?: boolean }>;
 
@@ -412,7 +416,11 @@ const LockPlugin = registerPlugin<LockPluginInterface>('LockPlugin', {
 
     requestNotificationPermission: async () => console.log('[Dev] Requesting Notification Permission'),
 
-    openNotificationSettings: async () => console.log('[Dev] Opening Notification Settings'),
+    openNotificationSettings: async () => console.log('[Dev] Opening Notification Settings'),
+
+    isNotificationListenerEnabled: async () => ({ enabled: true }),
+
+    openNotificationListenerSettings: async () => console.log('[Dev] Opening Notification Listener Settings'),
 
     exportBackup: async (opts: { tempFileName: string; defaultName: string }) => {
 
@@ -678,6 +686,24 @@ export const requestNotificationPermission = async (): Promise<void> => {
 
 
 
+export const isNotificationListenerEnabled = async (): Promise<boolean> => {
+  try {
+    const res = await LockPlugin.isNotificationListenerEnabled();
+    return res?.enabled ?? false;
+  } catch (e) {
+    console.error('Failed to check notification listener', e);
+    return false;
+  }
+};
+
+export const openNotificationListenerSettings = async (): Promise<void> => {
+  try {
+    await LockPlugin.openNotificationListenerSettings();
+  } catch (e) {
+    console.error('Failed to open notification listener settings', e);
+  }
+};
+
 export const openNotificationSettings = async (): Promise<void> => {
 
   try {

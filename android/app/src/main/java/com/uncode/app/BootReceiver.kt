@@ -31,6 +31,7 @@ class BootReceiver : BroadcastReceiver() {
 
         // 2. Reschedule all background schedule alarms & warning triggers
         ScheduleManager.rescheduleAll(context)
+        QiezkaNotificationListener.requestRebind(context)
 
         // 3. CHECK_WAS_LOCKED Gate
         if (lockdownWasActive) {

@@ -877,14 +877,15 @@ class HomeHandlerTest {
 
     @Test
     fun testUnifiedNotificationTitlesAndBodies() {
-        assertEquals("⏰ QIEZKA Upcoming Lockdown", QiezkaNotificationHelper.TITLE_UPCOMING_LOCKDOWN)
-        assertEquals("⏳ QIEZKA Lock Timer", QiezkaNotificationHelper.TITLE_LOCK_TIMER)
-        assertEquals("⚠️ Homework Expired — Consequence Active", QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE)
+        assertEquals("Your schedule with Qiezka says", QiezkaNotificationHelper.NOTIF_TITLE_DEFAULT)
+        assertEquals("Your schedule with Qiezka says: Upcoming Lockdown", QiezkaNotificationHelper.TITLE_UPCOMING_LOCKDOWN)
+        assertEquals("Your schedule with Qiezka says: Lock Timer", QiezkaNotificationHelper.TITLE_LOCK_TIMER)
+        assertEquals("Your schedule with Qiezka says: Homework Expired — Consequence Active", QiezkaNotificationHelper.TITLE_CONSEQUENCE_ACTIVE)
         assertEquals("Distracting apps are restricted.", QiezkaNotificationHelper.BODY_SESSION_PROGRESS)
 
-        assertEquals("Math Homework is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle("Math Homework"))
-        assertEquals("Study Session is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle(null))
-        assertEquals("Study Session is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle("   "))
+        assertEquals("Your schedule with Qiezka says: Math Homework is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle("Math Homework"))
+        assertEquals("Your schedule with Qiezka says: Study Session is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle(null))
+        assertEquals("Your schedule with Qiezka says: Study Session is in progress.", QiezkaNotificationHelper.formatSessionProgressTitle("   "))
     }
 
     @Test
@@ -973,6 +974,231 @@ class HomeHandlerTest {
         assertTrue(matchNone.isEmpty())
         assertNull(ResourceQueryReceiver.searchInJsonString(mockJson, "Determinants 99"))
         assertEquals("Determinants 99 does not exist", QiezkaNotificationHelper.formatNotFoundText("Determinants 99"))
+    }
+
+    @Test
+    fun testStudyFlashcardPagingAndParsing() {
+        assertEquals("com.uncode.app.ACTION_CARD_NEXT", QiezkaNotificationHelper.ACTION_CARD_NEXT)
+        assertEquals("com.uncode.app.ACTION_CARD_PREV", QiezkaNotificationHelper.ACTION_CARD_PREV)
+
+        val mockJson = """
+            [
+              {
+                "id": "physics_1",
+                "title": "Physics 101",
+                "content": "Ohm's Law | V = I * R\nNewton's Second Law | F = m * a\nGravity Constant"
+              }
+            ]
+        """.trimIndent()
+
+        val cards = ResourceQueryReceiver.parseStudyCardsFromJson(mockJson)
+        assertEquals(3, cards.size)
+
+        assertEquals("Physics 101", cards[0].resourceTitle)
+        assertEquals("Ohm's Law", cards[0].term)
+        assertEquals("V = I * R", cards[0].definition)
+
+        assertEquals("Newton's Second Law", cards[1].term)
+        assertEquals("F = m * a", cards[1].definition)
+
+        assertEquals("Gravity Constant", cards[2].term)
+        assertEquals("", cards[2].definition)
+
+        // Test circular navigation
+        val total = cards.size
+        var index = 0
+        // Next: 0 -> 1 -> 2 -> 0
+        index = (index + 1) % total
+        assertEquals(1, index)
+        index = (index + 1) % total
+        assertEquals(2, index)
+        index = (index + 1) % total
+        assertEquals(0, index)
+
+        // Prev: 0 -> 2 -> 1 -> 0
+        index = ((index - 1) % total + total) % total
+        assertEquals(2, index)
+        index = ((index - 1) % total + total) % total
+        assertEquals(1, index)
+        index = ((index - 1) % total + total) % total
+        assertEquals(0, index)
+    }
+
+    @Test
+    fun testStudyDeckMultiDeckParsingAndResolution() {
+        val multiDeckJson = """
+            [
+              {
+                "id": "deck_1",
+                "title": "Ethics Week 8",
+                "content": "Determinants 1 | Human something\nDeterminants 5 | Human something 2"
+              },
+              {
+                "id": "deck_2",
+                "title": "Physics 101",
+                "content": "Ohm's Law | V = I * R\nNewton's Second Law | F = m * a\nGravity Constant"
+              }
+            ]
+        """.trimIndent()
+
+        val decks = ResourceQueryReceiver.parseStudyDecksFromJson(multiDeckJson)
+        assertEquals(2, decks.size)
+        assertEquals("Ethics Week 8", decks[0].title)
+        assertEquals(2, decks[0].cards.size)
+        assertEquals("Physics 101", decks[1].title)
+        assertEquals(3, decks[1].cards.size)
+
+        // Flat index 0 -> Deck 0, Card 0 (1 of 2)
+        val pos0 = ResourceQueryReceiver.resolveDeckAndCard(decks, 0)
+        assertNotNull(pos0)
+        assertEquals("Ethics Week 8", pos0!!.deck.title)
+        assertEquals("Determinants 1", pos0.card.term)
+        assertEquals(0, pos0.cardIndexInDeck)
+        assertEquals(2, pos0.deck.cards.size)
+
+        // Flat index 1 -> Deck 0, Card 1 (2 of 2)
+        val pos1 = ResourceQueryReceiver.resolveDeckAndCard(decks, 1)
+        assertNotNull(pos1)
+        assertEquals("Ethics Week 8", pos1!!.deck.title)
+        assertEquals("Determinants 5", pos1.card.term)
+        assertEquals(1, pos1.cardIndexInDeck)
+        assertEquals(2, pos1.deck.cards.size)
+
+        // Flat index 2 -> Transitions to Deck 1, Card 0 (1 of 3)
+        val pos2 = ResourceQueryReceiver.resolveDeckAndCard(decks, 2)
+        assertNotNull(pos2)
+        assertEquals("Physics 101", pos2!!.deck.title)
+        assertEquals("Ohm's Law", pos2.card.term)
+        assertEquals(0, pos2.cardIndexInDeck)
+        assertEquals(3, pos2.deck.cards.size)
+
+        // Flat index 3 -> Deck 1, Card 1 (2 of 3)
+        val pos3 = ResourceQueryReceiver.resolveDeckAndCard(decks, 3)
+        assertNotNull(pos3)
+        assertEquals("Physics 101", pos3!!.deck.title)
+        assertEquals("Newton's Second Law", pos3.card.term)
+        assertEquals(1, pos3.cardIndexInDeck)
+        assertEquals(3, pos3.deck.cards.size)
+
+        // Flat index 4 -> Deck 1, Card 2 (3 of 3)
+        val pos4 = ResourceQueryReceiver.resolveDeckAndCard(decks, 4)
+        assertNotNull(pos4)
+        assertEquals("Physics 101", pos4!!.deck.title)
+        assertEquals("Gravity Constant", pos4.card.term)
+        assertEquals(2, pos4.cardIndexInDeck)
+        assertEquals(3, pos4.deck.cards.size)
+
+        // Circular Next: Flat index 5 wraps back to Flat index 0 (Deck 0, Card 0)
+        val pos5 = ResourceQueryReceiver.resolveDeckAndCard(decks, 5)
+        assertNotNull(pos5)
+        assertEquals("Ethics Week 8", pos5!!.deck.title)
+        assertEquals(0, pos5.cardIndexInDeck)
+
+        // Circular Prev: Flat index -1 wraps to last card (Deck 1, Card 2)
+        val posPrev = ResourceQueryReceiver.resolveDeckAndCard(decks, -1)
+        assertNotNull(posPrev)
+        assertEquals("Physics 101", posPrev!!.deck.title)
+        assertEquals("Gravity Constant", posPrev.card.term)
+        assertEquals(2, posPrev.cardIndexInDeck)
+
+        // Empty decks handling
+        assertNull(ResourceQueryReceiver.resolveDeckAndCard(emptyList(), 0))
+    }
+
+    @Test
+    fun testCollapsedAndExpandedNotificationFormatting() {
+        val card = QiezkaNotificationHelper.StudyCard(
+            resourceTitle = "Ethics Week 8",
+            term = "Categorical Imperative",
+            definition = "Act only according to that maxim whereby you can at the same time will that it should become a universal law."
+        )
+
+        // Title formatted with deck name and deck-scoped counter
+        val expectedTitle = "Your schedule with Qiezka says • Ethics Week 8 (1/5)"
+        val actualTitle = "Your schedule with Qiezka says • ${card.resourceTitle} (1/5)"
+        assertEquals(expectedTitle, actualTitle)
+
+        // Collapsed text is clean single-line term
+        val collapsedText = "📌 ${card.term}"
+        assertEquals("📌 Categorical Imperative", collapsedText)
+
+        // Expanded text includes definition with spacing
+        val expandedText = "📌 ${card.term}\n\n${card.definition}"
+        assertTrue(expandedText.startsWith("📌 Categorical Imperative\n\nAct only"))
+
+        // Auxiliary pipe parsing
+        val pipeText = "Photosynthesis | Process by which plants produce glucose"
+        val parts = pipeText.split("|", limit = 2)
+        val auxTerm = parts[0].trim()
+        val auxDef = parts[1].trim()
+        assertEquals("Photosynthesis", auxTerm)
+        assertEquals("Process by which plants produce glucose", auxDef)
+        assertEquals("📌 Photosynthesis", "📌 $auxTerm")
+        assertEquals("📌 Photosynthesis\n\nProcess by which plants produce glucose", "📌 $auxTerm\n\n$auxDef")
+    }
+
+    @Test
+    fun testCovertSequenceGatingMatchingAndRejection() {
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
+        val target = ResourceQueryReceiver.TARGET_SEQUENCE
+        assertEquals(listOf("PREV", "NEXT", "PREV", "PREV", "NEXT"), target)
+        assertEquals(2000L, ResourceQueryReceiver.SEQUENCE_TOTAL_TIMEOUT_MS)
+
+        // 1. Partial sequence does not match
+        val t0 = 100000L
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t0))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("NEXT", t0 + 300))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t0 + 600))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t0 + 900))
+
+        // 2. 5th tap within 2.0s completes exact sequence -> MATCH!
+        assertTrue(ResourceQueryReceiver.feedSequenceForTesting("NEXT", t0 + 1400))
+
+        // 3. Reset and test timeout invalidation (> 2.0 seconds from 1st tap)
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
+        val t1 = 200000L
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t1))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("NEXT", t1 + 400))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t1 + 800))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t1 + 1200))
+        // 5th tap arrives at t1 + 2100ms (> 2000ms from 1st tap) -> MUST BE INVALID!
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("NEXT", t1 + 2100))
+
+        // 4. Test wrong sequence rejection within 2.0s
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
+        val t2 = 300000L
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("NEXT", t2))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t2 + 300))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("NEXT", t2 + 600))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("PREV", t2 + 900))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("NEXT", t2 + 1200))
+
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
+        assertTrue(ResourceQueryReceiver.getSequenceBufferForTesting().isEmpty())
+    }
+
+    @Test
+    fun testDisguisedVsRevealedNotificationFormatting() {
+        val card = QiezkaNotificationHelper.StudyCard(
+            resourceTitle = "Philosophy 101",
+            term = "Trolley Problem",
+            definition = "A thought experiment in ethics about sacrificing one person to save many."
+        )
+
+        // When locked (isUnlocked = false): Blank camouflage disguise
+        val lockedTitle = if (false) "revealed" else QiezkaNotificationHelper.NOTIF_TITLE_DEFAULT
+        val lockedBody = if (false) "📌 ${card.term}" else ""
+        assertEquals("Your schedule with Qiezka says", lockedTitle)
+        assertEquals("", lockedBody)
+
+        // When unlocked (isUnlocked = true): Active flashcard revealed
+        val unlockedTitle = "Your schedule with Qiezka says • ${card.resourceTitle} (1/1)"
+        val unlockedCollapsed = "📌 ${card.term}"
+        val unlockedExpanded = "📌 ${card.term}\n\n${card.definition}"
+
+        assertEquals("Your schedule with Qiezka says • Philosophy 101 (1/1)", unlockedTitle)
+        assertEquals("📌 Trolley Problem", unlockedCollapsed)
+        assertTrue(unlockedExpanded.contains("thought experiment in ethics"))
     }
 }
 

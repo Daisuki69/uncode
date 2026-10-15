@@ -1,5 +1,6 @@
 package com.uncode.app
 
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
@@ -56,6 +57,13 @@ class MainActivity : BridgeActivity() {
         sIsRunning = true
         sInstance = this
         QiezkaWidgetProvider.syncLauncherIconVisibility(this)
+        QiezkaNotificationListener.requestRebind(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        bridge?.onNewIntent(intent)
     }
 
     override fun onDestroy() {

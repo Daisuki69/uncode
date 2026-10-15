@@ -270,9 +270,17 @@ class AlarmReceiver : BroadcastReceiver() {
                 val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 val vibrationPattern = longArrayOf(0, 350, 200, 350)
 
+                val displayTitle = if (title.startsWith("Your schedule with Qiezka")) {
+                    title
+                } else if (title.isNotBlank()) {
+                    "Your schedule with Qiezka says: $title"
+                } else {
+                    QiezkaNotificationHelper.NOTIF_TITLE_DEFAULT
+                }
+
                 val builder = NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(R.drawable.ic_qiezka_notif)
-                    .setContentTitle(title)
+                    .setContentTitle(displayTitle)
                     .setContentText(body)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setAutoCancel(!ongoing)

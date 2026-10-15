@@ -1152,6 +1152,11 @@ object AppClassifier {
                lower == "homesettingsactivity" ||
                lower.contains(".homesettingsactivity") ||
                lower.contains("homesettingsactivity") ||
+               lower.contains("defaultassistpicker") ||
+               lower.contains("defaultassistsettingsactivity") ||
+               lower.contains("manageassistactivity") ||
+               lower.contains("voiceinputsettingsactivity") ||
+               lower.contains("voiceinteractionservicesettings") ||
                lower.contains("rolesearchactivity") ||
                lower.contains("specialappaccessactivity")
     }

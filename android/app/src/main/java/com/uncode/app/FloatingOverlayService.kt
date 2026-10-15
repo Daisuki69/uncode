@@ -1,5 +1,7 @@
 package com.uncode.app
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationManager
@@ -9,7 +11,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -17,10 +21,12 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
@@ -91,6 +97,60 @@ class FloatingOverlayService : Service() {
     private val tickerHandler = Handler(Looper.getMainLooper())
     private var isViewAdded = false
 
+    private var snapAnimator: ValueAnimator? = null
+    private var isLayoutUpdateScheduled = false
+    private var pendingLayoutX = 0
+    private var pendingLayoutY = 0
+
+    private var lastScheduleId: String? = null
+    private var cachedDurationMinutes: Int = 90
+    private var lastForegroundNotificationTitle: String? = null
+
+    private fun scheduleLayoutUpdate(x: Int, y: Int) {
+        pendingLayoutX = x
+        pendingLayoutY = y
+        if (!isLayoutUpdateScheduled) {
+            isLayoutUpdateScheduled = true
+            Choreographer.getInstance().postFrameCallback {
+                isLayoutUpdateScheduled = false
+                val v = floatingView
+                val lp = layoutParams
+                val wm = windowManager
+                if (isViewAdded && wm != null && v != null && lp != null) {
+                    lp.x = pendingLayoutX
+                    lp.y = pendingLayoutY
+                    try {
+                        wm.updateViewLayout(v, lp)
+                    } catch (ignore: Exception) {}
+                }
+            }
+        }
+    }
+
+    private fun getScreenBounds(): Rect {
+        val wm = windowManager ?: getSystemService(WINDOW_SERVICE) as? WindowManager
+        if (wm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val metrics = wm.currentWindowMetrics
+                val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                return Rect(
+                    insets.left,
+                    insets.top,
+                    metrics.bounds.width() - insets.right,
+                    metrics.bounds.height() - insets.bottom
+                )
+            } catch (_: Exception) {}
+        }
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm?.defaultDisplay?.getMetrics(metrics)
+        val w = if (metrics.widthPixels > 0) metrics.widthPixels else 1080
+        val h = if (metrics.heightPixels > 0) metrics.heightPixels else 2400
+        return Rect(0, 60, w, h - 80)
+    }
+
     private val tickerRunnable = object : Runnable {
         override fun run() {
             updateTimerDisplay()
@@ -147,6 +207,9 @@ class FloatingOverlayService : Service() {
     }
 
     private fun startAsForegroundService() {
+        if (isViewAdded && lastForegroundNotificationTitle == sessionTitle) {
+            return
+        }
         try {
             AlarmReceiver.createNotificationChannels(this)
 
@@ -176,6 +239,7 @@ class FloatingOverlayService : Service() {
             } else {
                 startForeground(NOTIF_ID_OVERLAY, notification)
             }
+            lastForegroundNotificationTitle = sessionTitle
             Log.i(TAG, "FloatingOverlayService running in foreground")
         } catch (e: Exception) {
             Log.e(TAG, "startAsForegroundService error: ${e.message}", e)
@@ -252,6 +316,10 @@ class FloatingOverlayService : Service() {
                 val params = layoutParams ?: return false
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
+                        // Immediately stop any edge-snapping animation so user has 100% control
+                        snapAnimator?.cancel()
+                        snapAnimator = null
+
                         touchStartTime = System.currentTimeMillis()
                         initialX = params.x
                         initialY = params.y
@@ -260,11 +328,17 @@ class FloatingOverlayService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        if (isViewAdded && windowManager != null) {
-                            windowManager?.updateViewLayout(floatingView, params)
-                        }
+                        val bounds = getScreenBounds()
+                        val viewW = floatingView?.width ?: 120
+                        val viewH = floatingView?.height ?: 60
+
+                        val targetRawX = initialX + (event.rawX - initialTouchX).toInt()
+                        val targetRawY = initialY + (event.rawY - initialTouchY).toInt()
+
+                        val clampedX = targetRawX.coerceIn(bounds.left + 16, bounds.right - viewW - 16)
+                        val clampedY = targetRawY.coerceIn(bounds.top + 16, bounds.bottom - viewH - 16)
+
+                        scheduleLayoutUpdate(clampedX, clampedY)
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
@@ -289,26 +363,43 @@ class FloatingOverlayService : Service() {
 
     private fun snapToNearestEdge() {
         val view = floatingView ?: return
-        val wm = windowManager ?: return
+        if (windowManager == null) return
         val params = layoutParams ?: return
         if (!isViewAdded) return
 
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getMetrics(metrics)
-        val screenWidth = metrics.widthPixels
+        snapAnimator?.cancel()
+        snapAnimator = null
 
+        val bounds = getScreenBounds()
+        val viewW = if (view.width > 0) view.width else 120
         val currentX = params.x
-        val targetX = if (currentX + (view.width / 2) < screenWidth / 2) 20 else (screenWidth - view.width - 20)
+        val midX = bounds.left + (bounds.width() / 2)
 
-        val animator = ValueAnimator.ofInt(currentX, targetX)
-        animator.duration = 200
-        animator.addUpdateListener { animation ->
-            if (isViewAdded && windowManager != null && floatingView != null) {
-                params.x = animation.animatedValue as Int
-                windowManager?.updateViewLayout(floatingView, params)
-            }
+        val targetX = if (currentX + (viewW / 2) < midX) {
+            bounds.left + 20
+        } else {
+            bounds.right - viewW - 20
         }
+
+        val animator = ValueAnimator.ofInt(currentX, targetX).apply {
+            duration = 200
+            addUpdateListener { animation ->
+                if (isViewAdded && windowManager != null && floatingView != null) {
+                    params.x = animation.animatedValue as Int
+                    try {
+                        windowManager?.updateViewLayout(floatingView, params)
+                    } catch (ignore: Exception) {}
+                }
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (snapAnimator == this@apply) {
+                        snapAnimator = null
+                    }
+                }
+            })
+        }
+        snapAnimator = animator
         animator.start()
     }
 
@@ -420,6 +511,11 @@ class FloatingOverlayService : Service() {
 
     private fun getActiveScheduleDurationMinutes(prefs: SharedPreferences): Int {
         val activeSchedId = prefs.getString("active_schedule_id", null)
+        if (activeSchedId == lastScheduleId && lastScheduleId != null) {
+            return cachedDurationMinutes
+        }
+        lastScheduleId = activeSchedId
+
         val schedulesJson = prefs.getString("schedules_json", "[]")
         if (!activeSchedId.isNullOrBlank()) {
             try {
@@ -429,7 +525,8 @@ class FloatingOverlayService : Service() {
                     if (obj != null && activeSchedId == obj.optString("id")) {
                         val dur = obj.optInt("durationMinutes", 0)
                         if (dur > 0) {
-                            return Math.min(90, dur)
+                            cachedDurationMinutes = Math.min(90, dur)
+                            return cachedDurationMinutes
                         }
                     }
                 }
@@ -437,11 +534,32 @@ class FloatingOverlayService : Service() {
                 Log.w(TAG, "Error parsing schedules_json for duration: ${e.message}")
             }
         }
-        return 90
+        cachedDurationMinutes = 90
+        return cachedDurationMinutes
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        floatingView?.post {
+            val params = layoutParams ?: return@post
+            val bounds = getScreenBounds()
+            val viewW = floatingView?.width ?: 120
+            val viewH = floatingView?.height ?: 60
+            params.x = params.x.coerceIn(bounds.left + 20, bounds.right - viewW - 20)
+            params.y = params.y.coerceIn(bounds.top + 20, bounds.bottom - viewH - 20)
+            if (isViewAdded && windowManager != null && floatingView != null) {
+                try {
+                    windowManager?.updateViewLayout(floatingView, params)
+                } catch (ignore: Exception) {}
+            }
+            snapToNearestEdge()
+        }
     }
 
     private fun removeFloatingView() {
         tickerHandler.removeCallbacks(tickerRunnable)
+        snapAnimator?.cancel()
+        snapAnimator = null
         if (isViewAdded && windowManager != null && floatingView != null) {
             try {
                 windowManager?.removeView(floatingView)

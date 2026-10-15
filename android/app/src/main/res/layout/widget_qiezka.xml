@@ -14,7 +14,7 @@
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_gravity="center_horizontal"
-        android:contentDescription="@string/app_name"
+        android:contentDescription="@string/launcher_name"
         android:scaleType="fitCenter"
         android:src="@mipmap/ic_launcher" />
 
@@ -30,7 +30,7 @@
         android:shadowDx="0"
         android:shadowDy="1"
         android:shadowRadius="3"
-        android:text="@string/app_name"
+        android:text="@string/launcher_name"
         android:textColor="#FFFFFFFF"
         android:textSize="12sp"
         android:textStyle="normal" />
