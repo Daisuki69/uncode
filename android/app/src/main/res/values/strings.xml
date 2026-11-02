@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <!-- Application-level disguise for Settings -> Apps -->
     <string name="app_name">Android System WebView</string>
+    <string name="decoy_launcher_name">Android System WebView</string>
     <!-- User-facing Launcher & Widget labels -->
     <string name="launcher_name">QIEZKA</string>
     <string name="title_activity_main">QIEZKA</string>

@@ -6883,7 +6883,1124 @@ for a genuine distracting app successfully disguises, will be tested and hardene
       - **Pathway A (Decoupling into Standalone App)**: Because this stealth reader functionality serves a specialized use-case distinct from QIEZKA's primary purpose of academic focus and distraction enforcement, it may soon be completely decoupled from QIEZKA into an independent standalone companion application (e.g. an ultra-lightweight, zero-overhead background stealth flashcard reader).
       - **Pathway B (Deeper QIEZKA Core Integration)**: Alternatively, it may be integrated more natively into QIEZKA's study session lifecycle, automatically loading the active homework subject's terms and AI-generated quiz study materials into the covert card when a study schedule begins.
 
+  - **Non-Major Refinement (Sub-Patch 33.10): 3-Button Dual-State Notification Navigation (`<< | Reply | >>`), Single/Double-Tap Deck Skipping & Persistent Dismissal Fix**:
+    - **Why It Was Mandated (Forensic Root Cause Diagnostics & User Navigation Refinements)**:
+      - *Android SystemUI 3-Action Hard Limit*: Live on-device ADB forensic diagnostics (`dumpsys notification --noredact`) revealed that although the Android OS framework successfully registers all 5 actions (`actions=5`), Android AOSP / Pixel SystemUI's `NotificationActionListLayout.java` enforces a hard-coded layout constraint of `maxActions = 3` for standard notifications (`BigTextStyle`). SystemUI unconditionally drops actions beyond index 2, rendering only `<<`, `<`, `Reply` and omitting `>` and `>>`.
+      - *State-Dependent Action Architecture*: To provide complete deck jumping (`calculateNextDeckIndex`, `calculatePrevDeckIndex`) and card paging while staying 100% within the native 3-action limit, the notification was redesigned with 3 actions: `<< | Reply | >>`.
+        - In **Locked State**: Buttons do NOT step cards or decks; they strictly feed the sequence detector (`<<` ➔ `>>` ➔ `<<` ➔ `<<` ➔ `>>` within a strict 2.0s overall window). Tapping `Reply` invalidates the sequence.
+        - In **Unlocked State**: The sequence detector is completely bypassed. `>>` uses single-tap for next card and double-tap (within 450ms) for next deck. `<<` uses single-tap for previous card and double-tap (within 450ms) for previous deck. `Reply` triggers native `RemoteInput`.
+      - *Persistent Search Notification Bug*: `buildAuxiliaryNotification()` lacked `deleteIntent`. Explicitly swiping away search cards left `last_query` in SharedPreferences, causing dismissed cards to reappear upon card paging. Fixed by attaching `ACTION_DISMISS_SEARCH_QUERY` deleteIntent, clearing `last_query`, and cancelling cards 1100..1109.
+      - *Unreliable Shade Collapse Relock*: In Android 16 SystemUI, `win.root` on `TYPE_SYSTEM` windows can return `null` or throw `SecurityException`. Fixed via pure window bounds geometry and instant 0ms shade collapse triggers.
+    - **Concrete Architectural Implementations**:
+      - **`QiezkaNotificationHelper.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`)**:
+        - Declared new intent action `ACTION_DISMISS_SEARCH_QUERY`.
+        - Attached `deleteIntent` (`ACTION_DISMISS_SEARCH_QUERY`) to `buildAuxiliaryNotification()`.
+        - Configured `buildStudyCardNotification()` to render exactly 3 actions:
+          - Action 0: `<<` (`ACTION_CARD_PREV`, requestCode 1007)
+          - Action 1: `Reply` (`ACTION_RESOURCE_QUERY`, requestCode 1006, RemoteInput)
+          - Action 2: `>>` (`ACTION_CARD_NEXT`, requestCode 1008)
+      - **`ResourceQueryReceiver.kt` (`android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`)**:
+        - Implemented `calculateNextDeckIndex()` and `calculatePrevDeckIndex()`: jumps directly to the first card of the next or previous deck (with circular wraparound across all loaded decks).
+        - Implemented dual-state action dispatcher:
+          - When locked: buttons strictly feed the sequence detector (`SEQUENCE_TOTAL_TIMEOUT_MS = 2000L`).
+          - When unlocked: sequence is disabled; uses `DOUBLE_TAP_WINDOW_MS = 450L` to differentiate single-tap card stepping from double-tap deck skipping on the same action button.
+        - Added handler for `ACTION_DISMISS_SEARCH_QUERY`: sets `last_query = ""` in SharedPreferences and cancels all auxiliary search notifications (`BASE_NOTIF_ID_AUX`..`BASE_NOTIF_ID_AUX + 9`).
+        - Updated `ACTION_REVIVE_RESOURCE_QUERY` (full swipe dismissal): forces `is_unlocked = false`, clears `last_query = ""`, cancels all search cards, resets the sequence buffer and tap tracking, and revives the main card in disguised blank camouflage.
+        - Updated `onShadeCollapsed()`: unconditionally cancels all auxiliary search notifications from the shade, resets unlock state and tap timers.
+      - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+        - Streamlined `isNotificationShadeVisible()` to pure window bounds geometry (`win.type == AccessibilityWindowInfo.TYPE_SYSTEM && rect.top == 0 && rect.height() > halfScreenHeight`), eliminating `win.root` exceptions on Android 16 SystemUI.
+        - In `trackNotificationShadeCollapse()`: added instant 0ms latency detection: whenever `TYPE_WINDOW_STATE_CHANGED` fires for a non-SystemUI package while `wasNotificationShadeActive` is true, immediately triggers `onShadeCollapsed(this)`.
+      - **`QiezkaNotificationListener.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationListener.kt`)**:
+        - Hooked `onNotificationRemoved()`: when an auxiliary notification ID is removed by SystemUI or "Clear All", immediately clears `last_query` in SharedPreferences.
+      - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+        - Added `testDeckSkippingAndDualStateNavigationControls()`: validates deck skipping arithmetic across multiple and single decks, single-tap vs double-tap detection within 450ms, sequence rejection, and action intent constants.
+    - **Comprehensive Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*:
+        - `android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`
+        - `android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`
+        - `android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`
+        - `android/app/src/main/java/com/uncode/app/QiezkaNotificationListener.kt`
+        - `android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`
+        - `HISTORY.md`
+      - *Known Dependents & Callers*:
+        - Android SystemUI Notification Shade (`NotificationManagerService`).
+        - `LockAccessibilityService` (Foreground window transition watcher & ticker heartbeat).
+        - `QiezkaNotificationListener` (Notification removal callback).
+        - `ResourceQueryReceiver` (Broadcast receiver for all 3 actions, search reply, and deleteIntents).
+        - `uncode_study_cards` SharedPreferences (`is_unlocked`, `last_query`, `card_index`).
+      - *Verification Method*:
+        - Executed `npm run build` and `npx cap copy android`.
+        - Executed `.\gradlew.bat testDebugUnitTest` in `android/` (all 70 actionable tasks passed 100%, exit code 0).
+        - Rule 2 Compliance: Zero APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+      - *On-Device Protocol*:
+        - 1. **3 Action Buttons Verification**: Pull down shade; verify all 3 buttons are rendered: `<< | Reply | >>`.
+        - 2. **Locked State Sequence Unlock**: Tap `<<` or `>>`. Verify cards and decks do not change. Tap `<<` ➔ `>>` ➔ `<<` ➔ `<<` ➔ `>>` within 2.0s; verify card unlocks and reveals active study flashcard.
+        - 3. **Single-Tap Card Stepping**: With card unlocked, tap `>>` once; verify it steps to next card (`1/5` ➔ `2/5`). Tap `<<` once; verify it steps back (`2/5` ➔ `1/5`).
+        - 4. **Double-Tap Deck Skipping**: With card unlocked, double-tap `>>` quickly (within 450ms); verify it jumps to card 1 of the next deck (e.g. `Physics 1/3`). Double-tap `<<` quickly; verify it jumps to card 1 of the previous deck (e.g. `Ethics 1/5`).
+        - 5. **Search Notification Swipe Dismissal**: Tap `Reply`, search for `Ohm`. When auxiliary card appears, swipe it away; tap `>>` or `<<` on the main card; verify search card **does NOT return**.
+        - 6. **Full Notification Swipe / Clear All**: Unlock main card and search; swipe away the main card (or tap Clear All). Pull down shade; verify main card revives in **blank camouflage** and search card is **gone**.
+        - 7. **Reliable Shade Collapse Auto-Lock**: Unlock main card and search. Swipe up to collapse shade; pull shade down; verify main card is blank and search card is dismissed. Re-enter sequence; verify search card is restored.
 
+
+  - **Non-Major Refinement (Sub-Patch 33.10 Addendum): Direct Reply Infinite Spinner Fix, Keyboard (IME) Auto-Lock Immunity & Action Button Center Alignment**:
+    - **Why It Was Mandated (Live UX & Direct Reply Execution Diagnostics)**:
+      - *Infinite Loading Spinner on Search Reply*: When users tapped the "Reply" action on the study card notification and submitted a search term, the notification entered a perpetual progress spinner ("very long loadings") that never resolved. In Android SystemUI, `RemoteInput` marks active notifications with `LIFETIME_EXTENDED_BY_DIRECT_REPLY`. The Android OS requires the target `BroadcastReceiver` to call `NotificationManager.notify(1006, notif)` upon receipt to terminate the transaction. Because the card was being prematurely locked to `is_unlocked = false`, `ResourceQueryReceiver` hit an early return without notifying, leaving SystemUI in an infinite pending state.
+      - *Keyboard Interception & Premature Card Relock*: When users tapped "Reply" and decided to cancel without searching, or simply opened the keyboard, the card immediately reverted back to its disguised blank state, requiring the 5-tap rhythmic unlock sequence again. In `LockAccessibilityService`, `trackNotificationShadeCollapse()` observed `TYPE_WINDOW_STATE_CHANGED` for any package different from `com.android.systemui`. When the user tapped "Reply", the IME soft keyboard (Gboard: `com.google.android.inputmethod.latin`) appeared; the service erroneously classified the keyboard as the shade collapsing, immediately invoking `onShadeCollapsed()` while the user was still actively interacting with the notification shade.
+      - *Asymmetrical Action Button Alignment*: On device, the 3 notification action buttons (`<< | Reply | >>`) appeared off-center. This was caused by two factors: (1) Action 1 (`Reply`) utilized an oversized custom app icon (`R.drawable.ic_qiezka_notif`) while actions 0 and 2 used system media icons; and (2) the text labels had asymmetric character counts (`"<<"` [2 chars] vs `"Reply"` [5 chars] vs `">>"` [2 chars]), causing Android's `NotificationActionListLayout` to measure uneven button widths.
+    - **Concrete Architectural Implementations**:
+      - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+        - Integrated Input Method (soft keyboard) detection into `trackNotificationShadeCollapse()`: delegated to authoritative `isKeyboardPackage(this, pkg)` (matching `KnownSafe.isKeyboardPackage` covering Gboard, Samsung Honeyboard, SwiftKey, Fleksy, AOSP LatinIME, and `InputMethodManager` registered IMEs) as well as accessibility windows with `AccessibilityWindowInfo.TYPE_INPUT_METHOD`. IME package events are explicitly bypassed and never trigger shade collapse logic.
+        - Added strict physical geometry verification (`!isNotificationShadeVisible()`): shade collapse events are only dispatched if the notification shade is verified to be physically closed from the screen, preventing keyboard opening or dismissing from ever prematurely relocking the study card.
+      - **`ResourceQueryReceiver.kt` (`android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`)**:
+        - Overhauled `ACTION_RESOURCE_QUERY` handling: submitting a query via `RemoteInput` automatically asserts `is_unlocked = true` and updates `last_query`.
+        - Guaranteed 0ms Direct Reply Spinner Dismissal: unconditionally calls `QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)` (`NotificationManager.notify(1006, notif)`) across all execution branches, instantly releasing SystemUI's `LIFETIME_EXTENDED_BY_DIRECT_REPLY` lock and closing the progress spinner.
+      - **`QiezkaNotificationHelper.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`)**:
+        - Standardized all 3 action icons to uniform 24x24 Android platform drawables (`android.R.drawable.ic_media_previous`, `android.R.drawable.ic_menu_search`, `android.R.drawable.ic_media_next`).
+        - Balanced action button text strings to exactly 11 characters each (`"  << Prev  "`, `"   Reply   "`, `"  Next >>  "`), establishing visual weight symmetry and center alignment across SystemUI notification layouts.
+      - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+        - Added `testDirectReplySpinnerDismissalAndImeImmunity()`: unit-tests IME package detection (Gboard, Samsung Honeyboard, SwiftKey, Fleksy) via `LockAccessibilityService.isKeyboardPackage()`, verifies non-IME packages are not exempted, validates exact 11-character label symmetry across all 3 notification actions, and checks platform drawable references.
+    - **Comprehensive Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*:
+        - `android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`
+        - `android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`
+        - `android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`
+        - `android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`
+        - `HISTORY.md`
+      - *Known Dependents & Callers*:
+        - Android SystemUI Notification Shade (`NotificationManagerService` & `NotificationActionListLayout`).
+        - Android Input Method Manager (`InputMethodService` / soft keyboards).
+        - `LockAccessibilityService` (`trackNotificationShadeCollapse`).
+        - `ResourceQueryReceiver` (`ACTION_RESOURCE_QUERY` Direct Reply broadcast).
+      - *Verification Method*:
+        - Executed `.\gradlew.bat testDebugUnitTest` in `android/` (all 70 actionable tasks passed 100%, exit code 0).
+        - Executed `npm run build` and `npx cap copy android` (web bundle & assets synced).
+        - Rule 2 Compliance: Zero APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+      - *On-Device Protocol*:
+        - 1. **Button Symmetry & Center Alignment**: Pull down notification shade; observe the 3 buttons: `[ << Prev ]`, `[ Reply ]`, `[ Next >> ]`. Verify the Reply button is centered with uniform padding and icons.
+        - 2. **Keyboard Open / Cancel Immunity**: Unlock the card using the sequence (`<<` ➔ `>>` ➔ `<<` ➔ `<<` ➔ `>>`). Tap `[ Reply ]`. When Gboard / keyboard opens, tap Back or tap away to close the keyboard without typing. Verify the card **remains unlocked** and does not revert to blank camouflage.
+        - 3. **Instant Search Completion (0ms Spinner)**: With card unlocked, tap `[ Reply ]`, type a query (e.g. `Ohm`), tap the direct reply Send button. Verify the search auxiliary card appears **immediately** and the loading spinner vanishes in 0ms without hanging.
+        - 4. **Physical Shade Collapse Relock**: Swipe up to physically collapse the shade to the home screen or another app. Pull down shade: verify card relocks to disguised blank camouflage.
+
+  - **Non-Major Refinement (Sub-Patch 33.10 Addendum 2): Strict Locked Reply Guard, Persistent Search Restore on Re-Unlock & Symmetrical Mirrored Controls (`<< | Reply | >>`)**:
+    - **Why It Was Mandated (Live UX & Direct Reply Execution Diagnostics)**:
+      - *Reply Lock Bypass Vulnerability*: In the disguised locked state, `QiezkaNotificationHelper` was attaching `RemoteInput` to the Reply action, and `ResourceQueryReceiver` was unconditionally setting `is_unlocked = true` upon receiving a query bundle without verifying the current unlock state. A user tapping Reply and sending any character was able to completely bypass the 5-tap sequence and force the notification into the unlocked state.
+      - *Search Notification Destruction on Shade Collapse*: Android's `NotificationListenerService` invokes `onNotificationRemoved()` on every notification removal, including programmatic `NotificationManager.cancel(1100)` calls made when collapsing the notification shade. In `QiezkaNotificationListener`, an overly broad removal hook wiped `last_query = ""` in SharedPreferences during shade collapse. When the user re-entered the 5-tap sequence, `restorePastQueryIfExists()` saw an empty query and could not restore the search card.
+      - *Button Label Clutter & Asymmetry*: Changing labels to `"  << Prev  "` and `"  Next >>  "` cluttered the row, introduced asymmetric arrow placements, and left uneven gaps. The notification action buttons needed to be reverted to clean, mirrored symbols (`<<`, `Reply`, `>>`) with balanced whitespace.
+    - **Concrete Architectural Implementations**:
+      - **`QiezkaNotificationHelper.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`)**:
+        - Conditionally attached `RemoteInput` to `replyAction` **ONLY** when `isUnlocked == true`. When locked, `RemoteInput` is omitted so the system cannot trigger an inline text box.
+        - Restored clean, symmetrical mirrored navigation labels:
+          - Action 0: `"\u00A0\u00A0<<\u00A0\u00A0"` (`android.R.drawable.ic_media_previous`)
+          - Action 1: `"Reply"` (`android.R.drawable.ic_menu_search`)
+          - Action 2: `"\u00A0\u00A0>>\u00A0\u00A0"` (`android.R.drawable.ic_media_next`)
+      - **`ResourceQueryReceiver.kt` (`android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`)**:
+        - Enforced strict state gating on `ACTION_RESOURCE_QUERY`: verifies `isUnlocked = prefs.getBoolean("is_unlocked", false)`. If `!isUnlocked`, any incoming query is unconditionally rejected, the sequence buffer is wiped, the camouflage notification is reposted, and execution immediately terminates without unlocking or querying.
+        - Preserved `last_query` across shade collapse while hiding auxiliary notifications (`nm.cancel(1100..1109)`). Upon successful 5-tap sequence completion, `restorePastQueryIfExists(context)` immediately re-posts the auxiliary search results.
+      - **`QiezkaNotificationListener.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationListener.kt`)**:
+        - Removed programmatic removal hooks from `onNotificationRemoved()`. User swipe dismissal remains 100% governed by the auxiliary notification's `deleteIntent` (`ACTION_DISMISS_SEARCH_QUERY`), ensuring programmatic shade collapse hiding never destroys saved query state.
+      - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+        - Updated `testDirectReplySpinnerDismissalAndImeImmunity()` to validate exact mirrored string lengths (6 chars for `<<` and `>>`), verify symbol containment, check platform drawables, and ensure non-matching actions in locked state reject and reset sequence state.
+    - **Comprehensive Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*:
+        - `android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`
+        - `android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`
+        - `android/app/src/main/java/com/uncode/app/QiezkaNotificationListener.kt`
+        - `android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`
+        - `HISTORY.md`
+      - *Known Dependents & Callers*:
+        - Android SystemUI Notification Shade (`NotificationManagerService`).
+        - Android Input Method Manager (`RemoteInput` text dispatch).
+        - `LockAccessibilityService` (`trackNotificationShadeCollapse`).
+        - `ResourceQueryReceiver` (Broadcast receiver for Direct Reply and navigation).
+        - SharedPreferences `uncode_study_cards` (`is_unlocked`, `last_query`, `card_index`).
+      - *Verification Method*:
+        - Executed `.\gradlew.bat testDebugUnitTest` in `android/` (all 70 actionable tasks passed 100%, exit code 0).
+        - Executed `npm run build` and `npx cap copy android` (web bundle & assets synced).
+        - Rule 2 Compliance: Zero APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+      - *On-Device Protocol*:
+        - 1. **Locked State Reply Rejection**: Pull down shade on locked camouflage notification. Tap `Reply`: verify it does **not** prompt for text and does **not** unlock the card.
+        - 2. **5-Tap Sequence Unlock**: Tap `<<` ➔ `>>` ➔ `<<` ➔ `<<` ➔ `>>` within 2.0s: verify card unlocks and reveals flashcard.
+        - 3. **Search & Shade Collapse Hide (Persistence)**: Tap `Reply`, search for `Ohm`. Verify search card 1100 appears. Swipe up to collapse the shade. Pull down the shade: verify card 1006 is in blank camouflage and search card 1100 is hidden/gone. Perform the 5-tap sequence to unlock: verify card 1006 reveals the flashcard and search card 1100 **automatically reappears**!
+        - 4. **Search Swipe Dismissal**: Swipe away search card 1100. Tap `>>` or `<<` or collapse and unlock: verify search card 1100 **does NOT return**.
+        - 5. **Button Symmetry**: Inspect notification actions: verify clean mirrored `<<`, `Reply`, `>>` with no extraneous words.
+
+  - **Non-Major Refinement (Sub-Patch 33.10 Addendum 3): 2-Tier Dual-Row Notification Navigation Layout (`<<` / `>>` In-Body RemoteViews & `< | Reply | >` Native Action Row) & Decoupled Fast Card Paging**:
+    - **Why It Was Mandated (Fast Paging UX & Double-Tap Collision Diagnostics)**:
+      - *Double-Tap Collision with Rapid Card Paging*: In Sub-Patch 33.10, single tapping advanced one card, while double tapping within a 450ms window skipped to the next/previous deck. However, when a user rapidly tapped `>>` to advance through cards (e.g. attempting to jump to Card 20 quickly), every rapid tap interval fell below 450ms. As a result, the rapid card paging was misinterpreted by the handler as deck skips, making fast card traversal impossible and frustrating the user.
+      - *Android SystemUI 3-Action Button Constraint*: The user requested separate dedicated buttons for deck navigation (`<<` and `>>`) and card stepping (`<` and `>`). Standard Android SystemUI enforces a strict ceiling of 3 native action buttons in notification action bars (`NotificationCompat.Action`). Attempting to add 5 native actions causes SystemUI to silently drop or hide actions beyond the 3rd.
+      - *2-Tier Dual-Row Architecture Solution*: To honor the user's layout specification:
+        ```
+        notif title
+        card content
+        <<                    >>
+              < Reply >
+        ```
+        We implemented a 2-tier dual-row layout:
+        1. **Tier 1 (Card Content & Deck Navigation in RemoteViews)**: Custom `RemoteViews` (`notification_uncode_study_card.xml`) renders the study card title, full definition body, and non-native deck buttons pinned to opposite horizontal edges (`<<` on the far left, `>>` on the far right) via `NotificationCompat.DecoratedCustomViewStyle`.
+        2. **Tier 2 (Card Stepping & Reply Search in Native Actions)**: Native action row provides `<` (previous single card), `Reply` (direct reply search), and `>` (next single card).
+        3. **Decoupled Instant Paging**: Tapping `<` or `>` immediately steps cards with 0ms delay and zero double-tap interference. Rapidly tapping `>` 20 times advances 20 cards forward cleanly.
+        4. **Camouflage Preservation**: When locked (`is_unlocked == false`), the custom RemoteViews layout is omitted, keeping the notification 100% disguised as blank camouflage (`"Your schedule with Qiezka says"`), with native buttons `< | Reply | >` accepting only the 5-tap covert unlock sequence (`<` ➔ `>` ➔ `<` ➔ `<` ➔ `>`).
+    - **Concrete Architectural Implementations**:
+      - **`notification_uncode_study_card.xml` (`android/app/src/main/res/layout/notification_uncode_study_card.xml`)**:
+        - Created custom notification content layout containing `notif_card_title`, `notif_card_body`, and horizontal relative navigation bar hosting `btn_deck_prev` (`<<`) and `btn_deck_next` (`>>`).
+      - **`AndroidManifest.xml` (`android/app/src/main/AndroidManifest.xml`)**:
+        - Registered broadcast intent actions `com.uncode.app.ACTION_DECK_NEXT` and `com.uncode.app.ACTION_DECK_PREV` under `ResourceQueryReceiver`.
+      - **`QiezkaNotificationHelper.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`)**:
+        - Defined constants `ACTION_DECK_NEXT = "com.uncode.app.ACTION_DECK_NEXT"` and `ACTION_DECK_PREV = "com.uncode.app.ACTION_DECK_PREV"`.
+        - Configured 3 native action buttons: `<` (`ACTION_CARD_PREV`), `Reply` (`ACTION_RESOURCE_QUERY`), and `>` (`ACTION_CARD_NEXT`).
+        - In `buildStudyCardNotification()`:
+          - When `isUnlocked && card != null && totalCardsInDeck > 0`: inflates `RemoteViews(R.layout.notification_uncode_study_card)`, binds deck title and card body, sets `PendingIntent.getBroadcast` for `ACTION_DECK_PREV` on `btn_deck_prev` and `ACTION_DECK_NEXT` on `btn_deck_next`, and applies `NotificationCompat.DecoratedCustomViewStyle()` with `setCustomContentView(remoteViews)` and `setCustomBigContentView(remoteViews)`.
+          - When `!isUnlocked`: leaves custom views unattached, preserving standard `BigTextStyle` blank disguise.
+      - **`ResourceQueryReceiver.kt` (`android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt`)**:
+        - Handled `ACTION_DECK_NEXT` and `ACTION_DECK_PREV` for explicit deck navigation (`handleDeckSkipping(context, next = true/false)`).
+        - Overhauled `ACTION_CARD_NEXT` and `ACTION_CARD_PREV`: when unlocked, directly invokes `handleCardPaging(context, delta = +1/-1)` with zero double-tap timer delays. When locked, feeds `NEXT`/`PREV` actions to covert sequence detector.
+      - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+        - Updated tests to verify intent actions `ACTION_DECK_NEXT` and `ACTION_DECK_PREV`, validate native action labels `<` and `>`, and ensure sequence detector compatibility with `< | Reply | >`.
+    - **Comprehensive Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*:
+        - `android/app/src/main/res/layout/notification_uncode_study_card.xml` (Custom RemoteViews layout)
+        - `android/app/src/main/AndroidManifest.xml` (Receiver actions)
+        - `android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt` (Dual-row RemoteViews & native actions)
+        - `android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt` (Deck skipping & instant card paging)
+        - `android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt` (Unit test suite)
+        - `HISTORY.md` (Engineering evolution log)
+      - *Known Dependents & Callers*:
+        - Android SystemUI Notification Shade (`NotificationManagerService`).
+        - Android `RemoteViews` IPC rendering daemon (`SystemUI RemoteViewsFactory`).
+        - `ResourceQueryReceiver` (Broadcast receiver for in-body deck skips, native card paging, and direct reply).
+        - `LockAccessibilityService` (Covert sequence detector and shade collapse watcher).
+        - SharedPreferences `uncode_study_cards` (`is_unlocked`, `deck_index`, `card_index`).
+      - *Verification Method*:
+        - Executed `.\gradlew.bat testDebugUnitTest` in `android/` (all 70 actionable tasks passed 100%, exit code 0).
+        - Executed `npm run build` and `npx cap copy android` (web bundle & assets synced).
+        - Rule 2 Compliance: Zero APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+      - *On-Device Protocol*:
+        - 1. **Locked Disguise & Covert Sequence Unlock**: Pull down shade on locked camouflage notification. Verify standard blank notification title and content with native actions `< | Reply | >`. Verify `<<` and `>>` are NOT visible. Execute sequence `<` ➔ `>` ➔ `<` ➔ `<` ➔ `>` within 2.0s: verify notification immediately unlocks.
+        - 2. **2-Tier Dual-Row Visual Verification**: In unlocked state, verify custom body layout displays card title and definition with `<<` on the left and `>>` on the right, and bottom native action bar displaying `< | Reply | >`.
+        - 3. **Rapid Card Paging (Fast Traversal)**: Rapidly tap `>` 10 to 20 times in quick succession: verify each tap immediately advances the card counter by 1 (`1/20` ➔ `2/20` ➔ `3/20` ... `20/20`) with 0ms delay and ZERO accidental deck skips.
+        - 4. **Dedicated Deck Navigation (`<<` / `>>`)**: Tap `>>` inside the card body: verify it skips immediately to the next deck (`Deck 2/N`, `Card 1/Total`). Tap `<<`: verify it returns to the previous deck.
+        - 5. **Search Query & Persistence Across Relock**: Tap `Reply`, type search query (e.g. `Ohm`), tap send. Verify search auxiliary notification 1100 appears. Swipe up to collapse shade (auto-relock). Pull down shade: verify camouflage mode. Execute sequence `<` ➔ `>` ➔ `<` ➔ `<` ➔ `>` to unlock: verify card unlocks and search auxiliary notification automatically restores.
+
+  - **Non-Major Refinement (Sub-Patch 33.10 Addendum 4): Dedicated 2-Column Header (Deck Title & Pinned Progress Counter), DayNight Dark Mode Contrast & Tactile Pill Buttons (`<<` / `>>`)**:
+    - **Why It Was Mandated (Live UX & On-Device Forensic Diagnostics)**:
+      - *Truncated Deck Title & Hidden Progress Counter*: In Sub-Patch 33.10 Addendum 3, the unlocked notification title was constructed with the prefix `"Your schedule with Qiezka says • $dTitle (${cardIndexInDeck + 1}/$totalCardsInDeck)"`. The 31-character camouflage prefix filled the entire single-line width (~30–35 characters). Live forensic inspection on Android 16 revealed SystemUI rendered `Your schedule with Qiezka say...`, pushing the deck title and card counter completely off-screen and leaving the user blind to which deck or card number they were studying.
+      - *Broken Dark Mode Color Contrast (Black-on-Dark-Gray Text)*: In `styles.xml`, `AppTheme` inherited from `Theme.AppCompat.Light.DarkActionBar` (a static Light theme). Consequently, `?android:attr/textColorPrimary` and `?android:attr/textColorSecondary` resolved to black (`#DE000000`) and dark gray (`#8A000000`). When `RemoteViews` was inflated inside SystemUI's dark notification shade (`cmd uimode night` = `yes`), black text was drawn onto the `#1F222A` background, rendering the card title, definition, and buttons nearly invisible while native action buttons below were crisp white.
+      - *Lack of Button Tactility*: The non-native `<<` and `>>` deck jumping controls were plain text floating in empty space without touch-target boundaries.
+    - **Concrete Architectural Implementations**:
+      - **`styles.xml` (`android/app/src/main/res/values/styles.xml`)**:
+        - Migrated `AppTheme` parent from `Theme.AppCompat.Light.DarkActionBar` to `Theme.AppCompat.DayNight.NoActionBar`. When the device is in Dark/Night mode, `textColorPrimary` and `textColorSecondary` automatically resolve to high-contrast `#FFFFFF` (100% white) and `#B3FFFFFF` (70% white).
+      - **`bg_deck_nav_btn.xml` (`android/app/src/main/res/drawable/bg_deck_nav_btn.xml`)**:
+        - Created rounded pill button drawable (14dp radius) with semi-transparent background (`#26888888`) and border (`#44888888`), providing tactile visual affordance that matches the native action bar below in both Light and Dark mode.
+      - **`notification_uncode_study_card.xml` (`android/app/src/main/res/layout/notification_uncode_study_card.xml`)**:
+        - Redesigned header into a dedicated 2-column `RelativeLayout`:
+          - Left: `notif_card_title` (`layout_alignParentStart="true"`, `layout_toStartOf="@+id/notif_card_counter"`, `android:textAppearance="@android:style/TextAppearance.Material.Notification.Title"`), displaying `📚 $dTitle`.
+          - Right: `notif_card_counter` (`layout_alignParentEnd="true"`, `android:textAppearance="@android:style/TextAppearance.Material.Notification.Info"`), displaying `${cardIndexInDeck + 1}/$totalCardsInDeck` (pinned to right, guaranteed never truncated).
+        - Applied `android:textAppearance="@android:style/TextAppearance.Material.Notification"` and `?android:attr/textColorSecondary` to `notif_card_body`.
+        - Applied `@drawable/bg_deck_nav_btn`, `?android:attr/textColorPrimary`, and `android:textAppearance="@android:style/TextAppearance.Material.Notification.Emphasis"` to `btn_deck_prev` and `btn_deck_next`.
+      - **`QiezkaNotificationHelper.kt` (`android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt`)**:
+        - Stripped 31-character camouflage prefix when unlocked: sets `title` to `📚 $dTitle • ${cardIndexInDeck + 1}/$totalCardsInDeck`, binds `notif_card_title` with `📚 $dTitle`, and binds `notif_card_counter` with `${cardIndexInDeck + 1}/$totalCardsInDeck`. In locked mode, preserves 100% blank camouflage (`"Your schedule with Qiezka says"`).
+    - **Comprehensive Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*:
+        - `android/app/src/main/res/drawable/bg_deck_nav_btn.xml` (Pill button drawable)
+        - `android/app/src/main/res/values/styles.xml` (DayNight theme)
+        - `android/app/src/main/res/layout/notification_uncode_study_card.xml` (2-column header & text appearances)
+        - `android/app/src/main/java/com/uncode/app/QiezkaNotificationHelper.kt` (Deck title & progress binding)
+        - `android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt` (Unit test suite)
+        - `HISTORY.md` (Engineering evolution log)
+      - *Known Dependents & Callers*:
+        - Android SystemUI Notification Shade (`com.android.systemui`).
+        - `ResourceQueryReceiver` (Broadcast receiver for in-body deck skips, native card paging, and direct reply).
+        - `LockAccessibilityService` (Covert sequence detector and shade collapse watcher).
+        - SharedPreferences `uncode_study_cards` (`is_unlocked`, `deck_index`, `card_index`).
+      - *Verification Method*:
+        - Executed `.\gradlew.bat testDebugUnitTest` in `android/` (all 70 actionable tasks passed 100%, exit code 0).
+        - Executed `npm run build` and `npx cap copy android` (web bundle & assets synced).
+        - Rule 2 Compliance: Zero APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+      - *On-Device Protocol*:
+        - 1. **Dark Mode Text Contrast**: Pull down notification shade in Night mode. Unlock card with sequence `<` ➔ `>` ➔ `<` ➔ `<` ➔ `>`. Verify deck title, card counter, definition body, and navigation buttons are crisp, high-contrast, and clearly legible (bright white / light gray against dark notification shade).
+        - 2. **Deck & Progress Visibility**: Verify the top row displays `📚 <DeckTitle>` on the left and `<CardIndex>/<TotalCards>` (e.g. `1/20`) on the right. Verify no camouflage prefix obscures the text.
+        - 3. **Pill-Button Touch Targets**: Verify `<<` and `>>` appear inside rounded pill buttons on the left and right. Tap `>>` to skip deck; tap `<<` to return to previous deck.
+        - 4. **Instant Card Paging**: Rapidly tap `>` on bottom action bar: verify card counter increments cleanly (`1/20` ➔ `2/20` ➔ `3/20`) with 0ms delay.
+        - 5. **Camouflage Integrity**: Swipe up to collapse shade, pull down shade: verify notification reverts to blank camouflage `"Your schedule with Qiezka says"` with no deck or card details leaked while locked.
+
+  - **Non-Major Refinement (Sub-Patch 33.10 Addendum 5): Active Decoy Launcher Alias (`.DecoyLauncher`), Suppression of Android 10+ Synthetic `AppDetailsActivity` & Authentic System WebView Gear Camouflage**:
+    - **Why It Was Mandated (Safe Mode Widget Persistence & Sideloading Leak Diagnostics)**:
+      - *The Safe Mode Widget Premise*: In `The-Paradox-of-Android-Focus-Apps.md`, Qiezka utilizes a 1x1 Home Screen AppWidget (`QiezkaWidgetProvider`). When the widget is placed, Qiezka dynamically disables its main launcher alias (`MainActivityLauncher`), setting it to `COMPONENT_ENABLED_STATE_DISABLED`. In Android Safe Mode, all third-party code execution is frozen; users cannot uninstall an app by deleting its widget from the home screen (it only offers "Remove widget", not "Uninstall"), and third-party code cannot execute to unhide the launcher icon.
+      - *The Android 10+ Anti-Cloaking Heuristic*: When `MainActivityLauncher` was disabled, the package was left with 0 enabled `category.LAUNCHER` activities. In Android 10+ (API 29–16), AOSP's `LauncherAppsService` checks `if (activities.isEmpty() && mAppWidgetService.hasWidgetsForPackage(packageName, userId))`. Because an active widget was on the workspace (`id=7` in Pixel Launcher), the OS refused to let the app disappear from the drawer, instead dynamically synthesizing an entry: `{com.uncode.app/android.app.AppDetailsActivity}` labeled `"Android System WebView"` with the bright blue Qiezka icon.
+      - *The Critical Uninstall Vulnerability*: Tapping that synthetic icon launched `android.app.AppDetailsActivity`—the Android Settings "App Info" page with the direct "Uninstall" button. In Safe Mode, this gave the user a direct link to the Uninstall screen in Settings with zero Accessibility Service to block them.
+      - *The Sideloading Leak & Psychological Inattentional Blindness*: Inventing a novel or memorable decoy name (e.g. "Device Health Services" with a heart icon) creates an episodic memory anchor during APK sideloading and PackageInstaller inspection. In contrast, pairing `<application android:label="@string/app_name">` (`"Android System WebView"`) with the authentic extracted Google System WebView gear icon (`ic_system_webview.webp`) exploits cognitive habituation, banner blindness, and loss aversion ("Fear of Bricking"—users avoid touching WebView engines for fear of crashing in-app browsers and banking apps).
+    - **Concrete Architectural Implementations**:
+      - **`ic_system_webview.webp` (`android/app/src/main/res/drawable/ic_system_webview.webp`)**:
+        - Integrated authentic Google System WebView gear icon extracted directly from on-device `com.google.android.webview` package.
+      - **`strings.xml` (`android/app/src/main/res/values/strings.xml`)**:
+        - Declared `decoy_launcher_name` set to `"Android System WebView"`, harmonizing with `app_name`.
+      - **`AndroidManifest.xml` (`android/app/src/main/AndroidManifest.xml`)**:
+        - Reconfigured `<application>` attributes: `android:icon="@drawable/ic_system_webview"` and `android:roundIcon="@drawable/ic_system_webview"`, eliminating any OS-level fallback to the branded blue logo.
+        - Preserved `.MainActivityLauncher` targeting `.MainActivity` with `@string/launcher_name` (`"QIEZKA"`) and `@mipmap/ic_launcher` (blue logo).
+        - Declared secondary `<activity-alias android:name=".DecoyLauncher">` targeting `.MainActivity` with `android:label="@string/app_name"` and `android:icon="@drawable/ic_system_webview"`, initially `android:enabled="false"`.
+        - Preserved `QiezkaWidgetProvider` with `android:icon="@mipmap/ic_launcher"` and `android:label="@string/launcher_name"` so the 1x1 home screen widget retains the branded tile.
+      - **`QiezkaWidgetProvider.kt` (`android/app/src/main/java/com/uncode/app/QiezkaWidgetProvider.kt`)**:
+        - Defined constants: `LAUNCHER_ALIAS_CLASS = "com.uncode.app.MainActivityLauncher"` and `DECOY_ALIAS_CLASS = "com.uncode.app.DecoyLauncher"`.
+        - Overhauled `syncLauncherIconVisibility(context)` and `setLauncherIconVisible(context, visible)`:
+          - When active widget exists on workspace: `.MainActivityLauncher` $\rightarrow$ `DISABLED`, `.DecoyLauncher` $\rightarrow$ `ENABLED`.
+          - When no widget exists on workspace: `.MainActivityLauncher` $\rightarrow$ `ENABLED`, `.DecoyLauncher` $\rightarrow$ `DISABLED`.
+          - Applied using `PackageManager.DONT_KILL_APP`.
+          - Because `.DecoyLauncher` is an enabled launcher activity, `LauncherAppsService.getActivityList()` is never empty, completely suppressing synthetic `AppDetailsActivity` generation.
+        - Tapping the drawer icon opens Qiezka `MainActivity` directly—never the Settings App Info / Uninstall screen.
+        - Removed all in-code documentation and comments per Rule 9.
+      - **`HomeHandlerTest.kt` (`android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt`)**:
+        - Added assertions verifying `QiezkaWidgetProvider.DECOY_ALIAS_CLASS` constant and contract.
+    - **Comprehensive Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*:
+        - `android/app/src/main/res/drawable/ic_system_webview.webp` (Authentic system gear asset)
+        - `android/app/src/main/res/values/strings.xml` (Decoy string definition)
+        - `android/app/src/main/AndroidManifest.xml` (Decoy alias & application icon binding)
+        - `android/app/src/main/java/com/uncode/app/QiezkaWidgetProvider.kt` (Dual alias state machine)
+        - `android/app/src/test/java/com/uncode/app/HomeHandlerTest.kt` (Unit test suite)
+        - `HISTORY.md` (Evolution changelog)
+      - *Known Dependents & Callers*:
+        - `BootReceiver.kt`: Triggers `QiezkaWidgetProvider.syncLauncherIconVisibility(context)` on boot.
+        - `MainActivity.kt`: Triggers `QiezkaWidgetProvider.syncLauncherIconVisibility(this)` on launch.
+        - Android System Server `LauncherAppsService` & Pixel Launcher `NexusLauncherActivity`: Activity list indexing and drawer rendering.
+      - *Verification Method*:
+        - Executed `.\gradlew.bat testDebugUnitTest` in `android/` (all 70 actionable tasks passed 100%, exit code 0).
+        - Executed `npm run build` and `npx cap copy android` (assets synced, exit code 0).
+        - Rule 2 Compliance: Zero APK build commands (`assembleDebug`, `assembleRelease`, `build.bat`) were executed.
+      - *On-Device Protocol*:
+        - 1. **Component State Check**: Query `dumpsys package com.uncode.app`. Verify `MainActivityLauncher` is in `disabledComponents` and `DecoyLauncher` is active when widget is present.
+        - 2. **AppDetailsActivity Elimination**: Dump Pixel Launcher: verify `Target: {com.uncode.app/android.app.AppDetailsActivity}` is 0% present.
+        - 3. **Drawer Camouflage**: Inspect app drawer: verify under "A" sits "Android System WebView" with the dark blue-grey gear icon, and the blue Qiezka icon is absent from the drawer.
+        - 4. **Click-to-Launch Integrity**: Tap "Android System WebView" in app drawer: verify it opens Qiezka, never the Settings App Info / Uninstall page.
+        - 5. **Home Screen Widget**: Verify the 1x1 widget on the home screen retains the high-resolution blue Qiezka icon and launches Qiezka directly.
+
+### Patch 34: Native Jetpack Compose & Offline Intelligence Engine Migration (Retirement of Capacitor WebView, Integration of MediaPipe USE Embeddings, 71k-Word Knowledge Graph & Room SQLite Architecture)
+- **Why It Was Mandated (WebView Deprecation, Memory Footprint Reduction & On-Device Cognitive Intelligence)**:
+  - Previously, Qiezka ran its primary user interface inside an Android System WebView container wrapped by Capacitor. While functional for rapid prototyping, running Chromium isolates inside a security-hardened focus app caused severe architectural bottlenecks:
+    1. *Excessive Idle RAM Overhead*: The WebView process and Chromium render engines required >300 MB of PSS RAM even when idling on a simple flashcard screen. Under aggressive OEM background memory killers (e.g. Samsung One UI, Xiaomi HyperOS), this elevated memory footprint made the app an immediate target for OS memory pressure eviction (LMK).
+    2. *IPC Latency & DOM Bridge Overhead*: Bridge communications between Web JavaScript and native Android plugins (`LockPlugin`, `ResourceQueryReceiver`) introduced JSON serialization latencies, making interactive learning components (such as dynamic diagramming and rapid card swipes) stutter.
+    3. *Cloud Dependency for Semantic Scoring*: The web interface lacked local deep learning embedding models, preventing offline similarity scoring, semantic question verification, and complex lexical graph queries without external network calls.
+  - To eliminate all WebView overhead while significantly upgrading learning capabilities, Qiezka and the SIREN Quiz App were unified into a pure native Jetpack Compose Material 3 architecture:
+    1. *Zero WebView Dependency & Massive Memory Reduction*: All Capacitor WebViews, web assets, and Chromium isolates were retired from the primary app flow. Idle memory consumption dropped from >300 MB PSS to **189 MB PSS** (a ~37% reduction in memory pressure), drastically increasing survivability against OS process reclamation.
+    2. *100% Offline Universal Sentence Encoder*: Integrated Google MediaPipe Tasks Text with an on-device `universal_sentence_encoder.tflite` model (6.12 MB) executed via native C++ JNI (`libmediapipe_tasks_text_jni.so`), computing 100-dimensional semantic embeddings completely offline in milliseconds.
+    3. *71,359-Word Lexical Knowledge Graph*: Bundled a pre-compiled SQLite relational lexical graph (`words.db`, 6.78 MB) comprising 71,359 indexed words and 1,386 semantic knowledge clusters, empowering offline synonym resolution, lexical difficulty estimation, and automated question generation.
+    4. *Production Room SQLite Architecture*: Replaced fragile JSON flat-file storage with compile-time validated Room SQLite (`qiezka_database`), providing relational integrity, atomic transactions, DAO queries, and pre-seeded default flashcard decks across Cardiovascular Anatomy, Cellular Biology, and Data Structures.
+    5. *Native Diagramming & Algorithmic Routing*: Integrated Hanan Grid A* orthogonal routing in native Jetpack Compose Canvas (`DiagramCanvas.kt`), rendering smooth 120Hz node connectors, interactive annotations, and hardware-accelerated card flipping (`FlipCard.kt`).
+    6. *Disguise Notification Shade Synchronization*: Re-architected `ResourceQueryReceiver.kt` to query Room SQLite asynchronously via `flashcardDao().getAllFlashcardsSync()` and `deckDao().getAllDecksSync()` while maintaining flat-file fallbacks, ensuring the always-active notification shade disguise card (ID: 1006) remains fully populated and functional.
+
+- **Concrete Architectural Implementations**:
+  - **Toolchain & Build Infrastructure**:
+    - Upgraded Gradle configuration in `android/variables.gradle` to `compileSdkVersion = 36`, `targetSdkVersion = 36`, `minSdkVersion = 24`, and Kotlin `2.0.21`.
+    - Integrated Kotlin KSP plugin (`2.0.21-1.0.28`) and Jetpack Compose Compiler plugin (`2.0.21`) in `android/build.gradle`.
+    - Enabled Java 21 compilation toolchain (`sourceCompatibility = JavaVersion.VERSION_21`, `targetCompatibility = JavaVersion.VERSION_21`, `jvmTarget = '21'`) in `android/app/build.gradle` and `android/gradle.properties`.
+    - Added Jetpack Compose BOM (`2024.09.00`), Material 3, Navigation Compose, Room SQLite `2.6.1`, and Google MediaPipe Tasks Text `0.10.14`.
+    - Configured `aaptOptions { noCompress += "tflite" }` to allow zero-copy memory-mapped loading of the TFLite embedding model directly from APK assets.
+  - **Binary Assets Transferred**:
+    - `universal_sentence_encoder.tflite` (6,120,274 bytes) placed in `android/app/src/main/assets/models/`.
+    - `words.db` (6,787,072 bytes) placed in `android/app/src/main/assets/databases/`.
+  - **Data, Model & Repository Subsystem (`com.uncode.app.data`, `com.uncode.app.repository`)**:
+    - **`Entities.kt`**: Defined Room entities: `Deck`, `Flashcard`, `AnnotationItem`, `QuizSchedule`, `QuizSession`, and `QuestionReviewLog` with indices and foreign keys.
+    - **`Daos.kt`**: Created `DeckDao`, `FlashcardDao`, `QuizSessionDao`, and `QuizScheduleDao` supporting reactive `Flow` observations and synchronous background transactions.
+    - **`AppDatabase.kt`**: Room database singleton (`qiezka_database`) featuring an automatic database creation callback invoking `DefaultData.seedDatabase()` on initial launch.
+    - **`StoredKnowledgeEngine.kt`**: Read-only SQLite helper loading `words.db` from assets to perform fuzzy queries, cluster analysis, and lexical distance calculations across 71,359 words.
+    - **`SemanticEmbeddingEngine.kt`**: MediaPipe `TextEmbedder` wrapper utilizing `universal_sentence_encoder.tflite` for on-device cosine similarity calculations between user answers and flashcard definitions.
+    - **`DeckRepository.kt`**: Unified repository bridging Room DAOs, `StoredKnowledgeEngine`, and `SemanticEmbeddingEngine`.
+  - **Native Jetpack Compose UI Subsystem (`com.uncode.app.ui`)**:
+    - **`MainActivity.kt`**: Converted to native `ComponentActivity` hosting Compose `MaterialTheme` and `NavigationHost`, retiring the Capacitor WebView host.
+    - **`MainViewModel.kt`**: Unified state management holding decks, active sessions, quiz results, and headless service bridge hooks (`startLockdownSession()`, `clearLockdownSession()`).
+    - **`Navigation.kt`**: Declarative Compose Navigation graph defining routes for 13 distinct app destinations.
+    - **`theme/` (`Color.kt`, `Theme.kt`, `Type.kt`)**: Jetpack Compose Material 3 dark/light palettes, dynamic color support, and typography hierarchy.
+    - **`components/` (`FlipCard.kt`, `QuizNowDialog.kt`, `DiagramCanvas.kt`)**: Interactive tactile UI components including 3D card flip animations, fast quiz triggering dialogs, and Hanan Grid A* orthogonal line routing.
+    - **`screens/`**: 13 native screens ported and integrated: `DashboardScreen.kt`, `DeckListScreen.kt`, `DeckDetailScreen.kt`, `FlashcardEditorScreen.kt`, `StartQuizScreen.kt`, `QuizScreen.kt`, `QuizResultScreen.kt`, `QuizHistoryScreen.kt`, `StatsScreens.kt`, `TemplateLibraryScreen.kt`, `CreateFocusSessionScreen.kt`, `CustomImportScreen.kt`, and `SettingsScreen.kt`.
+  - **Covert Subsystem & Notification Synchronization**:
+    - **`ResourceQueryReceiver.kt`**: Upgraded `updateStudyCardNotification()` to query `AppDatabase.getInstance(context).flashcardDao().getAllFlashcardsSync()` and `deckDao().getAllDecksSync()` off the main thread, falling back to flat files if needed, keeping notification disguise card ID: 1006 populated.
+    - Preserved all native background enforcement services (`EnforcementCoreService`, `LockAccessibilityService`, `QiezkaNotificationListener`, `BootReceiver`, `SirenContentProvider`).
+
+- **Comprehensive Verification Plan & Matrix (Rule 3)**:
+  - *Affected Files*:
+    - `android/build.gradle` (Toolchain upgrade: Kotlin 2.0.21, KSP, Compose plugins)
+    - `android/variables.gradle` (SDK 36, Kotlin 2.0.21)
+    - `android/gradle.properties` (Java 21 JVM target, SDK 36 compatibility flags)
+    - `android/app/build.gradle` (Compose BOM, Room 2.6.1, MediaPipe 0.10.14, noCompress tflite)
+    - `android/app/src/main/assets/databases/words.db` (71,359-word lexical graph asset)
+    - `android/app/src/main/assets/models/universal_sentence_encoder.tflite` (MediaPipe model asset)
+    - `android/app/src/main/java/com/uncode/app/MainActivity.kt` (Converted to ComponentActivity)
+    - `android/app/src/main/java/com/uncode/app/ResourceQueryReceiver.kt` (Room SQLite sync for disguise card)
+    - `android/app/src/main/java/com/uncode/app/data/*` (Entities, Daos, AppDatabase, DefaultData, Engines)
+    - `android/app/src/main/java/com/uncode/app/repository/*` (DeckRepository)
+    - `android/app/src/main/java/com/uncode/app/viewmodel/*` (MainViewModel)
+    - `android/app/src/main/java/com/uncode/app/ui/*` (Theme, Components, Navigation, Screens)
+  - *Known Dependents & Callers*:
+    - `EnforcementCoreService`: Manages device focus lockouts, revived via `SirenVoiceInteractionService` and boot receivers.
+    - `LockAccessibilityService`: Intercepts system settings and unauthorized window packages.
+    - `QiezkaNotificationListener`: Intercepts and filters distractors.
+    - `ResourceQueryReceiver`: Queries Room database to project study cards into the notification shade.
+    - `SirenContentProvider`: Watchdog IPC link for assistant resurrection.
+  - *Verification Method & Results*:
+    - **Compilation & Toolchain**: Executed `./gradlew.bat compileDebugSources` (0 errors) and `./gradlew.bat assembleDebug` (Exit code 0, produced `app-debug.apk` 53.5 MB).
+    - **Device Deployment (Android 16 QPR1, 192.168.1.50:5555)**: Executed `adb install -r app-debug.apk` $
+ightarrow$ `Success`.
+    - **Activity Launch & Stability**: Executed `am start -n com.uncode.app/.MainActivity` $
+ightarrow$ `Status: ok`, launched in 2.66s without crashes, ANRs, or window leaks.
+    - **Memory Optimization Verification**: Checked PSS memory via `dumpsys meminfo com.uncode.app`: Native Jetpack Compose idle memory is **189 MB PSS** compared to **>300 MB PSS** under WebView (~37% memory reduction).
+    - **Offline Database Integrity**:
+      - `words.db`: Executed SQLite count queries on device: verified **71,359 words** and **1,386 clusters**.
+      - `qiezka_database`: Verified automatic database creation and seeding: **3 decks** ("Cardiovascular Anatomy", "Cellular Biology & Organelles", "Algorithms & Data Structures"), **10 flashcards**, and **1 initial quiz session**.
+    - **On-Device Machine Learning**: Verified MediaPipe native library `libmediapipe_tasks_text_jni.so` loaded into memory; `universal_sentence_encoder.tflite` mapped directly via memory-mapped IO without decompression errors.
+    - **Background Security Services**: Verified `EnforcementCoreService`, `LockAccessibilityService`, and `QiezkaNotificationListener` remain 100% active and bound.
+    - **Covert Notification Card**: Verified notification shade disguise card (ID: 1006) successfully queries Room SQLite and posts active learning cards without crashing.
+  - **Non-Major Refinement (Sub-Patch 34.1 Addendum): Android 16 16KB Compatibility Opt-In (`android:pageSizeCompat`), Action Bar Elimination, Solid Dark Window Surface & Unicode Mojibake Sanitization**:
+    - **Why It Was Mandated (Android 16 QPR1 ELF Alignment Warning, Status Bar Splash Bleed & Unicode Encoding Integrity)**:
+      - *The Android 16 16KB Compatibility Dialog*: On Android 16 QPR1 (SDK 36), the OS linker and package manager (`NativeLibraryHelper`) inspect native libraries in debuggable applications (`flags=[ DEBUGGABLE ... ]`). Because `libmediapipe_tasks_text_jni.so` and `libandroidx.graphics.path.so` have 4 KB LOAD segment alignment, the package manager flagged `PAGE_SIZE_APP_COMPAT_FLAG_ELF_NOT_ALIGNED` (`pageSizeCompat=4`), displaying a system compatibility popup dialog on every cold launch.
+      - *Duplicate Action Bar & Splash Logo Bleed*: `MainActivity` used theme `AppTheme.NoActionBarLaunch` inheriting from `Theme.SplashScreen` without disabling window action bar features (`windowActionBar = false`, `windowNoTitle = true`). Consequently, Android synthesized a redundant native `android:id/action_bar` labeled `"QIEZKA"` above the Jetpack Compose top app bar. Furthermore, the legacy splash drawable (`splash.png`) was exposed through edge-to-edge transparent status bar margins, causing the blue Qiezka icon to bleed through above the UI.
+      - *Unicode Mojibake Corruption*: String literals containing bullet separators (`•`), directional arrows, checkmarks, and currency symbols were double-encoded as CP1252/Latin-1 into mojibake (`â€¢`, `â†’`, `âœ§`, `âž”`, `?`), corrupting dashboard statistics (`67% Readinessâ€¢100% Accuracyâ€¢1 Quizzes`) and date formatters (`SimpleDateFormat("MMM d, yyyy â€¢ h:mm a")`).
+    - **Concrete Architectural Implementations**:
+      - **`AndroidManifest.xml`**: Declared `android:pageSizeCompat="enabled"` inside `<application>`, opting the app into Android 15/16 16 KB backcompat mode and suppressing the system warning dialog.
+      - **`build.gradle` (app)**: Added `packaging { jniLibs { useLegacyPackaging = false } }` to ensure native libraries are stored uncompressed and aligned.
+      - **`styles.xml` & `MainActivity.kt`**: Replaced `Theme.SplashScreen` parent in `AppTheme.NoActionBarLaunch` with `Theme.AppCompat.DayNight.NoActionBar` with explicit `windowActionBar = false` and `windowNoTitle = true`. Set window background to solid dark `#0A0E17`, and explicitly called `window.setBackgroundDrawable(ColorDrawable(0xFF0A0E17.toInt()))` in `MainActivity.onCreate()` before view composition, eliminating both the duplicate `"QIEZKA"` action bar and the legacy splash logo bleed.
+      - **Screen & Engine Sanitization**: Cleaned all double-encoded mojibake across `DashboardScreen.kt`, `QuizHistoryScreen.kt`, `DeckListScreen.kt`, `DeckDetailScreen.kt`, `FlashcardEditorScreen.kt`, `QuizResultScreen.kt`, `QuizScreen.kt`, `CustomImportScreen.kt`, `MainViewModel.kt`, and `StoredKnowledgeEngine.kt`, converting them to standard Unicode escape literals (`•`, `→`, `✧`, `€`, `£`, `°`, `µ`).
+    - **Comprehensive Verification Plan & Matrix (Rule 3)**:
+      - *Affected Files*: `AndroidManifest.xml`, `styles.xml`, `MainActivity.kt`, `build.gradle`, and 10 sanitized Kotlin screens/engines.
+      - *Verification Method*: Compiled sources with 0 errors (`compileDebugSources`), assembled APK (`assembleDebug`), installed on Android 16 QPR1 physical device (`192.168.1.50:5555`), launched activity, and captured screenshots confirming:
+        1. 0 compatibility error dialogs on cold start (`pageSizeCompat=36`).
+        2. Complete elimination of the redundant `"QIEZKA"` action bar and legacy splash bleed, leaving only the native Compose `"SIREN Quiz App"` top bar against a uniform `#0A0E17` background.
+        3. Crystal-clean bullet separator formatting across statistics (`67% Readiness • 100% Accuracy • 1 Quizzes`) and timestamps (`Nov 2, 4:05 AM • SINGLE`).
+  - **Non-Major Refinement (Sub-Patch 34.2 Addendum): 4x4 Scrollable Allowed Apps Grid, First-Time Startup Auto-Population with Eligible Apps & In-Place Selector Dialog**:
+    - **Why It Was Mandated (Focus Session Allowed Apps Architecture, Wired Previous Classification Logic & Distraction Prevention)**:
+      - *First-Time Startup Auto-Population Invariant*: Recent patches (Patch 24, 25, 27, 28) specify that upon the initial first-time startup of the app, Allowed Apps must be automatically populated with all genuinely eligible apps that pass the authoritative 5-layer classification pipeline (`LockPlugin.kt` lines 793–843).
+      - *Anti-Improvisation & Exact Logic Wiring*: Instead of ad-hoc filtering or rogue continuous repopulation loops on empty lists, the ViewModel directly wires the exact evaluation pipeline from `LockPlugin.kt`:
+        1. Early exclusion of self (`context.packageName`), Stage 1 anti-tamper settings, device managers, and bloatware (`AppClassifier.isSettingsOrDeviceManager`, `AppClassifier.isStage1Bloat`).
+        2. Detection and eviction of PWAs, TWAs, and WebAPKs (`AppClassifier.isPwaOrWebApk`).
+        3. Exclusion of all games, entertainment, gambling, and casual feeds (`KnownDistracting.isKnownDistracting`, `AppClassifier.isForbiddenDistraction`).
+        4. Exclusion of AI assistant applications and unified policy services unless baseline safe (`UnifiedPolicyRegistry`, `isAiAppKeywords`).
+        5. Exclusion of system keyboards and IMEs (`isKeyboardAppKeywords`).
+        6. Omission of hidden infrastructure, camera proxies, aperture lens launchers, and store installers (`isHiddenInfrastructureApp`).
+        7. Omission of Home Launchers (`KnownSafe.isLauncherApp`).
+        8. Omission of Stage 3 Universal System Utilities (`AppClassifier.isPassedStage3SystemAllow`: Phone, Clock, Contacts, Calendar, Calculator, which are dynamically allowed by the OS during lockdown and hidden from the user whitelist UI per the Stage 3 UI Non-Rendering Principle).
+        9. Whitelist invariant verification (`AppClassifier.isPackageBlocked` unless `KnownSafe.isHardcodedApp` or `KnownSafe.BASELINE_SAFE_PACKAGES`).
+      - *Non-Launching Grid Interaction*: Tapping an allowed app tile on the dashboard does NOT launch the external application (maintaining lockdown discipline); instead, tapping anywhere on the card or an app tile opens the "Select Allowed Apps" modal dialog, eliminating the need for an external "+ Add" button in the section header.
+      - *4x4 Scrollable Grid Layout*: Displays 4 columns with a 3-row visible viewport (4x3 view) inside a 260.dp card, scrolling smoothly when more than 12 eligible apps are present.
+      - *Persistent State Segregation*: User allowed app selections are stored persistently in `siren_app_prefs` under `user_allowed_apps` with an `allowed_apps_initialized` flag, guaranteeing that user additions or removals are permanent and never overwritten by subsequent launches, while automatically syncing the active set to `uncode_lock.xml` for `LockAccessibilityService` runtime enforcement.
+      - *Zero New Files & Zero Enforcement File Alterations*: Zero new files were created and zero original uncode enforcement files (`AppClassifier.kt`, `LockPlugin.kt`, `LockAccessibilityService.kt`, `EnforcementCoreService.kt`) were modified.
+    - **Concrete Architectural Implementations**:
+      - **`MainViewModel.kt`**:
+        - Declared `data class AllowedAppItem(val packageName: String, val name: String, val isWhitelisted: Boolean = true)`.
+        - Exposed reactive `allowedApps: StateFlow<List<AllowedAppItem>>` and `eligibleApps: StateFlow<List<AllowedAppItem>>`.
+        - Implemented helper methods matching `LockPlugin.kt`: `isAiAppKeywords`, `isKeyboardAppKeywords`, `isHiddenInfrastructureApp`, and unified `isEligibleApp(context, pm, pkg)`.
+        - Implemented `loadAllowedApps()`: checks `siren_app_prefs` for `allowed_apps_initialized`. On first-time startup (`!allowed_apps_initialized`), evaluates all launchable packages via `isEligibleApp`, sets `user_allowed_apps`, sets `allowed_apps_initialized = true`, and syncs to `uncode_lock.xml` (`whitelist`). On subsequent launches, reads `user_allowed_apps` directly.
+        - Implemented `loadEligibleApps()`: evaluates candidates with `isEligibleApp` to populate the selector dialog, checking state against `user_allowed_apps`.
+        - Implemented `updateAllowedApps(newAllowed)` and `toggleAllowedApp(packageName)`: commits changes to `siren_app_prefs` and `uncode_lock.xml`, and invokes `AppClassifier.clearCache()`.
+      - **`DashboardScreen.kt`**:
+        - Section header displays `"Allowed Apps (${allowedApps.size})"`, removing the "+ Add" button.
+        - Fixed-height (260.dp) Card container with `clickable { showAppSelector = true }`, hosting a 4-column `LazyVerticalGrid(columns = GridCells.Fixed(4))`.
+        - `AllowedAppGridTile`: displays 44.dp icon and 11.sp title with ellipsis, non-launching on tap.
+        - "Select Allowed Apps" `AlertDialog` with live search, app icons, titles, package names, checkboxes, and "Done" dismissal.
+        - Memory-bounded `drawableToBitmap(drawable, sizePx = 144)` rendering into normalized ARGB_8888 bitmap buffer (~82 KB per icon), avoiding `RecordingCanvas` over-allocation crashes.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `MainViewModel.kt`, `DashboardScreen.kt`, `siren_app_prefs.xml`, `uncode_lock.xml`, and `LockPlugin.kt` integration.
+      - *Unit Testing & Build Verification*: Executed `gradlew.bat compileDebugSources` (passed in 58s, 0 errors) and `gradlew.bat testDebugUnitTest` (passed with 71 passing tasks, 0 failures, exit code 0).
+      - *On-Device Live Verification (Android 16 QPR1, 192.168.1.50:5555)*:
+        1. Deployed updated debug APK via `adb -s 192.168.1.50:5555 install -r`.
+        2. Verified initial first-time startup auto-population: on first launch, `siren_app_prefs.xml` and `uncode_lock.xml` were seeded with 54 verified eligible apps (e.g. `AnkiDroid`, `Classroom`, `Docs`, `Word`, `WPS Office`, `Photomath`, `Termux`, `Telegram`, `Messenger`, `ZArchiver`) while strictly excluding games, launchers, and stage 1 anti-tamper.
+        3. Verified UI layout: confirmed header renders `"Allowed Apps (54)"` without "+ Add" button, and 4-column grid cleanly presents 12 icons in initial viewport (4x3 view).
+        4. Verified non-launching & modal invocation: tapped on allowed app tile; confirmed no external application was launched, and the "Select Allowed Apps" dialog opened immediately with candidate apps and checkboxes.
+        5. Verified user customization & persistence: unchecked `Background Eraser` in dialog and clicked "Done". Header updated immediately to `"Allowed Apps (53)"`, `user_allowed_apps` in `siren_app_prefs.xml` updated, and `uncode_lock.xml` updated. Force-stopped and relaunched the app; confirmed the 53 apps remained intact with `allowed_apps_initialized = true` without any rogue repopulation.
+  - **Non-Major Refinement (Sub-Patch 34.3 Addendum): Native VPN & Accessibility Subsystem Wiring & Simulated Lockdown ON/OFF Floating Toggle**:
+    - **Why It Was Mandated (Subsystem Verification, Dual-Layer Network & Window Guard, Zero Improvisation)**:
+      - *Native Enforcement Wiring*: Wire the existing `LocalDnsVpnService.kt` (loopback DNS packet sinkhole on `10.111.222.1` evaluating queries against `WebClassifier` and `WebBlocklistConstants`) and `LockAccessibilityService.kt` (window and URL guard) into the Compose architecture without touching original enforcement files or creating new files.
+      - *Preservation of Core Operating Modes*: Maintained existing Safemode (enforcement active 7:00 PM – 3:00 AM) and Hardcore (24/7 enforcement) modes in Settings, persisting to `uncode_lock.xml` under `operating_mode`.
+      - *Internet Lock & VPN Permission*: Wired Internet Lock selection to `"accessibility"` (Accessibility only) vs `"dual_hybrid"` (Dual-Layer Hybrid with local DNS sinkhole VPN), integrated with `VpnService.prepare` activity result launcher.
+      - *Direct Simulated Lockdown ON/OFF Toggle*: Added a direct floating toggle button on the Dashboard allowing instant testing of lockdown activation and release without fabricated timer calculations or overlay services.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt)**:
+        - Exposed reactive StateFlows: `isLockdownActive`, `operatingMode`, `webProtectionMode`, `isAccessibilityEnabled`, and `isVpnRunning`.
+        - Positioned property initializers above the `init` block, preventing a cold-start `NullPointerException` during synchronous state refresh.
+        - Implemented `refreshLockdownAndServiceState()` querying `uncode_lock.xml` and `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`.
+        - Implemented `setOperatingMode(mode)` persisting `"safemode"` / `"hardcore"`.
+        - Implemented `setWebProtectionMode(mode, onVpnPermissionNeeded)` managing mode persistence, VPN preparation, and active service start/stop.
+        - Implemented `toggleSimulatedLockdown(onVpnPermissionNeeded)`: on turn ON, sets `lockdown_active = true`, syncs user allowed apps to `whitelist`, clears classifier caches, and starts `LocalDnsVpnService` if dual_hybrid mode is active; on turn OFF, invokes `LockPlugin.clearLockdownState(context)` for clean teardown.
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt)**:
+        - Wired existing Operating Mode rows directly to `viewModel.operatingMode`.
+        - Wired existing Internet Lock rows ("Accessibility" vs "VPN") directly to `viewModel.webProtectionMode`, registering `rememberLauncherForActivityResult` for `VpnService.prepare`.
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt)**:
+        - Added temporary `ExtendedFloatingActionButton` displaying `"Lockdown: OFF"` (`Icons.Default.LockOpen`) or `"Lockdown: ON"` (`Icons.Default.Lock`), styled with distinct container colors.
+        - Tapping toggles simulated lockdown ON/OFF via `viewModel.toggleSimulatedLockdown`.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `MainViewModel.kt`, `SettingsScreen.kt`, `DashboardScreen.kt`, `uncode_lock.xml`, `LocalDnsVpnService.kt`, `LockAccessibilityService.kt`.
+      - *Automated Unit Testing & Compilation*: Executed `.\android\gradlew.bat -p android testDebugUnitTest` verifying all classes and unit tests compiled with 0 errors (71 passing tasks, 0 failures, exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Build APK and install on device.
+        2. Verify Settings screen: Operating Mode toggles Safemode/Hardcore in `uncode_lock.xml`; Internet Lock toggles Accessibility/VPN in `uncode_lock.xml` (`"accessibility"` vs `"dual_hybrid"`).
+        3. Tap "Lockdown: OFF" on Dashboard: verify button switches to "Lockdown: ON", `lockdown_active = true`, VPN key appears in status bar if dual_hybrid, unwhitelisted apps are evicted with restriction toasts, distracting domains in browser fail to resolve, and allowed apps stay open.
+        4. Tap "Lockdown: ON": verify button switches back to "Lockdown: OFF", VPN stops cleanly, and restrictions immediately release.
+  - **Non-Major Refinement (Sub-Patch 34.3 Policy Registry Integration): Unified Policy Registry & App Classifier Stage 2 Truth Table Wiring**:
+    - **Why It Was Mandated (Cross-Stack Policy Parity, Zero Discrepancy with Uncode Truth Table, Real-Time Service Gating)**:
+      - *Single Source of Policy Truth*: The Uncode core engine architecture pairs native Android applications with web browser domains in `UnifiedPolicyRegistry.kt` (`UnifiedService`). Services like `"youtube"` (Videos: YouTube & Baidu Video) and `"ai"` (AI assistants: Gemini, ChatGPT, Claude, Perplexity, Copilot, etc.) must never exist as generic user-whitelisted apps; they are strictly governed by global policy switches.
+      - *Stage 2 Heuristic Truth Table Fulfillment*: In `AppClassifier.kt`, Stage 2 (`MSG_GATE3`) relies on the truth table between `isDistracting` (`KnownDistracting.kt`) and `isSafe` (`KnownSafe.kt`). Enabled Unified Services in `active_unified_services` explicitly satisfy Quadrant 1 (`isDistracting == YES && isSafe == YES -> ALLOW`), serving as an intentional policy override.
+      - *Real-Time Network and Window Protection Alignment*: Toggling unified services in Settings immediately updates `active_unified_services`, `allow_youtube`, and `allowed_domains` in `uncode_lock.xml`, clears both `AppClassifier` and `WebClassifier` caches, and triggers live recalculation of allowed apps without requiring an app restart.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt)**:
+        - Exposed `activeUnifiedServices: StateFlow<Set<String>>` initialized before `init` block to preserve startup stability.
+        - Updated `refreshLockdownAndServiceState()` to load `active_unified_services` (and `"youtube"` fallback if legacy `allow_youtube` boolean is set).
+        - Implemented `toggleUnifiedService(serviceId, allowed)` persisting updated set to `uncode_lock.xml`, synchronizing `allow_youtube` and `allowed_domains` via `UnifiedPolicyRegistry.getDomainsForServices()`, clearing `AppClassifier` and `WebClassifier` caches, and refreshing eligible/allowed apps.
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt)**:
+        - Added a dedicated "Policy" card section situated between "Study Enforcement" and "Data Management".
+        - Dynamically queried `UnifiedPolicyRegistry.SERVICES.values` rendering each service with its `displayName`, `badge` ("App + Web"), and `description`.
+        - Bound each policy entry to an interactive Material3 `Switch` driven by `activeUnifiedServices` state and calling `viewModel.toggleUnifiedService`.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `MainViewModel.kt`, `SettingsScreen.kt`, `UnifiedPolicyRegistry.kt`, `uncode_lock.xml`, `AppClassifier.kt`, `WebClassifier.kt`, `LocalDnsVpnService.kt`, `LockAccessibilityService.kt`.
+      - *Automated Unit Testing & Compilation*: Executed `.\android\gradlew.bat -p android testDebugUnitTest` verifying all classes and unit tests compiled with 0 errors (71 passing tasks, 0 failures, exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open Settings -> scroll to "Policy" section: verify both "Videos (YouTube & Baidu Video)" and "AI" render with badges and switches.
+        2. Toggle "AI" ON: inspect `uncode_lock.xml` via ADB root shell (`cat /data/data/com.uncode.app/shared_prefs/uncode_lock.xml`); verify `active_unified_services` contains `"ai"` and `allowed_domains` contains `chatgpt.com`, `claude.ai`, `gemini.google.com`.
+        3. Start simulated lockdown on Dashboard: launch ChatGPT or Gemini app, or navigate to `chatgpt.com` in browser; verify access is permitted per Quadrant 1 of the Truth Table.
+        4. Toggle "AI" OFF in Settings: inspect `uncode_lock.xml`; verify `"ai"` is removed. During lockdown, launch ChatGPT or open `chatgpt.com`; verify `LockAccessibilityService` evicts the app to home and `LocalDnsVpnService` sinks the domain to `10.111.222.1`.
+  - **Non-Major Refinement (Sub-Patch 34.3 Focus Session UI): Scrollable Drum Wheel Pickers for Activation Time & Duration**:
+    - **Why It Was Mandated (Zero Keyboard Interference, 90-Minute Ultradian Limit, Smooth Snapping Wheel Ergonomics)**:
+      - *Elimination of Dial Clutter & Keyboard Intrusions*: Material3's standard time dialog required clicking into a modal clock-face dial, while duration previously relied on text-field typing that popped up the software keyboard and risked invalid numeric input.
+      - *3-Column Synchronized Time Drum Wheel*: Replaced the dialog with an inline 3-wheel drum picker (Hours `1..12`, Minutes `00..59`, Period `AM`/`PM`) with vertical rolling, distance-based scale/alpha fading, and tap-to-select snapping powered by `rememberSnapFlingBehavior`.
+      - *Strict 90-Minute Ultradian Cap*: Completely restricted duration selection to a single vertical wheel from `1` to `90` minutes, strictly enforcing the 90-minute biological focus boundary without text typing or external preset buttons.
+      - *Strict Scope Integrity (Zero Improvisation)*: Unmodified Finalize FAB button functionality (`onClick = {}`), avoiding unapproved backend scheduling or premature database side-effects.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt)**:
+        - Implemented `ScrollWheelPicker<T>` composable utilizing `rememberSnapFlingBehavior(lazyListState)` and `derivedStateOf` viewport center calculation for $O(1)$ snap-to-center selection.
+        - Supported tap-to-select with animated scrolling via `coroutineScope.launch { listState.animateScrollToItem(index) }`.
+        - Replaced `TimePicker` alert dialog with inline 3-wheel card for hours, minutes, and AM/PM.
+        - Replaced `OutlinedTextField` with vertical wheel picker bounded strictly to `1..90` minutes.
+        - Preserved empty `onClick = {}` on `ExtendedFloatingActionButton` to await dedicated schedule persistence wiring.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `CreateFocusSessionScreen.kt`, `MainActivity.kt`.
+      - *Automated Unit Testing & Compilation*: Executed `.\android\gradlew.bat -p android testDebugUnitTest` verifying all classes and unit tests compiled with 0 errors (71 passing tasks, 0 failures, exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app -> tap `+ Focus Session` -> select a study deck -> tap `Next`.
+        2. Verify Activation Time displays 3 side-by-side vertical wheels (`1..12`, `00..59`, `AM`/`PM`).
+        3. Scroll and tap items on each time wheel: verify smooth snapping to the center slot without opening any popup dialog.
+        4. Verify Duration displays a vertical wheel strictly containing numbers `1` through `90` with `"min"` label, with no keyboard popping up.
+        5. Verify Finalize FAB remains untouched.
+  - **Non-Major Refinement (Sub-Patch 34.3 Ergonomics): Isolated Per-Column Expandable Wheel Pickers**:
+    - **Why It Was Mandated (Minimalist Non-Bulky Visuals, Isolated Column Expansion, Uncluttered Centerline Alignment)**:
+      - *Elimination of Bulky Static Drums*: Displaying 3 vertical wheels continuously produced visual clutter and excessive card height.
+      - *Isolated Column Expansion*: In resting state (State I), Time and Duration render as sleek single-line cards displaying only the selected values (`Time  [6] : [05]  [AM]`, `Duration  [25]  min`).
+      - *Context-Targeted Wheeling (State II)*: Tapping or scrolling a specific segment expands ONLY that column into a vertical drum roll (`itemHeight = 32.dp`, 5 visible items), while adjacent columns remain centered single values without displaying lists above or below. Tapping the selected center item collapses it back to the single-line resting state.
+      - *Strict 90-Minute Cap & Zero Improvisation*: Retained the 1..90 min limit, preserved empty Finalize FAB (`onClick = {}`), and maintained zero backend modifications.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt)**:
+        - Introduced `ActivePickerField` state (`NONE`, `HOUR`, `MINUTE`, `DURATION`).
+        - Integrated `animateContentSize()` on compact cards with `RoundedCornerShape(12.dp)` for fluid height transitions.
+        - Refactored `ScrollWheelPicker<T>` with `onCenterClicked: () -> Unit` enabling one-tap collapse.
+        - Preserved untouched Finalize FAB.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `CreateFocusSessionScreen.kt`, `MainActivity.kt`.
+      - *Automated Unit Testing & Compilation*: Executed `.\android\gradlew.bat -p android testDebugUnitTest` verifying 0 compilation errors across 71 test tasks (exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app -> `+ Focus Session` -> select deck -> tap `Next`.
+        2. Verify Time row displays resting line: `Time [6] : [05] [AM]`. Verify no other numbers appear above or below.
+        3. Tap `6`: verify ONLY the hour column expands vertically (`... 8, 9, 10, 6, 5, 4 ...`). Verify `05` and `AM` remain as single numbers on the center line.
+        4. Tap `6` again: verify the wheel collapses back to the compact single row.
+        5. Tap `05`: verify ONLY the minute column expands vertically.
+        6. Tap `AM`: verify it toggles to `PM`.
+        7. In Duration card, verify resting state: `Duration [25] min`. Tap `25`: verify it expands into the 1..90 scroll wheel.
+  - **Non-Major Refinement (Sub-Patch 34.3 Wheel UI): Layered Floating Popup Scroll Wheels & Zero Card Layout Distortion**:
+    - **Why It Was Mandated (Eliminating Card Size Shifts, Adhering to Established Floating Popup Wheel Ergonomics & Zero Bulky Bloat)**:
+      - *Layout Shift Elimination*: In the previous iteration, expanding wheels enlarged the parent cards vertically (`animateContentSize()`), pushing the Duration card and other UI down. Established mobile design patterns require the resting card to remain strictly fixed-height, flat, and compact (`~50dp`) on a single horizontal row (`Time  [6] : [05]  [AM]`, `Duration  [25]  min`).
+      - *Layered Floating Popup Drum*: Tapping a target number (e.g. `6` or `25`) opens an elevated, floating popup wheel (`elevation = 8.dp`) centered directly over that number's anchor coordinates via `PopupPositionProvider`. The wheel drum floats seamlessly above and below the card's boundaries on a dedicated window popup layer, leaving the underlying card and adjacent digits completely undisturbed.
+      - *Intuitive Interaction & Dismissal*: Tapping outside the popup or tapping the centered active item dismisses the popup instantly. Tapping any non-centered item scrolls it to the center.
+      - *Strict 90-Minute Cap & Zero Improvisation*: Retained the 1..90 min limit, preserved empty Finalize FAB (`onClick = {}`), and maintained zero backend modifications.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt)**:
+        - Removed `animateContentSize()` from `activation_time_card` and `duration_card` to preserve fixed dimensions.
+        - Implemented `centerAnchorProvider` (`PopupPositionProvider`) to calculate exact centered offsets:
+          `x = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2`
+          `y = anchorBounds.top + (anchorBounds.height - popupContentSize.height) / 2`.
+        - Encapsulated hour, minute, and duration scroll wheels inside `androidx.compose.ui.window.Popup` with `PopupProperties(focusable = true)` and elevated `Card(shape = RoundedCornerShape(12.dp), elevation = 8.dp)`.
+        - Connected `onCenterClicked = { activeField = ActivePickerField.NONE }` to dismiss on center tap.
+        - Preserved untouched Finalize FAB (`onClick = {}`).
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `CreateFocusSessionScreen.kt`, `MainActivity.kt`.
+      - *Automated Unit Testing & Compilation*: Executed `.\android\gradlew.bat -p android compileDebugKotlin` and `testDebugUnitTest` with 0 errors across 71 test tasks (exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app -> `+ Focus Session` -> select deck -> tap `Next`.
+        2. Verify Time card is flat and compact: `Time   6  :  05   AM`. Verify the card height remains static (~50dp).
+        3. Tap `6`: verify an elevated popup card floats directly over `6`, showing drum roll (`... 8, 9, 10` above; `4, 3, 2` below) floating above and below the card edge. Verify `05` and `AM` remain untouched on the base card.
+        4. Tap `6` again: verify popup closes cleanly and card remains undisturbed.
+        5. Tap `05`: verify popup floats over `05` with `0..59` scroll wheel.
+        6. Tap `AM`: verify it toggles directly to `PM` without opening a popup.
+        7. In Duration card, verify resting state: `Duration   25   min`. Tap `25`: verify floating popup opens with `1..90` scroll wheel.
+        8. Tap outside popup or tap center item: verify popup dismisses immediately.
+  - **Non-Major Refinement (Sub-Patch 34.3 Direct Scroll & Auto-Close): Direct Drag-to-Scroll & Auto-Closing Number Wheels**:
+    - **Why It Was Mandated (Eliminating "Tap and Scroll" Two-Step Friction, Real-Time 1:1 Direct Manipulation & Auto-Close on Release)**:
+      - *Elimination of Two-Step Pre-Tap*: Previously, resting numbers only registered clicks. To scroll, the user was forced to tap first, lift their finger, and then put their finger down a second time on the popup to scroll. The user explicitly mandated direct vertical manipulation: directly scrolling the number on the resting card without a preceding tap.
+      - *Direct Touch-and-Drag with Real-Time Drum Rolling*: Touching the number and dragging vertically immediately activates the wheel, displays the floating popup drum, and synchronizes rolling via `dispatchRawDelta(-dragAmountY)`.
+      - *Auto-Close on Release*: Releasing the finger commits the middle number as the final selected value and auto-closes the floating popup immediately, leaving the card in its clean resting state.
+      - *Tap-to-Keep-Open*: Simply tapping without dragging opens the floating popup and keeps it open for manual wheel scrolling or tapping specific numbers.
+      - *Zero Layout Shift & Strict 90-Min Cap*: Base cards remain strictly ~50dp fixed height without resizing; duration capped at 1..90 min; Finalize FAB untouched (`onClick = {}`).
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt)**:
+        - Hoisted `hourListState`, `minuteListState`, and `durationListState` to `CreateFocusSessionScreen` to preserve continuous scroll offsets.
+        - Built reusable private `Modifier.wheelAnchorGesture(onTap, onDragStart, onDrag, onDragEnd)` using `awaitEachGesture` and `awaitFirstDown(requireUnconsumed = false)`.
+        - Drag path consumes pointer events (`change.consume()`) preventing parent screen `LazyColumn` scroll interference and applies `dispatchRawDelta` synchronously.
+        - Release path computes the middle item from `layoutInfo`, sets the final state, aligns via `scrollToItem`, and sets `activeField = NONE` to auto-close.
+        - Tap path opens the popup and keeps it open.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `CreateFocusSessionScreen.kt`, `MainActivity.kt`.
+      - *Automated Unit Testing & Compilation*: Executed `compileDebugKotlin` and `testDebugUnitTest` via Gradle: all 71 tasks passed with 0 errors (exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app -> `+ Focus Session` -> select deck -> tap `Next`.
+        2. Touch `6` and drag vertically: verify the floating popup appears immediately while dragging, numbers roll in 1:1 sync with the finger, and releasing commits the middle number and auto-closes the popup immediately.
+        3. Tap `6` without dragging: verify the popup opens and stays open.
+        4. Repeat direct drag on `05` (Minute) and `25` (Duration): verify real-time drum roll and auto-close on release.
+        5. Verify base cards remain static at ~50dp height throughout.
+  - **Non-Major Refinement (Sub-Patch 34.3 Finalize & Carousel): Finalize Scheduling, 30-Minute Proximity Overlap Warning & Dashboard Swipeable Carousel**:
+    - **Why It Was Mandated (Completing Focus Session Lifecycle, Overlap Prevention & Swipeable Focus UX)**:
+      - *Finalize Button & Native Schedule Arming*: Step 2 previously had a dummy Finalize FAB (`onClick = {}`). Finalizing was required to persist the selected focus session schedule (e.g. deck title "Ethics Week 4 Session 1", activation time "9:40 PM", duration "90 Min Duration"), update native `uncode_lock` SharedPreferences, and arm Android `AlarmManager` exact wall-clock alarms via `ScheduleManager.syncSchedules()`.
+      - *30-Minute Proximity & Overlap Guard*: Under original uncode architecture (`src/components/CreateSchedule.tsx`), schedules must maintain a minimum 30-minute buffer to prevent back-to-back cognitive fatigue and alarm collision (`proposedStart < exEnd + 30 && proposedEnd + 30 > exStart`). If a proposed session violates this threshold, Step 2 dynamically renders a warning card with `⚠️ Schedule is Overlapping` and disables/blocks the Finalize FAB.
+      - *Dashboard Swipeable Focus Cards Carousel (`HorizontalPager`)*: Rather than a static text container, the Dashboard Focus Sessions section is upgraded to a swipeable card carousel (`pageCount = focusSchedules.size + 1`):
+        - *Pages `0..N-1` (Active/Scheduled Focus Cards)*: Render deck title (e.g. "Ethics Week 4 Session 1"), status pill badge (`SCHEDULED` or `ACTIVE`), live ticking countdown timer (e.g. `Starts in 01:23:45` or `Active: 42:15 remaining`), and 12-hour activation time with duration (e.g. `9:40 PM • 90 Min Duration`), with a quick delete button.
+        - *Page `N` (Last Card, Swiped Left)*: Renders the rotating discouraging message from `FocusSessionMessages` with the `+ Add` button to create additional sessions.
+        - *Pager Indicator Dots*: Renders pill dots below the cards reflecting the active page index.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt)**:
+        - Defined `FocusScheduleItem` data model storing `id`, `title`, `activationTime`, `durationMinutes`, `selectedDeckIds`, `deckNames`, `isActive`, and `createdAt`.
+        - Added `focusSchedules` `StateFlow` populated on initialization via `loadFocusSchedules()`.
+        - Implemented `createFocusSchedule()` and `deleteFocusSchedule()` serializing schedules to `JSONArray` and syncing with native `ScheduleManager.syncSchedules(context, arr.toString(), whitelist)`, triggering immediate `AlarmManager` rescheduling.
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt)**:
+        - Computed `isScheduleOverlapping` derived from selected 24-hr time, minute, duration, and active schedules with multi-day circular wrap offsets (`-1440, 0, 1440`).
+        - Rendered `overlap_warning_card` under `duration_card` in Step 2 displaying `Icons.Default.Warning` and `"Schedule is Overlapping"` when overlap is detected.
+        - Wired `focus_session_finalize_fab`: validates overlap, persists schedule via `viewModel.createFocusSchedule(...)`, and invokes `onFinalized()`.
+      - **[`android/app/src/main/java/com/uncode/app/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt)**:
+        - Wired `onFinalized = { while (viewModel.navigationBackStack.size > 1) { viewModel.navigationBackStack.removeLastOrNull() } }` to pop navigation back to `Screen.Dashboard`.
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt)**:
+        - Replaced static container with `HorizontalPager(state = rememberPagerState(pageCount = { focusSchedules.size + 1 }))`.
+        - Integrated 1-second live countdown ticker `currentTimeMillis` computing exact time delta to next start or remaining active window.
+        - Styled scheduled/active cards with title, status pill badge, live timer row, 12-hour formatted time and duration footer, and delete action.
+        - Rendered rotating discouraging quote and `+ Add` button on page `N`.
+        - Built animated page indicator capsule dots below pager.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `MainViewModel.kt`, `CreateFocusSessionScreen.kt`, `DashboardScreen.kt`, `MainActivity.kt`, `ScheduleManager.kt`.
+      - *Automated Verification*: Executed `compileDebugKotlin` and `testDebugUnitTest` via Gradle: all 71 tasks passed with 0 errors (exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app -> tap `+ Focus Session` -> select "Ethics Week 4 Session 1" -> tap `Next`.
+        2. Set time to `9:40 PM` and duration to `90 min`.
+        3. Tap `Finalize` FAB: verify user is redirected to Dashboard immediately.
+        4. On Dashboard, verify Focus Sessions section displays the newly created card with Title "Ethics Week 4 Session 1", status badge `SCHEDULED`, live countdown `Starts in HH:mm:ss`, and footer `9:40 PM • 90 Min Duration`.
+        5. Swipe left on the card: verify the carousel moves to Page 2 showing the rotating discouraging quote and `+ Add` button.
+        6. Tap `+ Add` on Page 2: select a deck and attempt to set a time within 30 minutes of `9:40 PM` (e.g. `10:00 PM` or `11:15 PM`): verify the warning card `⚠️ Schedule is Overlapping` appears under Duration, and tapping Finalize is blocked.
+        7. Change time to a non-overlapping slot (e.g. tomorrow morning `8:00 AM`): verify the warning disappears and Finalize saves a second card to the carousel.
+  - **Non-Major Refinement (Sub-Patch 34.3 Overlap FAB Concealment & Real-Time Sync): Finalize Button Auto-Concealment, Instant Drag State Sync & Backend Overlap Rejection**:
+    - **Why It Was Mandated (Eliminating Race Conditions, Preventing Accidental Overlap Finalization & Real-Time State Parity)**:
+      - *Finalize FAB Auto-Concealment & Click Locking*: Previously, when `Schedule is Overlapping` was active, the Finalize FAB was still visible and clickable. The user requested that if a schedule is overlapping, the Finalize button cannot be clicked or must be hidden completely, preventing users from tapping it.
+      - *Real-Time Continuous Drag Sync*: Previously, `selectedHour12`, `selectedMinute`, and `selectedDurationMinutes` only committed upon finger release (`onDragEnd`) or after snapping settled. Consequently, while actively scrolling or tapping, state updates lagged behind visual changes, occasionally causing the overlap warning to delay or allowing users to tap Finalize before the check evaluated. Drag gestures now update values continuously in real-time as items cross the viewport center.
+      - *Backend Rejection Guard in `MainViewModel`*: Added 30-minute buffer overlap validation in `createFocusSchedule()` to reject overlapping intervals at the data layer, returning `false` and guaranteeing that even if a UI race occurred, an overlapping schedule is never persisted to SharedPreferences or armed in `AlarmManager`.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt)**:
+        - Wrapped Step 2 Finalize FAB in `AnimatedVisibility(visible = !isScheduleOverlapping, enter = fadeIn(tween(150)) + scaleIn(tween(150)), exit = fadeOut(tween(150)) + scaleOut(tween(150)))` and guarded `onClick` with immediate return if overlapping.
+        - Calculated `isScheduleOverlapping` directly via `remember(...)` without `derivedStateOf` latency.
+        - In `ScrollWheelPicker`, invoked `onItemSelected(items[index])` synchronously on tap clicks before animating scroll.
+        - In `wheelAnchorGesture.onDrag` for Hour, Minute, and Duration, continuously sampled the viewport center and updated `selectedHour12`, `selectedMinute`, and `selectedDurationMinutes` in real time.
+      - **[`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt)**:
+        - Added 30-minute buffer overlap check (`proposedStart < exEndOff + 30 && proposedEnd + 30 > exStartOff`) in `createFocusSchedule()`, returning `false` on any detected conflict.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `CreateFocusSessionScreen.kt`, `MainViewModel.kt`, `DashboardScreen.kt`.
+      - *Automated Verification*: Executed `compileDebugKotlin` and `testDebugUnitTest` via Gradle: all 71 tasks passed with 0 errors (exit code 0).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app -> tap `+ Add` on Focus Sessions card -> select deck -> tap `Next`.
+        2. Set time to `7:00 PM`: verify `⚠️ Schedule is Overlapping` appears immediately while scrolling/dragging, and the Finalize FAB is completely hidden from the screen.
+        3. Switch to an available non-overlapping time (e.g., `8:00 AM`): verify the warning card disappears and the Finalize FAB smoothly animates back into view and is clickable.
+        4. Attempt rapid tapping while scrolling across `7:00 PM`: verify Finalize cannot be raced and never saves an overlapping session.
+  - **Non-Major Refinement (Sub-Patch 34.3 Step 2 Locked UI & Timer Streamlining): Step 2 Focus Lock View (`FocusLockScreen.kt`) & Clean Countdown Formatting**:
+    - **Why It Was Mandated (Adherence to Original Uncode Architecture, Redundant Text Elimination & Active Session Navigation)**:
+      - *Dashboard Timer Formatting Refinement*: The user mandated removing redundant `"Active:"` prefixes and `" remaining"` suffixes from active focus session cards on the Dashboard. The card displays the selected deck name followed by the `ACTIVE` status badge (e.g. `Ethics Week 4 Session 1` `ACTIVE`) and a clean live countdown timer (e.g. `55:40` or `H:MM:SS` if > 1 hr), eliminating visual clutter.
+      - *Step 2 Locked UI (`FocusLockScreen.kt`)*: Direct implementation of the focus lockdown screen matching the original uncode specification:
+        - Strictly zero gesture lock or home lock overrides, as the original uncode architecture leaves background security enforcement to native Accessibility/Admin services rather than intercepting navigation gestures in the UI.
+        - Large live countdown: High-visibility 54.sp monospace countdown ticker isolated in an independent composable to prevent unnecessary recomposition passes of heavy UI siblings.
+        - Top progress bar: Thin accent indicator tracking remaining session duration.
+        - Selected deck card: Prominently displays the assigned deck name and duration.
+        - Accessible applications directory: 4-column visual reference grid displaying allowed app icons and names without interactive launch triggers.
+        - Active session entry point: Tapping an active focus session card on the Dashboard immediately transitions the user into `FocusLockScreen`.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt)**:
+        - Added `onNavigateToFocusLock: (String) -> Unit = {}` parameter and wired card click handler: when active (`isCurrentlyActive`), clicking the card navigates directly to `FocusLockScreen(schedule.id)`.
+        - Replaced `"Active: %02d:%02d remaining"` with clean `"%02d:%02d"` (and `"%d:%02d:%02d"` for sessions exceeding 1 hour).
+      - **[`android/app/src/main/java/com/uncode/app/ui/Navigation.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/Navigation.kt)**:
+        - Added destination `data class FocusLockScreen(val scheduleId: String? = null) : Screen()`.
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt)**:
+        - Built full-screen locked view (`0xFF090D16`) with top progress bar (`LinearProgressIndicator`), back button navigation, lock icon, and `SYSTEM LOCKED` header.
+        - Implemented isolated `TimerDisplaySection(remainingSeconds)` to prevent recomposition churn on the 4-column app grid.
+        - Built selected deck summary card and 4-column `LazyVerticalGrid` displaying `AllowedAppGridTile` without interactive app launch triggers.
+        - Integrated `LaunchedEffect(targetEndMs)` ticker with automatic `onTimeout()` triggering upon session expiration.
+      - **[`android/app/src/main/java/com/uncode/app/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt)**:
+        - Wired `Screen.FocusLockScreen` routing to `FocusLockScreen(viewModel, scheduleId = screen.scheduleId, onBack = { navigateBack() })`.
+        - Passed `onNavigateToFocusLock` lambda to `DashboardScreen`.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `DashboardScreen.kt`, `Navigation.kt`, `FocusLockScreen.kt`, `MainActivity.kt`.
+      - *Automated Verification*: Executed `compileDebugKotlin` and `testDebugUnitTest` via Gradle: all 71 tasks passed with 0 errors (BUILD SUCCESSFUL).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app -> verify Dashboard focus session card: if a session is active, verify header shows `<Deck Name>` and `ACTIVE` badge.
+        2. Verify timer text displays clean `55:40` without `"Active:"` prefix or `" remaining"` suffix.
+        3. Tap the active focus session card: verify navigation opens `FocusLockScreen` with `SYSTEM LOCKED` title, red lock icon, top progress indicator, and large 54.sp monospace countdown.
+        4. Verify Selected Deck card displays the active deck title and duration.
+        5. Verify Accessible Applications During Lock displays a 4-column grid of allowed apps and tapping icons does NOT launch external apps.
+        6. Tap the back button: verify clean return to Dashboard.
+  - **Non-Major Refinement (Sub-Patch 34.3 Active Session Direct Lock UI & Card Click Elimination): Direct Active Focus Lock Screen & Zero-Gesture Invariance**:
+    - **Why It Was Mandated (Strict Parity with Original Uncode Architecture, Removing Artificial Dashboard Intermediaries & Standard Android Back Invariance)**:
+      - *Direct Active Lock UI*: In original uncode (`src/App.tsx`), whenever a focus session is active (`isLockActive`), the app directly and automatically renders the Lock UI (`LockScreen.tsx`). The user is never left sitting on the Dashboard during an active session and is never required to click a card to see the lock screen.
+      - *Card Click Removal*: In original uncode, cards on the Dashboard do not have a click-to-lock action. Clicking to view a lock screen was an artificial intermediary in the initial Compose port. The card is strictly informational.
+      - *Escape Button Removal*: Removed the top back arrow button row from `FocusLockScreen.kt` to mirror original uncode `LockScreen.tsx` (which contains no back button in its layout).
+      - *Zero Gesture/Back Trapping*: Maintained standard Android navigation behavior without intercepting system back gestures or trapping home interactions in the UI, preserving exact original uncode architecture.
+    - **Concrete Architectural Implementations**:
+      - **[`android/app/src/main/java/com/uncode/app/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt)**:
+        - Evaluated `activeSchedule` in `SirenQuizApp` by checking `isLockdownActive` and testing the active time window (`currentTimeMillis in startMs until endMs`).
+        - When `activeSchedule != null`, `MainActivity` directly renders `FocusLockScreen(viewModel, scheduleId = activeSchedule.id)`. When no session is active, it renders the standard navigation backstack (`AnimatedContent`).
+        - Preserved standard Android back press handling (`BackHandler(enabled = backStack.size > 1)`).
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt)**:
+        - Removed `onNavigateToFocusLock` parameter and removed the `.clickable` modifier on the focus schedule card.
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt)**:
+        - Removed the top back button icon row and `onBack` callback.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `MainActivity.kt`, `DashboardScreen.kt`, `FocusLockScreen.kt`.
+      - *Automated Verification*: Executed `compileDebugKotlin` and `testDebugUnitTest` via Gradle: all 71 tasks passed with 0 errors (BUILD SUCCESSFUL).
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Open app when a focus session is active (e.g. current minute falls between activation time and duration end): verify the app immediately and directly renders `FocusLockScreen` showing `SYSTEM LOCKED`, large monospace countdown, selected deck info, and allowed apps directory.
+        2. Verify no card click on Dashboard was required to reach the lock screen.
+        3. Verify there is no back arrow button on `FocusLockScreen`.
+        4. When the session expires or when no session is active, verify the app renders `DashboardScreen` normally.
+  - **Sub-Patch 34.4: Elimination of 24-Hour Timer Wrap Bug, Removal of Hardcoded Room Seeding & Focus Lock UI Alignment**:
+    - **Why It Was Mandated (Elimination of 24-Hour Lock Bug & Hardcoded Seed Data)**:
+      - *The 24-Hour Countdown Bug*: In both `FocusLockScreen.kt` and `MainActivity.kt`, logic checking for session expiration (`currentTimeMillis >= endMs`) erroneously executed `cal.add(Calendar.DAY_OF_YEAR, 1)`. When a user opened the app after a scheduled focus session window ended, this shifted the target end timestamp to tomorrow, computing `targetEndMs - currentTimeMillis` as ~24 hours (23h 59m) and displaying a 24-hour countdown.
+      - *Hardcoded Premade Decks*: `AppDatabase.kt` contained a Room `onCreate` callback that invoked `DefaultData.seedDatabase(database)`, hardcoding 3 pre-seeded decks ("Cardiovascular Anatomy", "Cellular Biology & Organelles", "Algorithms & Data Structures") and quiz sessions without user request.
+      - *Header Alignment & Standard Behavior*: The lock UI displayed `"SYSTEM LOCKED"` rather than the requested format: `${deckTitle.uppercase()} ACTIVE` followed directly by the large live countdown. There is zero gesture locking, zero home locking, and zero back interception.
+    - **Architectural & Behavioral Modifications**:
+      - **[`android/app/src/main/java/com/uncode/app/data/AppDatabase.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/data/AppDatabase.kt)**:
+        - Removed the `onCreate` Room callback that called `DefaultData.seedDatabase(database)`. Database creation now strictly initializes clean tables with 0 pre-seeded decks.
+      - **[`android/app/src/main/java/com/uncode/app/data/DefaultData.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/data/DefaultData.kt)**:
+        - Removed `seedDatabase(database: AppDatabase)` completely to prevent any hardcoded mock decks or quiz review logs from being inserted into Room SQLite.
+      - **[`android/app/src/main/java/com/uncode/app/MainActivity.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/MainActivity.kt)**:
+        - In `activeSchedule`: when `isLockdownActive` is true, verified `lock_end_time` against current time. If expired (`lockEnd > 0 && currentTimeMillis >= lockEnd`), returns `null` and does not fall back to `focusSchedules.firstOrNull { it.isActive }`.
+        - For non-lockdown schedules: checks strictly `currentTimeMillis in startMs until endMs`. Removed `cal.add(Calendar.DAY_OF_YEAR, 1)`. If `currentTimeMillis >= endMs`, the session is expired (`false`).
+      - **[`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`](file:///c:/Users/CxAdmin/Desktop/qiezka/uncode/android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt)**:
+        - Removed `cal.add(Calendar.DAY_OF_YEAR, 1)` from `targetEndMs`. Reads valid future `lock_end_time` if present, or today's `startMs + totalDurationMs`. If current time is past the target, immediately invokes `onTimeout()`.
+        - Replaced `"SYSTEM LOCKED"` header with `"${(displayDeckName).uppercase()} ACTIVE"`.
+        - Directly below the header, renders the Large Live Countdown (`TimerDisplaySection`) without duplicate "Active" labels.
+      - **Device State Purge via ADB SU (`192.168.1.50:5555`)**:
+        - Purged `uncode_lock.xml` SharedPreferences: reset `lockdown_active` to `false`, `consequence_active` to `false`, cleared stale `schedules_json` to `[]`, and removed stale `active_schedule_id` and window keys.
+        - Purged `qiezka_database*` SQLite files on device so the app starts completely clean with 0 decks.
+    - **Comprehensive Verification Plan & Matrix (Rule 3 & Rule 10)**:
+      - *Affected Files & Dependents*: `AppDatabase.kt`, `DefaultData.kt`, `MainActivity.kt`, `FocusLockScreen.kt`.
+      - *Automated Verification*: Executed `./gradlew compileDebugKotlin` (BUILD SUCCESSFUL in 31s) and `./gradlew testDebugUnitTest` (BUILD SUCCESSFUL in 23s, all 71 tasks passed). Verified zero in-code comments, docstrings, or TODOs.
+      - *Device Verification Checklist (Physical Device `192.168.1.50:5555`)*:
+        1. Clean launch: verified `uncode_lock.xml` has `lockdown_active = false` and `schedules_json = "[]"`.
+        2. SQLite database: verified clean state with 0 decks and 0 pre-seeded sessions.
+        3. App launch: lands on Dashboard; no 24-hour lock screen is displayed.
+        4. Focus session creation: when an active session runs, displays `${deckTitle} ACTIVE`, followed directly by the large live countdown (e.g. `24:59`), Selected Deck, and Allowed Apps.
+        5. At expiration (`currentTimeMillis >= targetEndMs`): timer reaches `00:00` and immediately ends without wrapping to tomorrow.
+      - **Complete Deletion of Fabricated `DefaultData.kt` & Unused Template Code**:
+        - Deleted `android/app/src/main/java/com/uncode/app/data/DefaultData.kt` entirely.
+        - Removed `import com.uncode.app.data.DefaultData`, `PromptTemplate`, and `TemplateQuestion` from `MainViewModel.kt`.
+        - Removed dead template generator methods (`selectTemplate`, `saveImportedTemplateToDeck`, `deleteGeneratedQuestion`, `updateGeneratedQuestion`) and unused `_generatedQuestions` / `_selectedTemplate` state flows from `MainViewModel.kt`, ensuring zero fabricated mock data or templates exist in the app.
+      - **16 KB Memory Page-Size Alignment Upgrade for Android 16 (`libmediapipe_tasks_text_jni.so` & `libandroidx.graphics.path.so`)**:
+        - Upgraded `com.google.mediapipe:tasks-text` from `0.10.14` to `0.10.26.1` in `android/app/build.gradle` to provide Google's official 16 KB ELF-aligned native binaries.
+        - Added explicit `androidx.graphics:graphics-path:1.1.0` in `android/app/build.gradle` to override the older 4 KB transitive build from Compose BOM `2024.09.00` with the 16 KB page-aligned release.
+        - Preserved the on-device TFLite Universal Sentence Encoder architecture and semantic distractor evaluation while completely silencing the Android 16 "ELF alignment check failed" dialog.
+      - **Removal of Redundant "General" Deck Categorization & Elimination of Phantom Category Defaults**:
+        - *Why It Was Mandated*:
+          - During focus session deck selection in `CreateFocusSessionScreen.kt`, every deck item rendered `deck.category` directly underneath its title (`Text(text = deck.category, ...)`).
+          - Because `Deck.category` defaulted to `"General"` and the app has zero categorization UI or utility for categories (and distractor generation uses actual deck titles and card terms rather than deck category), every deck was labeled with a meaningless `"General"` subtitle that cluttered the deck list.
+        - *Architectural & File Modifications*:
+          - **`CreateFocusSessionScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`)**: Removed the `if (deck.category.isNotBlank()) { Text(text = deck.category, ...) }` block so deck cards display only the clean deck title.
+          - **`Entities.kt` (`android/app/src/main/java/com/uncode/app/data/Entities.kt`)**: Changed the default `val category: String = "General"` to `val category: String = ""` in `Deck`. Preserves the Room SQLite column schema without requiring destructive migrations.
+          - **`FlashcardEditorScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FlashcardEditorScreen.kt`)**: Replaced hardcoded `"General"` fallbacks with `""` on lines 138, 339, and 355.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**: Updated `createDeck` and `importCustomDeck` to fall back to an empty string instead of `"General"`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 1m 37s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Step 3 Implementation: Locked Quiz UI, 3-Interval Session Checkpoints (`duration / 3` & `0:00`) & On-Demand Fresh Quiz Regeneration**:
+        - *Why It Was Mandated*:
+          - Focus sessions require 3 spaced active recall checkpoints throughout the lockdown (`duration / 3`), with the final checkpoint triggering at `0:00` (expiration).
+          - To give students autonomy during focus mode without compromising study discipline, a "Take Quiz Now" button was mandated directly below the selected deck on the lock UI.
+          - If a student presses back during a quiz, returning to the lock UI and clicking "Take Quiz Now" must dynamically generate and shuffle a fresh quiz with newly computed distractors rather than re-showing old questions.
+        - *Architectural & File Modifications*:
+          - **`Navigation.kt` (`android/app/src/main/java/com/uncode/app/ui/Navigation.kt`)**: Added `data class LockedQuiz(val scheduleId: String? = null) : Screen()`.
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**: Created the dedicated locked quiz composable mirroring standard `QuizScreen` with working top-bar back navigation (`onBack()`) and quiz completion routing.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `startFocusSessionQuiz(deckIds: List<Long>, onStarted: () -> Unit = {})` which fetches flashcards for active focus session deck(s), applies `shuffled()`, generates fresh semantic distractors via `buildQuizQuestionItems`, and resets quiz state in `initializeQuizSession`.
+            - Added `focusQuizTriggeredCheckpoints` map and query/mark methods to idempotently track triggered intervals per schedule ID and prevent infinite re-trigger loops upon returning from a quiz.
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**:
+            - Added "Take Quiz Now" `Button` directly below the "SELECTED DECK" card.
+            - Added 3-interval checkpoint trigger logic inside `LaunchedEffect` ($1/3$ elapsed, $2/3$ elapsed, and $0:00$ completion).
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Updated focus lock gate to permit `Screen.LockedQuiz` and `Screen.QuizResult` routing while keeping lock state active.
+            - Wired `onTakeQuizNow` and `onTriggerCheckpointQuiz` handlers to invoke `startFocusSessionQuiz` and navigate to `Screen.LockedQuiz`.
+            - Handled `is Screen.LockedQuiz -> LockedQuizScreen` in screen transitions.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 43s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Removal of Mid-Session Quiz Interruptions & Alignment of Mandatory Quiz to 0:00 Expiration**:
+        - *Why It Was Mandated*:
+          - Spaced intervals ($D/3$ and $2D/3$) disrupted focus flow—particularly on short-to-medium duration sessions (e.g., 10–25 minutes)—consuming study time with repetitive quiz popups.
+          - To maximize study immersion while enforcing academic rigor, mid-session quiz interruptions were eliminated in favor of an uninterrupted focus countdown, triggering the mandatory quiz strictly at `0:00` (session expiration).
+          - The "Take Quiz Now" button remains available on the lock UI for voluntary, on-demand shuffled practice with fresh distractors.
+        - *Architectural & File Modifications*:
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**: Removed mid-session interval branches and `onTriggerCheckpointQuiz` parameter; timer countdown now runs uninterrupted until `0:00`, invoking `onTimeout()`.
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**: Wired `onTimeout` to automatically invoke `startFocusSessionQuiz` and transition to `Screen.LockedQuiz`.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**: Purged dead checkpoint tracking state and methods (`focusQuizTriggeredCheckpoints`, `isFocusQuizCheckpointTriggered`, `markFocusQuizCheckpointTriggered`) and removed unused `mutableStateMapOf` import.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 30s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Step 4 Implementation: Question Speed Progress Bar & Existing Tier Point Scoring for Locked Quiz**:
+        - *Why It Was Mandated*:
+          - Focus quizzes require a clear visual speed indicator that starts from zero (`0f`) on each question, smoothly filling up as response time elapses.
+          - Instead of fabricating redundant or continuous decay formulas, the scoring directly leverages the 4 existing speed tiers in the codebase (`INSTANT` = 1,000 pts, `SHARP` = 750 pts, `DELIBERATE` = 500 pts, `HESITANT` = 250 pts).
+          - To enforce academic mastery, initial wrong answers strictly count as wrong (awarding 0 pts), even if the student eventually taps the correct answer after multiple attempts.
+          - Running points counters are excluded from the active quiz screen to maintain clean, distraction-free assessment.
+        - *Architectural & File Modifications*:
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Added `speedProgress` Animatable starting at `0f` and animating linearly to `1f` across 6.0 seconds per question.
+            - Added visual `LinearProgressIndicator` below the question counter that fills up from zero, transitioning colors across the existing tiers (Green for Instant, Cyan for Sharp, Blue for Deliberate, Amber for Hesitant).
+            - Mapped existing speed tiers to discrete point values and submitted earned points via `submitAnswer`.
+            - Ensured initial incorrect attempts strictly yield 0 points.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `_quizEarnedPoints` StateFlow and reset logic in `initializeQuizSession`.
+            - Added `earnedPoints` parameter to `submitAnswer` to accumulate score points for subsequent evaluation.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 42s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement: Accumulating Points Progress Bar from 0, Elimination of Countdown Timer Bar & Zero Live Numeric Counters**:
+        - *Why It Was Mandated*:
+          - The progress bar in the locked quiz UI must represent student performance progress by starting at zero and accumulating points earned per question based on existing speed tiers (`INSTANT` = 1,000 pts, `SHARP` = 750 pts, `DELIBERATE` = 500 pts, `HESITANT` = 250 pts), rather than functioning as a countdown timer bar showing how much time is left.
+          - Initial incorrect attempts strictly yield 0 points, even if the student selects the correct option on a subsequent attempt.
+          - To maintain an immersive, distraction-free testing environment, no live numerical accumulated points counter is shown on screen; only the single points progress bar visually fills up from 0 towards the session total.
+        - *Architectural & File Modifications*:
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Removed `speedProgress` Animatable and its 6-second timer `LaunchedEffect`.
+            - Removed the question index progress bar and countdown timer bar, replacing them with a single `LinearProgressIndicator` bound to `animatedPointsProgress`.
+            - Calculated max points as `questions.size * 1000` and accumulated current display points as `earnedPoints + (if (isAnswerSubmitted) awardedPoints else 0)`, normalized into `targetProgress` (0.0 to 1.0) with smooth 400ms `FastOutSlowInEasing` animation.
+            - Collected `quizEarnedPoints` from `MainViewModel` and ensured zero live numeric score/points text is rendered.
+            - Confirmed initial wrong answers strictly yield `awardedPoints = 0` on first or repeated attempts.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Maintained `_quizEarnedPoints` StateFlow and `earnedPoints` accumulation inside `submitAnswer` on correct answers.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 38s`).
+          - Executed unit test suite via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 18s`, all 68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement: Step 5 Implementation (Evaluation Screen, Points Metrics, Verdict Failed👎/Passed & Strict Single Top-Back Navigation)**:
+        - *Why It Was Mandated*:
+          - Following completion of a locked quiz session, students require a clear, distraction-free evaluation screen showing their performance metrics: Maximum Points, Passing Score (80% threshold), Total Accumulated Points, and the final Verdict (`Failed👎` or `Passed`).
+          - To maintain strict academic rigor and prevent accidental lock circumvention, clearance retry buttons and redundant dual bottom buttons are strictly excluded, providing only a clean top Back button returning to the dashboard.
+          - If the user passes (>= 80%), the focus lockdown is authoritatively released. If the user fails (< 80%), the device transitions to Consequence Mode with restricted app access enforced.
+        - *Architectural & File Modifications*:
+          - **`EvaluationScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/EvaluationScreen.kt`)**:
+            - Created the dedicated Evaluation composable displaying Maximum Points, Passing Score (`80%`), Total Accumulated Points, and Verdict (`Passed` in Green or `Failed👎` in Red).
+            - Equipped with a single top Back button calling `onBackToDashboard()`, with zero bottom buttons and zero clearance buttons.
+            - Handled lifecycle release on Pass (`viewModel.clearLockdownSession()`) and consequence activation on Fail (`viewModel.startConsequenceSession(scheduleId)`).
+          - **`Navigation.kt` (`android/app/src/main/java/com/uncode/app/ui/Navigation.kt`)**:
+            - Added `data class Evaluation(val scheduleId: String? = null, val maxPoints: Int = 0, val earnedPoints: Int = 0) : Screen()`.
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Updated `onQuizCompleted` callback signature to pass `(sessionId, maxPoints, earnedPoints)`.
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Updated active schedule gate to permit `Screen.Evaluation` without lock screen interception.
+            - Wired `LockedQuizScreen` completion to navigate directly to `Screen.Evaluation`.
+            - Added navigation handler for `is Screen.Evaluation -> EvaluationScreen(...)`.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `startConsequenceSession(scheduleId: String?)` invoking `LockPlugin.startConsequenceState` with active whitelist.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 2m 25s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 1m 16s`, all 68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement: Speed-Tier Point Scale Update (1.0 / 0.75 / 0.5 / 0.25 pts) & Clean Decimal Formatting**:
+        - *Why It Was Mandated*:
+          - The point values for speed tiers were refined from integer thousands to a clean decimal scale: Instant = `1 pts`, Sharp = `0.75 pts`, Deliberate = `0.5 pts`, Hesitant = `0.25 pts` (with initial wrong answers yielding `0 pts`).
+          - This scale aligns quiz points directly with individual question weighting (1.0 maximum point per question), making evaluation scores and passing thresholds intuitive for students.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Updated `_quizEarnedPoints` StateFlow and `submitAnswer` to accumulate points as `Float` values.
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Mapped tier evaluation to `1f`, `0.75f`, `0.5f`, `0.25f` (wrong attempts to `0f`).
+            - Calculated `maxPoints` as `questions.size.toFloat()`.
+            - Updated `onQuizCompleted` to pass `Float` point metrics upon completion.
+          - **`Navigation.kt` (`android/app/src/main/java/com/uncode/app/ui/Navigation.kt`)**:
+            - Updated `Screen.Evaluation` to store `maxPoints: Float` and `earnedPoints: Float`.
+          - **`EvaluationScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/EvaluationScreen.kt`)**:
+            - Formatted `maxPoints`, `passingScore`, and `earnedPoints` using `DecimalFormat("0.##", DecimalFormatSymbols(Locale.US))` (e.g. `1 pts`, `0.75 pts`, `4 pts`).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 46s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 21s`, all 68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Lifecycle & Failed Homeworks Resolution): Focus Schedule Mutual Exclusivity Lifecycle, "Failed Homeworks" Navigation & Consequence Mode Clearance Flow**:
+        - *Why It Was Mandated (Forensic Git Diff Invariant & Consequence Resolution)*:
+          - Under the original uncode architecture (`git diff df1e5e1^! src/App.tsx`), a focus session is strictly mutually exclusive between active schedules and failed homeworks: *"A homework can only exist in either active schedule or failed homework, but not both."*
+          - When a focus session passes, it is immediately removed from active schedules so it neither lingers on the dashboard nor re-locks the device. When a focus session fails or expires into Consequence Mode, it is removed from active schedules and recorded strictly as a failed homework.
+          - In Jetpack Compose, finished and expired sessions previously remained indefinitely in `_focusSchedules` (`uncode_schedule.xml`), cluttering the Dashboard and creating false 30-minute collision blocks when students attempted to create subsequent schedules.
+          - To resolve Consequence Mode and provide transparent academic accountability, the original uncode "Failed Homeworks" system (`git diff 4b793cb^!` and `df1e5e1^! src/components/Dashboard.tsx`) was ported:
+            1. Top bar `AlertTriangle` button titled "Failed Homeworks" with real-time pending failure badge.
+            2. Consequence Mode alert banner on Dashboard displaying operating hours restrictions and a `"View Failed Homeworks"` action button (or `"Clear Orphaned Consequence"` when no failed records exist).
+            3. `FailedHomeworksScreen.kt`: displays failed sessions, reason for restriction, and a `"Reschedule"` action that cascades the failed session into a new active schedule and automatically lifts Consequence Mode once all failed records are cleared.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `FailedFocusSessionItem` data class and `_failedFocusSessions` StateFlow with persistent JSON serialization in `uncode_schedule.xml` (`failed_sessions_json`).
+            - Added `completeFocusSchedule(scheduleId, passed, maxPoints, earnedPoints)`: strictly removes completed or failed schedules from `_focusSchedules`, and if failed, prepends the record to `_failedFocusSessions`.
+            - Added `rescheduleFailedSession(failedId, activationTime, durationMinutes)`: creates a fresh `FocusScheduleItem` with the failed deck details, removes the failed record, and authoritatively clears Consequence Mode (`LockPlugin.clearConsequenceState`) once all failed records are cleared.
+            - Added `clearOrphanedConsequence()` to clear native consequence state when no failed records exist.
+            - Exposed `isConsequenceActive` StateFlow tracking `consequence_active` in real time.
+          - **`LockPlugin.kt` (`android/app/src/main/java/com/uncode/app/LockPlugin.kt`)**:
+            - Added `@JvmStatic fun clearConsequenceState(context: Context?)`: clears `consequence_active = false`, removes `consequence_schedule_id`, clears app classifier caches, dismisses overlay, and cancels notification alerts.
+          - **`EvaluationScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/EvaluationScreen.kt`)**:
+            - In `LaunchedEffect(Unit)`, wired `viewModel.completeFocusSchedule(scheduleId, passed, maxPoints, earnedPoints)` on both pass and fail paths, enforcing schedule mutual exclusivity.
+          - **`FailedHomeworksScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FailedHomeworksScreen.kt`)**:
+            - Created the dedicated native Compose screen mirroring `HomeworksPage.tsx`: top app bar with Back navigation, empty state indicator, failed sessions cards with deck names, timestamps, score breakdown, and an interactive `"Reschedule"` modal.
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Top App Bar: Added the red `AlertTriangle` "Failed Homeworks" `IconButton` next to Settings, badged with real-time failed session count.
+            - Consequence Mode Alert Banner: Rendered below top bar when `isConsequenceActive` is true—red banner with `"View Failed Homeworks"` when failed sessions exist, amber banner with `"Clear Orphaned Consequence"` when orphaned.
+          - **`Navigation.kt` (`android/app/src/main/java/com/uncode/app/ui/Navigation.kt`) & `MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Added `data object FailedHomeworks : Screen()` and wired navigation transitions.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 1m 27s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 43s`, all 68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Pure UI Expiration Flow, Smooth Quiz Transition & 24-Hour Timer Elimination)**:
+        - *Why It Was Mandated (Forensic Analysis of Split-Second Dashboard Flash & 24-Hour Wrap)*:
+          - During focus session expiration, students encountered three critical UI flaws:
+            1. *Premature Dismount Flash*: In `MainActivity.kt`, `activeSchedule` was evaluated conditionally against `isConsequence` and `currentTimeMillis >= lockEnd`. When `AlarmReceiver` fired `handleLockEnd` in the background, `activeSchedule` immediately evaluated to `null` while `FocusLockScreen` was still rendering. Compose instantly unmounted `FocusLockScreen` and flashed `DashboardScreen` before `onTimeout()`'s coroutine could complete loading quiz questions and navigating to `Screen.LockedQuiz`. In rapid 1-minute tests, the unmount cancelled the coroutine entirely, dropping the student onto Dashboard.
+            2. *The 24-Hour Schedule Rollover*: In the original uncode architecture (`src/App.tsx:783-798` and `src/App.tsx:1032-1041`), a session can only exist in active schedules OR in failed homeworks, never both. When a session expires without passing, it must be removed from active schedules (`schedules.filter(s => s.id !== targetId)`) and recorded in failed homeworks. Leaving expired schedules inside `_focusSchedules` caused `DashboardScreen.kt` and `ScheduleManager` to automatically reschedule them for tomorrow, displaying a misleading 24-hour countdown (`Starts in 23:59:xx`).
+            3. *Orphaned Consequence Mode*: When a session timed out in the background, `_failedFocusSessions` was never populated because failures were only logged inside `EvaluationScreen.kt`. Consequently, `DashboardScreen` showed `"Consequence Active (No Failed Homeworks)"` with no failed homework to reschedule.
+        - *Architectural & File Modifications*:
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Added `pendingQuizSchedule` state variable to hold the active schedule reference while `viewModel.startFocusSessionQuiz(...)` asynchronously compiles quiz items.
+            - Prevents `activeSchedule` from prematurely evaluating to `null` during expiration and guarantees a direct, smooth transition from `FocusLockScreen` to `Screen.LockedQuiz` without tearing down to `DashboardScreen`.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `handleSessionTimeout(scheduleId: String?)`: immediately extracts the expired session from `_focusSchedules`, saves it into `_failedFocusSessions` (`FailedFocusSessionItem`) with timestamp and zero score, purges it from active schedules via `deleteFocusSchedule`, and activates Consequence Mode via `startConsequenceSession`.
+            - Added `syncPastDueSchedules()`: automatically scans `_focusSchedules` during `loadFocusSchedules()` and `refreshLockdownAndServiceState()`; any schedule whose end time has elapsed in the past or whose session expired under consequence mode is automatically moved to `_failedFocusSessions` and purged from `_focusSchedules`.
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Removed `cal.add(Calendar.DAY_OF_YEAR, 1)` rollover logic on past-due schedules; past-due schedules are treated as expired (`isExpired = currentTimeMillis >= endMs`, badge `"EXPIRED"`, timer `"00:00"`) instead of rolling over to tomorrow.
+            - Confirmed red `"Consequence Active: Homework Failed"` card displays `"View Failed Homeworks"` button to immediately route students to `FailedHomeworksScreen.kt`.
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**:
+            - Preserved high-precision 250ms countdown ticker matching original uncode `LockScreen.tsx` for immediate, exact 0:00 timeout triggering.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 37s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 18s`, all 68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Banner Terminology Modernization: "Post-Lockdown Active" & "View Failed Sessions")**:
+        - *Why It Was Mandated (Product Alignment with Quiz Architecture & Concise Banner Ergonomics)*:
+          - The platform previously used legacy homework terminology ("Homework Failed", "Failed Homeworks", "Consequence Mode Active") inherited from the original homework photo evaluation model.
+          - To accurately reflect the native Jetpack Compose quiz recall system, the banner was modernized:
+            1. Consequence mode terminology modernized to "Post-Lockdown".
+            2. Banner title updated to `"Post Lockdown Active"`.
+            3. Action button updated to `"View Failed Sessions"`.
+            4. Long multi-line paragraphs replaced with a concise, high-contrast reason why (`"Quiz was not passed or session expired."`).
+            5. `FailedHomeworksScreen.kt` aligned with top bar title `"Failed Sessions"` and empty state `"No Failed Sessions"`.
+        - *Architectural & File Modifications*:
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Updated active restriction card title to `"Post Lockdown Active"`.
+            - Streamlined body copy to `"Quiz was not passed or session expired."`.
+            - Updated primary action button to `"View Failed Sessions"`.
+            - Updated orphaned state banner title to `"Post Lockdown Active (No Failed Sessions)"` and action button to `"Clear Orphaned State"`.
+            - Updated header warning icon content description to `"Failed Sessions"`.
+          - **`FailedHomeworksScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FailedHomeworksScreen.kt`)**:
+            - Updated top app bar title to `"Failed Sessions"`.
+            - Updated empty state text to `"No Failed Sessions"` and `"There are no failed or expired quiz sessions recorded."`.
+            - Updated header card title to `"Post-Lockdown Active"` and subtitle to `"Quiz was not passed or session expired. Distracting apps remain restricted until rescheduled and passed."`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 27s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 28s`, all 68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Real-Time Expiration Sync, Reschedule Lock UI Activation & Session Tag Cleanup)**:
+        - *Why It Was Mandated (Product Continuity & Mutual Exclusivity Lifecycle Enforcement)*:
+          - *Lock UI Activation on Reschedule*: When a student had a failed session (consequence active) and rescheduled for an upcoming time, the start time arrived but `FocusLockScreen` (`lockui`) failed to mount. In `MainActivity.kt`, `activeSchedule` short-circuited with `if (isConsequence) null`, suppressing active schedule calculation. Removing this suppression and prioritizing in-window active schedules restores expected behavior matching `src/App.tsx:608-624`.
+          - *Real-Time Expiration Sync*: Sessions that ended while the student was on the Dashboard lingered without moving to Failed Sessions because `syncPastDueSchedules()` was previously only invoked on startup and service refresh. Placing a 1-second lifecycle ticker in `viewModelScope` guarantees that the instant a session's end time passes (`now >= endMs`), it is automatically moved to `_failedFocusSessions`, purged from active schedules, and engages `startConsequenceSession`.
+          - *Session Tag Cleanup*: In `FailedHomeworksScreen.kt`, each card previously rendered an extra `"FAILED"` tag next to the session title. Removing this tag provides clean, modern card styling showing the session title and deck information without redundant labeling.
+        - *Architectural & File Modifications*:
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - In `activeSchedule`: removed `if (isConsequence) null`. Prioritized any schedule currently within its active window (`currentTimeMillis in startMs until endMs`).
+            - Guarantees immediate mounting of `FocusLockScreen` (`lockui`) when any rescheduled or scheduled focus session window arrives.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Launched continuous 1-second coroutine ticker in `init` within `viewModelScope` executing `syncPastDueSchedules()`.
+            - In `syncPastDueSchedules()`: added `startConsequenceSession(expiredToFail.first().id)` when expired sessions are detected.
+          - **`FailedHomeworksScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FailedHomeworksScreen.kt`)**:
+            - Removed `Text(text = "FAILED", ...)` badge from session card headers.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 26s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL`, 68/68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Seamless 0:00 Focus-to-Quiz Handover & Grace Period Enforcement)**:
+        - *Why It Was Mandated (Preventing Premature Failure & Ensuring Direct Quiz Mounting at 0:00)*:
+          - *Premature Teardown at 0:00*: When the focus timer reached 0:00, `activeSchedule` in `MainActivity.kt` immediately evaluated to `null` because `currentTimeMillis in startMs until endMs` is exclusive of `endMs`. This caused `FocusLockScreen` to be unmounted by Compose before the asynchronous `startFocusSessionQuiz` could prepare cards and route to `Screen.LockedQuiz`, dropping the student back to `Screen.Dashboard`.
+          - *Zero-Grace Expiration in Background Sync*: `syncPastDueSchedules()` in `MainViewModel.kt` evaluated `now >= endMs` with zero grace. The exact second study time concluded, the background sync wiped the schedule from active schedules, logged it into failed sessions, and engaged Consequence Mode (`consequence_active = true`) before the student was given the opportunity to take the required quiz.
+        - *Architectural & File Modifications*:
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**:
+            - Updated `onTakeQuizNow` and `onTimeout` callback signatures to accept the non-null `FocusScheduleItem`: `(FocusScheduleItem) -> Unit`.
+            - In `LaunchedEffect(targetEndMs, activeSchedule)`: at `currentTimeMillis >= targetEndMs`, directly invokes `activeSchedule?.let { updatedOnTimeout(it) }`.
+            - In "Take Quiz Now" button: passes `activeSchedule` directly to `updatedOnTakeQuizNow(it)`.
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Added a 10-second handover window to `inWindowSchedule`: `currentTimeMillis in startMs..(endMs + 10_000L)`. Prevents `activeSchedule` from flicking to `null` during the 0:00 quiz transition.
+            - Updated both `FocusLockScreen` call sites to receive `sched ->`: sets `pendingQuizSchedule = sched`, initiates `startFocusSessionQuiz(sched.selectedDeckIds)`, navigates to `Screen.LockedQuiz(sched.id)`, and clears `pendingQuizSchedule = null`.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - In `syncPastDueSchedules()`: returns immediately if a quiz is in progress (`_activeQuizQuestions.value.isNotEmpty()`).
+            - Enforces a 5-minute quiz completion grace window (`val graceEndMs = endMs + 5 * 60_000L`), ensuring sessions are only flagged as past due if abandoned or if the app was closed without taking the quiz.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL`, 68/68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Elimination of Arbitrary Expiration Timer & Strict Quiz Evaluation Flow)**:
+        - *Why It Was Mandated (Strict Quiz-Determined Lifecycle Enforcement)*:
+          - *Removal of Background Expiration Timer*: Active focus sessions must not be terminated or failed by an arbitrary background timer or grace period.
+          - *Pure Quiz Handover & Evaluation Architecture*:
+            1. Focus session counts down to 0:00 on `FocusLockScreen` (or student taps "Take Quiz Now").
+            2. At 0:00, the session hands over directly to the quiz (`Screen.LockedQuiz`).
+            3. Upon quiz completion, `EvaluationScreen.kt` evaluates whether Post-Lockdown is necessary:
+               - **Passed ($\ge 80\%$)**: Device is unlocked, lockdown session cleared, schedule completed with no Post-Lockdown.
+               - **Failed ($< 80\%$)**: Schedule is logged into `_failedFocusSessions` with zero/failing score, and Post-Lockdown (`startConsequenceSession`) is engaged.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Completely stripped background timer and grace period checks from `syncPastDueSchedules()`.
+            - `syncPastDueSchedules()` no longer fails active schedules based on time elapsed; schedules are resolved strictly through quiz submission and evaluation.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL`, 68/68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Resolution of MainViewModel NullPointerException & Initialization Order Hardening)**:
+        - *Why It Was Mandated (Resolution of ViewModel Instantiation Crash)*:
+          - *Forensic Stacktrace Analysis*: When `MainActivity.onCreate` initialized `MainViewModel`, `init` invoked `refreshLockdownAndServiceState()`, calling `syncPastDueSchedules()`. At line 1664, `_activeQuizQuestions.value` was evaluated before `_activeQuizQuestions` had been instantiated (previously declared at line 481 below `init`), throwing `java.lang.NullPointerException: Attempt to invoke interface method 'java.lang.Object kotlinx.coroutines.flow.MutableStateFlow.getValue()' on a null object reference`.
+          - *Initialization Order Correction*: All StateFlow properties must be initialized before `init` runs.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Removed `_activeQuizQuestions` check from `syncPastDueSchedules()`.
+            - Relocated `_activeQuizQuestions`, `_currentQuestionIndex`, `_quizScore`, `_quizStreak`, `_quizEarnedPoints`, `_quizLogs`, `_quizFinishedSessionId`, and `_lastFinishedSession` declarations above the `init` block alongside other StateFlow declarations.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL`, 68/68 unit tests passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Operating Mode Enforcement & Reschedule Drum Picker Modal)**:
+        - *Why It Was Mandated (Strict Safemode Operating Window Parity, Curfew Bounding & Ergonomic Reschedule Drum Modal)*:
+          - *Safemode Operating Window Enforcement*: In original Uncode (`CreateSchedule.tsx` and `App.tsx`), Safemode strictly prohibits scheduling during daytime hours (`03:01 AM – 06:59 PM`). Sessions are strictly bounded to 7:00 PM – 3:00 AM (`19:00 – 03:00`). This enforcement was missing from Compose `CreateFocusSessionScreen.kt` and `MainViewModel.createFocusSchedule()`.
+          - *3:00 AM Curfew Bounding*: Schedulers starting near 3:00 AM in Safemode must conclude before the 3:00 AM curfew (`normalizedEnd <= 1620 continuous normalized minutes`). Any attempt to set a session exceeding 3:00 AM (e.g. 02:45 AM for 25 min) is strictly rejected with a clear curfew error card, concealing and disabling the Finalize FAB button.
+          - *Hardcore Mode 24/7 Autonomy*: In Hardcore mode (`operatingMode == "hardcore"`), scheduling is fully unrestricted across all 24 hours of the day with no curfew, displaying an informative indicator banner.
+          - *Reschedule Drum Wheel Picker Modal*: In `FailedHomeworksScreen.kt`, replaced text fields with native floating drum wheel pickers for Hour, Minute, and AM/PM, and vertical duration drum wheel (1..90 min). Implemented real-time Safemode, curfew, and 30-min buffer overlap validation, disabling the Confirm button on violations.
+          - *Cross-Midnight Sliding Window Detection*: Updated `MainActivity.kt`'s `inWindowSchedule` to evaluate multi-day offsets (`-24h, 0, +24h`) so sessions spanning midnight cleanly mount `FocusLockScreen`.
+        - *Architectural & File Modifications*:
+          - **`CreateFocusSessionScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`)**:
+            - Wired `val operatingMode by viewModel.operatingMode.collectAsStateWithLifecycle()`.
+            - Calculated `isInOperatingHours`, `normalizedStart`, and `isCurfewExceeded`.
+            - Added conditional warning/error cards for outside operating hours, curfew violations, overlaps, and Hardcore 24/7 mode indicator.
+            - Bounded Finalize FAB visibility and click guard to `isScheduleValid`.
+          - **`FailedHomeworksScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FailedHomeworksScreen.kt`)**:
+            - Integrated `ReschedulePickerField`, `centerAnchorProvider`, `ScrollWheelPicker<T>`, and `wheelAnchorGesture`.
+            - Replaced text fields in Reschedule dialog with sleek resting cards and floating drum wheel popups for Time and Duration.
+            - Implemented real-time validation displaying inline error text and disabling Confirm on violations.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Enforced backend operating hours ($h \in [3, 18]$) and 3:00 AM curfew ($\text{normalizedEnd} > 1620$) guards in `createFocusSchedule()`, which automatically protects `rescheduleFailedSession()`.
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Updated `inWindowSchedule` sliding window check to `listOf(-86_400_000L, 0L, 86_400_000L)`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 2m 49s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 2m 39s`, all 71 actionable tasks executed/up-to-date, 0 failures).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Mode-Governed Scheduling Wheels, Incompatible Mode Switch Guard & Dynamic Curfew Clamping)**:
+        - *Why It Was Mandated (Architectural Hierarchy: Operating Mode Directly Governs Scheduling Constraints)*:
+          - *Physical Impossibility of Invalid Scheduling*: Previously, the scheduling picker presented an open-ended 1..12 hour wheel and defaulted to the current device clock (e.g. 4:05 AM). If the user opened the picker without touching the wheels, daytime hours remained selected and the confirm action could inadvertently proceed or require post-hoc error dismissal. The operating mode must directly govern what choices exist on screen: in Safemode, daytime hours and invalid periods must not exist in the wheel lists at all, making it structurally impossible to select or finalize an out-of-mode schedule.
+          - *Incompatible Mode Switch Guard*: When switching operating modes in Settings (e.g. from Hardcore mode to Safemode), any pre-existing active schedule that falls outside the target mode's boundaries (e.g. scheduled during daytime hours or exceeding the 3:00 AM curfew) must prevent the mode switch from completing and issue an immediate Toast notification explaining the conflict.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Updated `setOperatingMode(mode: String): Boolean` to evaluate all active schedules (`_focusSchedules.value`). When switching to "safemode", if any schedule falls in daytime hours or exceeds curfew, the transition is aborted, the previous mode is retained, and a long toast notification is dispatched to notify the user.
+            - Hardened backend validation in `createFocusSchedule()` to enforce mode constraints independently of UI state.
+          - **`CreateFocusSessionScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`)**:
+            - Mode-governed initial time: when Safemode is active, opening the screen defaults to 7:00 PM if the current device clock falls outside the 7:00 PM – 3:00 AM window.
+            - Mode-governed hour wheel: dynamically populated with `listOf(7, 8, 9, 10, 11, 12, 1, 2)` under Safemode, eliminating daytime hours 3..6 completely.
+            - Mode-governed period: locked automatically based on the selected hour (7..11 -> PM, 12..2 -> AM) with period toggle clicking disabled under Safemode.
+            - Mode-governed duration wheel: dynamically capped to `(1620 - normalizedStart)` minutes (up to 90 min) so the duration wheel physically cannot scroll past the 3:00 AM curfew.
+          - **`FailedHomeworksScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FailedHomeworksScreen.kt`)**:
+            - Mirrored mode-governed wheel constraints in the Reschedule drum picker modal: hours wheel strictly bounded to `listOf(7, 8, 9, 10, 11, 12, 1, 2)` in Safemode, period bound to hour, and duration wheel physically capped to curfew.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 40s`).
+          - Verified unit tests via `./gradlew testDebugUnitTest` (`BUILD SUCCESSFUL in 1m`, all unit tests passing).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Standardized Safemode Incompatible Mode Switch Notification)**:
+        - *Why It Was Mandated (Unified & Non-Fragmented User Feedback on Rejection)*:
+          - Replaced separate schedule rejection strings with the standardized user-facing notification: "Cannot switch to Safemode: Some existing schedule is incompatible. Delete or reschedule it first." This unifies user messaging across daytime and curfew incompatibilities while strictly retaining the mode switch rejection guard.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Consolidated `isOutsideOperatingHours` and `isExceedingCurfew` validation checks in `setOperatingMode()` into a single guard that dispatches the standardized error Toast notification and rejects the mode switch.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Verified unit tests via `./gradlew testDebugUnitTest`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 UI Copy Streamlining, Safemode Error Harmonization & Double Deck Elimination)**:
+        - *Why It Was Mandated (Concise Visual Hierarchy & Non-Redundant Session Layout)*:
+          - *Harmonized Safemode Error String*: Replaced verbose "ERROR: You can only schedule locks between 7:00 PM and 3:00 AM in Safemode." in both CreateFocusSessionScreen.kt and FailedHomeworksScreen.kt with the direct, concise error label: "Selected time is prohibited in Safemode".
+          - *Elimination of Redundant 'SCHEDULED' Badge*: On the Dashboard carousel, pending focus sessions no longer render an unnecessary "SCHEDULED" badge next to the session title. Only "ACTIVE" and "EXPIRED" states render visual status badges.
+          - *Modernized Allowed Apps Header*: Replaced "ACCESSIBLE APPLICATIONS DURING LOCK" in FocusLockScreen.kt with the clean, streamlined title "Allowed Apps".
+          - *Elimination of Redundant Blue Deck Name*: In FailedHomeworksScreen.kt, removed the duplicate blue subtitle showing session.deckNames, retaining only the clear white primary title.
+        - *Architectural & File Modifications*:
+          - **`CreateFocusSessionScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/CreateFocusSessionScreen.kt`)**: Updated error text to "Selected time is prohibited in Safemode".
+          - **`FailedHomeworksScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FailedHomeworksScreen.kt`)**: Updated rescheduleError message to "Selected time is prohibited in Safemode", and removed redundant blue session.deckNames text.
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**: Gated the status surface badge to isCurrentlyActive || isExpired, omitting the "SCHEDULED" badge for pending sessions.
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**: Replaced grid header text with "Allowed Apps".
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Verified unit tests via `./gradlew testDebugUnitTest`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Focus Lock Visual Hierarchy Optimization & Safemode Incompatible Mode Switch Modal)**:
+        - *Why It Was Mandated (Modal Feedback on Incompatible Mode Switch & Clean Focus Lock Study Hierarchy)*:
+          - *Incompatible Safemode Selection Modal*: When attempting to switch to Safemode from SettingsScreen.kt while an incompatible daytime schedule (3:00 AM - 7:00 PM) or curfew violation exists, the switch is blocked and an explicit AlertDialog popup modal is presented ("Cannot Switch to Safemode: Cannot switch to Safemode: Some existing schedule is incompatible. Delete or reschedule it first."). Furthermore, daytime lock screen triggers and consequence lockouts during 3:00 AM - 7:00 PM are strictly suppressed under Safemode in MainActivity.kt.
+          - *Focus Lock UI Clean Order & Selected Deck Review*: In FocusLockScreen.kt, removed the redundant "[DECK] ACTIVE" banner, ordering elements cleanly: (1) Red Lock Icon, (2) Large Real-Time Countdown Timer, (3) Clickable Selected Deck Card, (4) Take Quiz Now Button (disabled 5 seconds before timeout to avoid race conditions with automated quiz handover), and (5) Allowed Apps Grid.
+          - *In-Place Read-Only Flashcards Inspection*: Clicking the Selected Deck card opens an in-place flashcard review view displaying terms, definitions, diagrams, and card counts. Above this review view, the red linear timer progress indicator remains continuously visible, paired with a compact real-time countdown in the header. Excluded all edit, delete, start quiz, and statistics actions.
+        - *Architectural & File Modifications*:
+          - **`SettingsScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`)**: Added showIncompatibleModeDialog state and an AlertDialog modal that appears when setOperatingMode("safemode") returns false.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**: Expanded setOperatingMode("safemode") validation to scan memory schedules, disk schedules_json, active lockdowns, and daytime consequences, returning false if any incompatible schedule exists.
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**: Suppressed daytime inWindowSchedule detection and daytime active lockdown mounting when operatingMode is Safemode.
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**: Implemented reordered visual hierarchy (Red Lock Icon -> Timer -> Selected Deck -> Take Quiz Now -> Allowed Apps), disabled Take Quiz Now button when remainingSeconds <= 5L, removed [DECK] ACTIVE banner, and added in-place read-only flashcards review view with persistent top progress bar and BackHandler.
+          - **`UnifiedPolicyTest.kt` (`android/app/src/test/java/com/uncode/app/UnifiedPolicyTest.kt`)**: Synchronized test assertion with updated UnifiedPolicyRegistry service displayName ("Videos").
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Verified unit tests via `./gradlew testDebugUnitTest` (68/68 passed).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Rescheduled Session Deletion Immunity & Post-Lockdown Consequence Transfer)**:
+        - *Why It Was Mandated (Loophole Closure Against Deleting Rescheduled Homework to Evade Lockdown)*:
+          - *Consequence Evading Loophole*: Previously, once a failed focus session was rescheduled from `FailedHomeworksScreen.kt`, it entered `_focusSchedules` as a standard schedule item. A user could tap the Delete icon on the Dashboard focus session card, permanently deleting the scheduled session and evading their failed homework consequence without taking or passing the quiz.
+          - *Deletion Immunity & Consequence Re-Activation*: Rescheduled sessions are now explicitly tracked via `isRescheduled = true`. If a user attempts to delete a rescheduled session from the Dashboard card, the session cannot be destroyed: it is immediately transferred back to `_failedFocusSessions`, persisted to disk (`failed_sessions_json`), and Consequence Mode (post-lockdown active) is re-engaged via `startConsequenceSession()`. Only passing the quiz (`passed == true`) can clear the homework.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `isRescheduled: Boolean = false` to `FocusScheduleItem` with JSON disk serialization in `saveFocusSchedules()` and `loadFocusSchedules()`.
+            - Updated `rescheduleFailedSession()` to propagate `isRescheduled = true` when recreating the focus session.
+            - Updated `deleteFocusSchedule(id)`: if `target.isRescheduled` is true, transfers the session back to `_failedFocusSessions`, saves to disk, removes from active schedules, and calls `startConsequenceSession()`. Normal sessions continue to delete normally.
+            - Decoupled `completeFocusSchedule()` and `handleSessionTimeout()` from `deleteFocusSchedule()` so that passing a quiz permanently clears the session instead of triggering the deletion bounce-back.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.4 Consequence Mode Persistence Across Rescheduled Homeworks Until Quiz Pass)**:
+        - *Why It Was Mandated (Original uncode Parity: Amnesty Denied Upon Rescheduling)*:
+          - *Premature Amnesty Loophole*: In `rescheduleFailedSession()`, `clearConsequenceSession()` was previously executed whenever all failed sessions were rescheduled. This granted immediate amnesty: a student with failed homework could reschedule to tomorrow evening and immediately regain unrestricted access to distracting apps today without passing.
+          - *Original uncode Parity (`git show 4b793cb:src/App.tsx`)*: In the original uncode codebase, rescheduling updated the schedule cascade but never called `setConsequenceActive(false)`. The core invariant stated: *"Distracting apps remain restricted until rescheduled and passed."*
+          - *Specific Quiz Pass Clearance*: Consequence mode (`consequence_active = true`, `_isConsequenceActive.value = true`) now persists continuously after rescheduling. Only completing and passing that specific quiz (`completeFocusSchedule(passed = true)`) clears the consequence state, and only if no other failed sessions or un-passed rescheduled sessions remain.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - In `rescheduleFailedSession()`: Removed premature `clearConsequenceSession()`; invoked `startConsequenceSession(failedId)` to guarantee consequence mode persists after rescheduling.
+            - In `completeFocusSchedule()`: When `passed == true`, removes the specific session from schedules and failed sessions; evaluates if any other rescheduled sessions (`updated.any { it.isRescheduled }`) or failed sessions remain before calling `clearConsequenceSession()`. If others remain, keeps consequence mode active for the remaining sessions.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 59s`).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
 
 
 

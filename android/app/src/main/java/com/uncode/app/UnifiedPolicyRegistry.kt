@@ -28,9 +28,8 @@ object UnifiedPolicyRegistry {
     val SERVICES: Map<String, UnifiedService> = mapOf(
         "youtube" to UnifiedService(
             id = "youtube",
-            displayName = "Videos (YouTube & Baidu Video)",
-            description = "Allows educational long-form videos on YouTube and Baidu Video in browser and supported video players.",
-            badge = "App + Web",
+            displayName = "Videos",
+            description = "Allows YouTube and Baidu Video and other supported platforms.",
             iconName = "Video",
             themeColor = "red",
             packages = setOf(
@@ -61,8 +60,7 @@ object UnifiedPolicyRegistry {
         "ai" to UnifiedService(
             id = "ai",
             displayName = "AI",
-            description = "Allows AI assistant applications (Gemini, ChatGPT, Claude, etc.) and web domains.",
-            badge = "App + Web",
+            description = "Allows AI applications (Gemini, ChatGPT, Claude, etc).",
             iconName = "Sparkles",
             themeColor = "purple",
             packages = setOf(

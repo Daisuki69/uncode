@@ -113,14 +113,34 @@ class LockPlugin : Plugin() {
         }
 
         @JvmStatic
+        fun clearConsequenceState(context: Context?) {
+            if (context == null) return
+            try {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putBoolean("consequence_active", false)
+                    .remove("consequence_schedule_id")
+                    .apply()
+                AppClassifier.clearCache()
+                FloatingOverlayService.stopService(context)
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                if (nm != null) {
+                    nm.cancel(AlarmReceiver.NOTIF_ID_STATUS)
+                    nm.cancel(AlarmReceiver.NOTIF_ID_COMPLETED)
+                }
+            } catch (_: Exception) {}
+        }
+
+        @JvmStatic
         fun startConsequenceState(context: Context?, scheduleId: String?, whitelist: Set<String>?) {
             if (context == null) return
             try {
                 val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 val editor = prefs.edit()
                     .putBoolean("consequence_active", true)
-                    .putBoolean("lockdown_active", true)
+                    .putBoolean("lockdown_active", false)
                     .remove("lock_end_time")
+                    .remove("active_schedule_id")
 
                 if (!scheduleId.isNullOrBlank()) {
                     editor.putString("consequence_schedule_id", scheduleId)

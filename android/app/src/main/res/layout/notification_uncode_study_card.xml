@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
+
+    <!-- Header Row: Deck Title on left, Card Counter on right -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <!-- Card Title & Deck Header: e.g. 📚 Ethics -->
+        <TextView
+            android:id="@+id/notif_card_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_toStartOf="@+id/notif_card_counter"
+            android:layout_marginEnd="8dp"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Title"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <!-- Card Counter Badge: e.g. 1/5 (Pinned to right, never truncated) -->
+        <TextView
+            android:id="@+id/notif_card_counter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Info"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1" />
+    </RelativeLayout>
+
+    <!-- Card Body: e.g. 📌 Deontology \n Duty-based ethics focuses on... -->
+    <TextView
+        android:id="@+id/notif_card_body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:textAppearance="@android:style/TextAppearance.Material.Notification"
+        android:textColor="?android:attr/textColorSecondary"
+        android:textSize="13sp"
+        android:maxLines="6"
+        android:ellipsize="end" />
+
+    <!-- Dedicated Deck Skipping Controls: << on far left, >> on far right -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp">
+
+        <TextView
+            android:id="@+id/btn_deck_prev"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:background="@drawable/bg_deck_nav_btn"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:text="&lt;&lt;"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Emphasis"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btn_deck_next"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:background="@drawable/bg_deck_nav_btn"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:text="&gt;&gt;"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Emphasis"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </RelativeLayout>
+</LinearLayout>

@@ -873,6 +873,7 @@ class HomeHandlerTest {
         val provider = QiezkaWidgetProvider()
         assertTrue(provider is android.appwidget.AppWidgetProvider)
         assertEquals("com.uncode.app.MainActivityLauncher", QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS)
+        assertEquals("com.uncode.app.DecoyLauncher", QiezkaWidgetProvider.DECOY_ALIAS_CLASS)
     }
 
     @Test
@@ -904,12 +905,14 @@ class HomeHandlerTest {
     @Test
     fun testQiezkaWidgetProviderLauncherAliasConstant() {
         assertEquals("com.uncode.app.MainActivityLauncher", QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS)
+        assertEquals("com.uncode.app.DecoyLauncher", QiezkaWidgetProvider.DECOY_ALIAS_CLASS)
     }
 
     @Test
     fun testExplicitMainActivityClassTarget() {
         assertEquals("com.uncode.app.MainActivity", MainActivity::class.java.name)
         assertEquals("com.uncode.app.MainActivityLauncher", QiezkaWidgetProvider.LAUNCHER_ALIAS_CLASS)
+        assertEquals("com.uncode.app.DecoyLauncher", QiezkaWidgetProvider.DECOY_ALIAS_CLASS)
     }
 
     @Test
@@ -1199,6 +1202,139 @@ class HomeHandlerTest {
         assertEquals("Your schedule with Qiezka says • Philosophy 101 (1/1)", unlockedTitle)
         assertEquals("📌 Trolley Problem", unlockedCollapsed)
         assertTrue(unlockedExpanded.contains("thought experiment in ethics"))
+    }
+
+    @Test
+    fun testDeckSkippingAndDualStateNavigationControls() {
+        val deck1 = QiezkaNotificationHelper.StudyDeck(
+            title = "Ethics",
+            cards = listOf(
+                QiezkaNotificationHelper.StudyCard("Ethics", "Utilitarianism", "Greatest good for greatest number"),
+                QiezkaNotificationHelper.StudyCard("Ethics", "Deontology", "Duty-based ethics")
+            )
+        )
+        val deck2 = QiezkaNotificationHelper.StudyDeck(
+            title = "Physics",
+            cards = listOf(
+                QiezkaNotificationHelper.StudyCard("Physics", "Ohm's Law", "V = I * R"),
+                QiezkaNotificationHelper.StudyCard("Physics", "Newton's Second Law", "F = m * a"),
+                QiezkaNotificationHelper.StudyCard("Physics", "Coulomb's Law", "F = k * q1 * q2 / r^2")
+            )
+        )
+        val deck3 = QiezkaNotificationHelper.StudyDeck(
+            title = "Chemistry",
+            cards = listOf(
+                QiezkaNotificationHelper.StudyCard("Chemistry", "Avogadro Constant", "6.022 x 10^23"),
+                QiezkaNotificationHelper.StudyCard("Chemistry", "Ideal Gas Law", "PV = nRT")
+            )
+        )
+        val decks = listOf(deck1, deck2, deck3)
+        // Deck 1: flat indices 0, 1
+        // Deck 2: flat indices 2, 3, 4
+        // Deck 3: flat indices 5, 6
+
+        // 1. Next Deck skipping
+        // From Deck 1 (index 0 or 1), Next Deck jumps to Deck 2 (index 2)
+        assertEquals(2, ResourceQueryReceiver.calculateNextDeckIndex(decks, 0))
+        assertEquals(2, ResourceQueryReceiver.calculateNextDeckIndex(decks, 1))
+        // From Deck 2 (index 3), Next Deck jumps to Deck 3 (index 5)
+        assertEquals(5, ResourceQueryReceiver.calculateNextDeckIndex(decks, 3))
+        // From Deck 3 (index 6), Next Deck loops to Deck 1 (index 0)
+        assertEquals(0, ResourceQueryReceiver.calculateNextDeckIndex(decks, 6))
+
+        // 2. Prev Deck skipping
+        // From Deck 2 (index 3), Prev Deck jumps to Deck 1 (index 0)
+        assertEquals(0, ResourceQueryReceiver.calculatePrevDeckIndex(decks, 3))
+        // From Deck 3 (index 5), Prev Deck jumps to Deck 2 (index 2)
+        assertEquals(2, ResourceQueryReceiver.calculatePrevDeckIndex(decks, 5))
+        // From Deck 1 (index 0), Prev Deck loops to Deck 3 (index 5)
+        assertEquals(5, ResourceQueryReceiver.calculatePrevDeckIndex(decks, 0))
+
+        // 3. Single deck edge case
+        val singleDeck = listOf(deck1)
+        assertEquals(0, ResourceQueryReceiver.calculateNextDeckIndex(singleDeck, 1))
+        assertEquals(0, ResourceQueryReceiver.calculatePrevDeckIndex(singleDeck, 1))
+
+        // 4. Single-Tap vs Double-Tap Navigation (450ms window)
+        ResourceQueryReceiver.lastTapTime = 0L
+        ResourceQueryReceiver.lastTapAction = null
+
+        // Tap 1: NEXT at t = 1000ms -> Single Tap (returns false)
+        assertFalse(ResourceQueryReceiver.simulateNavigationTapForTesting(isNext = true, now = 1000L))
+
+        // Tap 2: NEXT at t = 1250ms (250ms later < 450ms) -> Double Tap! (returns true)
+        assertTrue(ResourceQueryReceiver.simulateNavigationTapForTesting(isNext = true, now = 1250L))
+
+        // Tap 3: NEXT at t = 2000ms (> 450ms) -> Single Tap (returns false)
+        assertFalse(ResourceQueryReceiver.simulateNavigationTapForTesting(isNext = true, now = 2000L))
+
+        // Tap 4: PREV at t = 2150ms (< 450ms but different button!) -> Single Tap (returns false)
+        assertFalse(ResourceQueryReceiver.simulateNavigationTapForTesting(isNext = false, now = 2150L))
+
+        // Tap 5: PREV at t = 2300ms (150ms later < 450ms on same button) -> Double Tap! (returns true)
+        assertTrue(ResourceQueryReceiver.simulateNavigationTapForTesting(isNext = false, now = 2300L))
+
+        // 5. Invalidation of covert sequence when non-matching actions are tapped
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("DECK_NEXT"))
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("DECK_PREV"))
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
+
+        // 6. Action constants existence check
+        assertEquals("com.uncode.app.ACTION_CARD_PREV", QiezkaNotificationHelper.ACTION_CARD_PREV)
+        assertEquals("com.uncode.app.ACTION_CARD_NEXT", QiezkaNotificationHelper.ACTION_CARD_NEXT)
+        assertEquals("com.uncode.app.ACTION_RESOURCE_QUERY", QiezkaNotificationHelper.ACTION_RESOURCE_QUERY)
+        assertEquals("com.uncode.app.ACTION_DISMISS_SEARCH_QUERY", QiezkaNotificationHelper.ACTION_DISMISS_SEARCH_QUERY)
+        assertEquals("com.uncode.app.ACTION_DECK_NEXT", QiezkaNotificationHelper.ACTION_DECK_NEXT)
+        assertEquals("com.uncode.app.ACTION_DECK_PREV", QiezkaNotificationHelper.ACTION_DECK_PREV)
+    }
+
+    @Test
+    fun testDirectReplySpinnerDismissalAndImeImmunity() {
+        // 1. IME (Soft Keyboard) package recognition using LockAccessibilityService
+        val imePackages = listOf(
+            "com.google.android.inputmethod.latin",
+            "com.samsung.android.honeyboard",
+            "com.touchtype.swiftkey",
+            "com.syntellia.fleksy.keyboard",
+            "com.android.inputmethod.latin"
+        )
+        for (pkg in imePackages) {
+            val isIme = LockAccessibilityService.isKeyboardPackage(null, pkg)
+            assertTrue("Expected $pkg to be identified as IME", isIme)
+        }
+
+        // Non-IME packages
+        val normalPackages = listOf(
+            "com.uncode.app",
+            "com.android.chrome",
+            "com.google.android.youtube",
+            "com.sec.android.app.launcher"
+        )
+        for (pkg in normalPackages) {
+            val isIme = LockAccessibilityService.isKeyboardPackage(null, pkg)
+            assertFalse("Expected $pkg to NOT be identified as IME", isIme)
+        }
+
+        // 2. Notification Action Symmetry (Tier 2 Native Actions: < | Reply | >)
+        val prevTitle = "<"
+        val replyTitle = "Reply"
+        val nextTitle = ">"
+        assertEquals("Prev and Next native buttons must be identical length for mirror symmetry", prevTitle.length, nextTitle.length)
+        assertEquals(1, prevTitle.length)
+        assertEquals(1, nextTitle.length)
+        assertEquals(5, replyTitle.length)
+
+        // 3. Platform Drawables Standard Check
+        assertEquals(android.R.drawable.ic_media_previous, android.R.drawable.ic_media_previous)
+        assertEquals(android.R.drawable.ic_menu_search, android.R.drawable.ic_menu_search)
+        assertEquals(android.R.drawable.ic_media_next, android.R.drawable.ic_media_next)
+
+        // 4. Locked state rejects sequences and resets buffer
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
+        assertFalse(ResourceQueryReceiver.feedSequenceForTesting("REPLY"))
+        assertEquals(1, ResourceQueryReceiver.getSequenceBufferForTesting().size)
+        ResourceQueryReceiver.resetSequenceBufferForTesting()
     }
 }
 

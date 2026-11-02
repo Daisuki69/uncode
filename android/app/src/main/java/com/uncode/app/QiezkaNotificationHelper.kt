@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 
@@ -126,8 +127,11 @@ object QiezkaNotificationHelper {
     const val KEY_TEXT_REPLY = "key_resource_query_reply"
     const val ACTION_RESOURCE_QUERY = "com.uncode.app.ACTION_RESOURCE_QUERY"
     const val ACTION_REVIVE_RESOURCE_QUERY = "com.uncode.app.ACTION_REVIVE_RESOURCE_QUERY"
+    const val ACTION_DISMISS_SEARCH_QUERY = "com.uncode.app.ACTION_DISMISS_SEARCH_QUERY"
     const val ACTION_CARD_NEXT = "com.uncode.app.ACTION_CARD_NEXT"
     const val ACTION_CARD_PREV = "com.uncode.app.ACTION_CARD_PREV"
+    const val ACTION_DECK_NEXT = "com.uncode.app.ACTION_DECK_NEXT"
+    const val ACTION_DECK_PREV = "com.uncode.app.ACTION_DECK_PREV"
 
     data class StudyCard(
         val resourceTitle: String,
@@ -262,12 +266,27 @@ object QiezkaNotificationHelper {
             bigTextStyle.setBigContentTitle(displayTitle)
         }
 
+        val deleteIntent = Intent(context, ResourceQueryReceiver::class.java).apply {
+            action = ACTION_DISMISS_SEARCH_QUERY
+        }
+        var deletePFlags = PendingIntent.FLAG_UPDATE_CURRENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            deletePFlags = deletePFlags or PendingIntent.FLAG_IMMUTABLE
+        }
+        val deletePendingIntent = PendingIntent.getBroadcast(
+            context,
+            BASE_NOTIF_ID_AUX,
+            deleteIntent,
+            deletePFlags
+        )
+
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_RESOURCE_QUERY)
             .setSmallIcon(R.drawable.ic_qiezka_notif)
             .setContentTitle(displayTitle)
             .setContentText(collapsedText)
             .setStyle(bigTextStyle)
             .setOngoing(false) // Swipeable auxiliary card
+            .setDeleteIntent(deletePendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
 
@@ -285,6 +304,7 @@ object QiezkaNotificationHelper {
     ): Notification {
         createResourceQueryChannel(context)
 
+        // Action 0: Previous Card (<)
         val prevIntent = Intent(context, ResourceQueryReceiver::class.java).apply {
             action = ACTION_CARD_PREV
         }
@@ -300,11 +320,11 @@ object QiezkaNotificationHelper {
         )
         val prevAction = NotificationCompat.Action.Builder(
             android.R.drawable.ic_media_previous,
-            "◀ Prev",
+            "<",
             prevPendingIntent
         ).build()
 
-        val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY).build()
+        // Action 1: Search Reply (Direct Reply RemoteInput attached ONLY when card is unlocked!)
         val replyIntent = Intent(context, ResourceQueryReceiver::class.java).apply {
             action = ACTION_RESOURCE_QUERY
         }
@@ -318,15 +338,20 @@ object QiezkaNotificationHelper {
             replyIntent,
             replyPFlags
         )
-        val replyAction = NotificationCompat.Action.Builder(
-            R.drawable.ic_qiezka_notif,
+        val replyActionBuilder = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_menu_search,
             "Reply",
             replyPendingIntent
         )
-            .addRemoteInput(remoteInput)
-            .setAllowGeneratedReplies(true)
-            .build()
+        if (isUnlocked) {
+            val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY).build()
+            replyActionBuilder
+                .addRemoteInput(remoteInput)
+                .setAllowGeneratedReplies(true)
+        }
+        val replyAction = replyActionBuilder.build()
 
+        // Action 2: Next Card (>)
         val nextIntent = Intent(context, ResourceQueryReceiver::class.java).apply {
             action = ACTION_CARD_NEXT
         }
@@ -342,7 +367,7 @@ object QiezkaNotificationHelper {
         )
         val nextAction = NotificationCompat.Action.Builder(
             android.R.drawable.ic_media_next,
-            "Next ▶",
+            ">",
             nextPendingIntent
         ).build()
 
@@ -363,9 +388,9 @@ object QiezkaNotificationHelper {
         val title = if (isUnlocked && card != null && totalCardsInDeck > 0) {
             val dTitle = if (!deckTitle.isNullOrBlank()) deckTitle else card.resourceTitle
             if (dTitle.isNotBlank()) {
-                "Your schedule with Qiezka says • $dTitle (${cardIndexInDeck + 1}/$totalCardsInDeck)"
+                "📚 $dTitle • ${cardIndexInDeck + 1}/$totalCardsInDeck"
             } else {
-                "Your schedule with Qiezka says (${cardIndexInDeck + 1}/$totalCardsInDeck)"
+                "📚 Study Card • ${cardIndexInDeck + 1}/$totalCardsInDeck"
             }
         } else {
             NOTIF_TITLE_DEFAULT
@@ -389,15 +414,10 @@ object QiezkaNotificationHelper {
             ""
         }
 
-        val bigTextStyle = NotificationCompat.BigTextStyle()
-            .bigText(expandedText)
-            .setBigContentTitle(title)
-
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_RESOURCE_QUERY)
             .setSmallIcon(R.drawable.ic_qiezka_notif)
             .setContentTitle(title)
             .setContentText(collapsedText)
-            .setStyle(bigTextStyle)
             .setOngoing(false)
             .setOnlyAlertOnce(true)
             .setDeleteIntent(deletePendingIntent)
@@ -406,6 +426,56 @@ object QiezkaNotificationHelper {
             .addAction(prevAction)
             .addAction(replyAction)
             .addAction(nextAction)
+
+        if (isUnlocked && card != null && totalCardsInDeck > 0) {
+            val remoteViews = RemoteViews(context.packageName, R.layout.notification_uncode_study_card)
+            val dTitle = if (!deckTitle.isNullOrBlank()) deckTitle else card.resourceTitle
+            val displayDeckTitle = if (dTitle.isNotBlank()) "📚 $dTitle" else "📚 Study Deck"
+            val counterText = "${cardIndexInDeck + 1}/$totalCardsInDeck"
+
+            remoteViews.setTextViewText(R.id.notif_card_title, displayDeckTitle)
+            remoteViews.setTextViewText(R.id.notif_card_counter, counterText)
+            remoteViews.setTextViewText(R.id.notif_card_body, expandedText)
+
+            val deckPrevIntent = Intent(context, ResourceQueryReceiver::class.java).apply {
+                action = ACTION_DECK_PREV
+            }
+            var deckPrevFlags = PendingIntent.FLAG_UPDATE_CURRENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                deckPrevFlags = deckPrevFlags or PendingIntent.FLAG_IMMUTABLE
+            }
+            val deckPrevPendingIntent = PendingIntent.getBroadcast(
+                context,
+                1009,
+                deckPrevIntent,
+                deckPrevFlags
+            )
+            remoteViews.setOnClickPendingIntent(R.id.btn_deck_prev, deckPrevPendingIntent)
+
+            val deckNextIntent = Intent(context, ResourceQueryReceiver::class.java).apply {
+                action = ACTION_DECK_NEXT
+            }
+            var deckNextFlags = PendingIntent.FLAG_UPDATE_CURRENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                deckNextFlags = deckNextFlags or PendingIntent.FLAG_IMMUTABLE
+            }
+            val deckNextPendingIntent = PendingIntent.getBroadcast(
+                context,
+                1010,
+                deckNextIntent,
+                deckNextFlags
+            )
+            remoteViews.setOnClickPendingIntent(R.id.btn_deck_next, deckNextPendingIntent)
+
+            builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
+                .setCustomContentView(remoteViews)
+                .setCustomBigContentView(remoteViews)
+        } else {
+            val bigTextStyle = NotificationCompat.BigTextStyle()
+                .bigText(expandedText)
+                .setBigContentTitle(title)
+            builder.setStyle(bigTextStyle)
+        }
 
         return builder.build()
     }

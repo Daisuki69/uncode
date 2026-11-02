@@ -56,10 +56,11 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_system_webview"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@drawable/ic_system_webview"
         android:supportsRtl="true"
+        android:pageSizeCompat="enabled"
         android:theme="@style/AppTheme">
 
         <activity
@@ -73,8 +74,6 @@
             android:exported="true">
         </activity>
 
-        <!-- ===== Dynamic App Drawer Launcher Alias ===== -->
-        <!-- Enabled when no widget exists on home screen; disabled for stealth when active widget is present -->
         <activity-alias
             android:name=".MainActivityLauncher"
             android:targetActivity=".MainActivity"
@@ -82,6 +81,20 @@
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
             android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".DecoyLauncher"
+            android:targetActivity=".MainActivity"
+            android:label="@string/app_name"
+            android:icon="@drawable/ic_system_webview"
+            android:roundIcon="@drawable/ic_system_webview"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -199,6 +212,8 @@
                 <action android:name="com.uncode.app.ACTION_REVIVE_RESOURCE_QUERY" />
                 <action android:name="com.uncode.app.ACTION_CARD_NEXT" />
                 <action android:name="com.uncode.app.ACTION_CARD_PREV" />
+                <action android:name="com.uncode.app.ACTION_DECK_NEXT" />
+                <action android:name="com.uncode.app.ACTION_DECK_PREV" />
             </intent-filter>
         </receiver>
 

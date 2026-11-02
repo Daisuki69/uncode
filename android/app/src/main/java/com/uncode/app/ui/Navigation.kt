@@ -1,0 +1,25 @@
+package com.uncode.app.ui
+
+sealed class Screen {
+    data object Dashboard : Screen()
+    data object DeckList : Screen()
+    data class DeckDetail(val deckId: Long) : Screen()
+    data class FlashcardEditor(val deckId: Long, val cardId: Long? = null) : Screen()
+    data class AnnotationEditor(val deckId: Long) : Screen()
+    data object TemplateLibrary : Screen()
+    data class TemplateReview(val templateId: String) : Screen()
+    data class StartQuiz(val preselectedDeckId: Long? = null) : Screen()
+    data object ActiveQuiz : Screen()
+    data class QuizResult(val sessionId: Long) : Screen()
+    data class QuizReview(val sessionId: Long) : Screen()
+    data object QuizHistory : Screen()
+    data object OverallStats : Screen()
+    data class DeckStats(val deckId: Long) : Screen()
+    data object Settings : Screen()
+    data object CustomImport : Screen()
+    data object CreateFocusSession : Screen()
+    data class FocusLockScreen(val scheduleId: String? = null) : Screen()
+    data class LockedQuiz(val scheduleId: String? = null) : Screen()
+    data class Evaluation(val scheduleId: String? = null, val maxPoints: Float = 0f, val earnedPoints: Float = 0f) : Screen()
+    data object FailedHomeworks : Screen()
+}

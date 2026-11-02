@@ -864,12 +864,9 @@ open class LockAccessibilityService : AccessibilityService() {
                 if (win.type == AccessibilityWindowInfo.TYPE_SYSTEM) {
                     win.getBoundsInScreen(rect)
                     // The status bar normally only occupies the top ~95px.
-                    // When the notification shade is pulled down, the system window expands to full screen height!
-                    if (rect.height() > halfScreenHeight && (win.isActive || win.isFocused)) {
-                        val rootPkg = win.root?.packageName?.toString()
-                        if (rootPkg == null || rootPkg == "com.android.systemui") {
-                            return true
-                        }
+                    // When the notification shade is pulled down, the system window expands to full screen height from top 0!
+                    if (rect.top == 0 && rect.height() > halfScreenHeight) {
+                        return true
                     }
                 }
             }
@@ -895,6 +892,27 @@ open class LockAccessibilityService : AccessibilityService() {
             if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED) {
+
+                val pkg = event.packageName?.toString()
+                // Instantaneous detection: When user collapses the shade, foreground app window changes
+                // to a non-SystemUI package. Verify that it is NOT an input method (soft keyboard)
+                // and that the notification shade is actually closed before triggering onShadeCollapsed!
+                if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                    pkg != null && pkg != "com.android.systemui" && wasNotificationShadeActive) {
+
+                    val isIme = isKeyboardPackage(this, pkg) ||
+                            (windows?.any { it.id == event.windowId && it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } == true)
+                    if (isIme) {
+                        return
+                    }
+
+                    if (!isNotificationShadeVisible()) {
+                        wasNotificationShadeActive = false
+                        ResourceQueryReceiver.onShadeCollapsed(this)
+                        return
+                    }
+                }
+
                 checkNotificationShadeCollapseHeartbeat()
             }
         } catch (ignore: Exception) {}

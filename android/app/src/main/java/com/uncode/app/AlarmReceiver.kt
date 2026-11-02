@@ -407,7 +407,9 @@ class AlarmReceiver : BroadcastReceiver() {
 
         prefs.edit()
             .putBoolean("consequence_active", true)
+            .putBoolean("lockdown_active", false)
             .remove("lock_end_time")
+            .remove("active_schedule_id")
             .apply()
 
         FloatingOverlayService.stopService(context)

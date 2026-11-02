@@ -32,12 +32,53 @@ class ResourceQueryReceiver : BroadcastReceiver() {
 
         // 1. Automatic Revival on Swipe / Dismiss
         if (intent.action == QiezkaNotificationHelper.ACTION_REVIVE_RESOURCE_QUERY) {
+            // Main card was dismissed or swiped away by user!
+            // Permanently clear last_query, cancel all auxiliary search notifications,
+            // reset sequence and is_unlocked = false, and revive card in disguised blank camouflage!
+            val prefs = context.getSharedPreferences("uncode_study_cards", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("is_unlocked", false)
+                .putString("last_query", "")
+                .apply()
+            synchronized(sequenceBuffer) {
+                sequenceBuffer.clear()
+                firstClickTimestamp = 0L
+            }
+            lastTapTime = 0L
+            lastTapAction = null
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            for (i in 0 until 10) {
+                nm?.cancel(QiezkaNotificationHelper.BASE_NOTIF_ID_AUX + i)
+            }
             QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
             return
         }
 
-        // 2. Navigation Actions: NEXT and PREV (Covert sequence detector when locked, in-place paging when unlocked)
-        if (intent.action == QiezkaNotificationHelper.ACTION_CARD_NEXT || intent.action == QiezkaNotificationHelper.ACTION_CARD_PREV) {
+        // 1b. User swiped away an auxiliary search notification!
+        if (intent.action == QiezkaNotificationHelper.ACTION_DISMISS_SEARCH_QUERY) {
+            val prefs = context.getSharedPreferences("uncode_study_cards", Context.MODE_PRIVATE)
+            prefs.edit().putString("last_query", "").apply()
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            for (i in 0 until 10) {
+                nm?.cancel(QiezkaNotificationHelper.BASE_NOTIF_ID_AUX + i)
+            }
+            return
+        }
+
+        // 2a. Dedicated Deck Skipping Actions: ACTION_DECK_NEXT (>>), ACTION_DECK_PREV (<<)
+        if (intent.action == QiezkaNotificationHelper.ACTION_DECK_NEXT ||
+            intent.action == QiezkaNotificationHelper.ACTION_DECK_PREV) {
+            val prefs = context.getSharedPreferences("uncode_study_cards", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("is_unlocked", false)) {
+                handleDeckSkipping(context, next = (intent.action == QiezkaNotificationHelper.ACTION_DECK_NEXT))
+            }
+            return
+        }
+
+        // 2b. Card Paging Actions: ACTION_CARD_NEXT (>), ACTION_CARD_PREV (<)
+        if (intent.action == QiezkaNotificationHelper.ACTION_CARD_NEXT ||
+            intent.action == QiezkaNotificationHelper.ACTION_CARD_PREV) {
+
             val isNext = (intent.action == QiezkaNotificationHelper.ACTION_CARD_NEXT)
             val actionTag = if (isNext) "NEXT" else "PREV"
 
@@ -45,7 +86,7 @@ class ResourceQueryReceiver : BroadcastReceiver() {
             val isUnlocked = prefs.getBoolean("is_unlocked", false)
 
             if (!isUnlocked) {
-                // Card is locked under disguise: feed sequence detector with strict 2.0s overall timer from 1st tap
+                // Card is locked under disguise: native buttons strictly feed sequence detector with 2.0s timer
                 val now = System.currentTimeMillis()
                 synchronized(sequenceBuffer) {
                     if (sequenceBuffer.isEmpty() || (now - firstClickTimestamp > SEQUENCE_TOTAL_TIMEOUT_MS)) {
@@ -61,6 +102,8 @@ class ResourceQueryReceiver : BroadcastReceiver() {
                             // Secret sequence Prev -> Next -> Prev -> Prev -> Next completed within 2.0s! Unlock!
                             sequenceBuffer.clear()
                             firstClickTimestamp = 0L
+                            lastTapTime = 0L
+                            lastTapAction = null
                             prefs.edit().putBoolean("is_unlocked", true).apply()
                             QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
                             restorePastQueryIfExists(context)
@@ -77,18 +120,35 @@ class ResourceQueryReceiver : BroadcastReceiver() {
                 return
             }
 
-            // Already unlocked: page through study cards in-place
+            // Unlocked State: Pure 1-card stepping with zero double-tap interference!
+            // Rapid clicking advances single cards immediately without delay.
             handleCardPaging(context, delta = if (isNext) 1 else -1)
             return
         }
 
         if (intent.action != QiezkaNotificationHelper.ACTION_RESOURCE_QUERY) return
 
-        val bundle = RemoteInput.getResultsFromIntent(intent) ?: return
+        val prefs = context.getSharedPreferences("uncode_study_cards", Context.MODE_PRIVATE)
+        val isUnlocked = prefs.getBoolean("is_unlocked", false)
+
+        if (!isUnlocked) {
+            // In locked state: Reply strictly rejects queries, resets sequence buffer, and NEVER unlocks!
+            synchronized(sequenceBuffer) {
+                sequenceBuffer.clear()
+                firstClickTimestamp = 0L
+            }
+            QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
+            return
+        }
+
+        val bundle = RemoteInput.getResultsFromIntent(intent)
+        if (bundle == null) {
+            QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
+            return
+        }
+
         val rawQuery = bundle.getCharSequence(QiezkaNotificationHelper.KEY_TEXT_REPLY)?.toString() ?: ""
         val query = rawQuery.trim()
-
-        val prefs = context.getSharedPreferences("uncode_study_cards", Context.MODE_PRIVATE)
 
         if (query.isEmpty()) {
             prefs.edit().putString("last_query", "").apply()
@@ -96,14 +156,13 @@ class ResourceQueryReceiver : BroadcastReceiver() {
             return
         }
 
-        // Save last_query so it can be restored on future unlocks
+        // Valid query submitted via RemoteInput in unlocked state!
         prefs.edit().putString("last_query", query).apply()
 
         // Non-destructive search: Main card (ID 1006) remains untouched in its flashcard deck!
         dispatchSearchResults(context, query)
 
-        // Clear RemoteInput inline reply spinner on main card (1006) while preserving
-        // current deck and card index so user can immediately continue paging Prev/Next.
+        // Clear RemoteInput inline reply spinner on main card (1006) immediately!
         QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
     }
 
@@ -133,11 +192,43 @@ class ResourceQueryReceiver : BroadcastReceiver() {
         nm?.notify(QiezkaNotificationHelper.NOTIF_ID_RESOURCE_QUERY, notif)
     }
 
+    private fun handleDeckSkipping(context: Context, next: Boolean) {
+        val decks = getAllStudyDecks(context)
+        val validDecks = decks.filter { it.cards.isNotEmpty() }
+        if (validDecks.isEmpty()) return
+
+        val prefs = context.getSharedPreferences("uncode_study_cards", Context.MODE_PRIVATE)
+        val currentFlatIndex = prefs.getInt("card_index", 0)
+        val newFlatIndex = if (next) {
+            calculateNextDeckIndex(validDecks, currentFlatIndex)
+        } else {
+            calculatePrevDeckIndex(validDecks, currentFlatIndex)
+        }
+        prefs.edit().putInt("card_index", newFlatIndex).apply()
+
+        val resolved = resolveDeckAndCard(validDecks, newFlatIndex) ?: return
+        val notif = QiezkaNotificationHelper.buildStudyCardNotification(
+            context,
+            resolved.deck.title,
+            resolved.card,
+            resolved.cardIndexInDeck,
+            resolved.deck.cards.size,
+            isUnlocked = true
+        )
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        nm?.notify(QiezkaNotificationHelper.NOTIF_ID_RESOURCE_QUERY, notif)
+    }
+
     companion object {
         val TARGET_SEQUENCE = listOf("PREV", "NEXT", "PREV", "PREV", "NEXT")
         private val sequenceBuffer = mutableListOf<String>()
         private var firstClickTimestamp = 0L
         const val SEQUENCE_TOTAL_TIMEOUT_MS = 2000L
+        const val DOUBLE_TAP_WINDOW_MS = 450L
+        @Volatile
+        var lastTapTime = 0L
+        @Volatile
+        var lastTapAction: String? = null
 
         @JvmStatic
         fun dispatchSearchResults(context: Context, query: String) {
@@ -190,13 +281,29 @@ class ResourceQueryReceiver : BroadcastReceiver() {
                     sequenceBuffer.clear()
                     firstClickTimestamp = 0L
                 }
-
-                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                for (i in 0 until 10) {
-                    nm?.cancel(QiezkaNotificationHelper.BASE_NOTIF_ID_AUX + i)
-                }
+                lastTapTime = 0L
+                lastTapAction = null
                 QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
             }
+            // UNCONDITIONALLY cancel all auxiliary search notifications on shade collapse
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            for (i in 0 until 10) {
+                nm?.cancel(QiezkaNotificationHelper.BASE_NOTIF_ID_AUX + i)
+            }
+        }
+
+        @JvmStatic
+        fun simulateNavigationTapForTesting(isNext: Boolean, now: Long): Boolean {
+            val actionTag = if (isNext) "NEXT" else "PREV"
+            val isDoubleTap = (lastTapAction == actionTag && (now - lastTapTime) < DOUBLE_TAP_WINDOW_MS)
+            if (isDoubleTap) {
+                lastTapTime = 0L
+                lastTapAction = null
+            } else {
+                lastTapTime = now
+                lastTapAction = actionTag
+            }
+            return isDoubleTap
         }
 
         @JvmStatic
@@ -275,7 +382,55 @@ class ResourceQueryReceiver : BroadcastReceiver() {
         }
 
         @JvmStatic
+        fun calculateNextDeckIndex(validDecks: List<QiezkaNotificationHelper.StudyDeck>, currentFlatIndex: Int): Int {
+            if (validDecks.isEmpty()) return 0
+            val currentPos = resolveDeckAndCard(validDecks, currentFlatIndex) ?: return 0
+            val currentDeckIndex = validDecks.indexOfFirst { it.title == currentPos.deck.title }
+            val nextDeckIndex = if (currentDeckIndex >= 0) (currentDeckIndex + 1) % validDecks.size else 0
+            var startFlatIndex = 0
+            for (i in 0 until nextDeckIndex) {
+                startFlatIndex += validDecks[i].cards.size
+            }
+            return startFlatIndex
+        }
+
+        @JvmStatic
+        fun calculatePrevDeckIndex(validDecks: List<QiezkaNotificationHelper.StudyDeck>, currentFlatIndex: Int): Int {
+            if (validDecks.isEmpty()) return 0
+            val currentPos = resolveDeckAndCard(validDecks, currentFlatIndex) ?: return 0
+            val currentDeckIndex = validDecks.indexOfFirst { it.title == currentPos.deck.title }
+            val prevDeckIndex = if (currentDeckIndex > 0) currentDeckIndex - 1 else validDecks.size - 1
+            var startFlatIndex = 0
+            for (i in 0 until prevDeckIndex) {
+                startFlatIndex += validDecks[i].cards.size
+            }
+            return startFlatIndex
+        }
+
+        @JvmStatic
         fun getAllStudyDecks(context: Context): List<QiezkaNotificationHelper.StudyDeck> {
+            try {
+                val db = com.uncode.app.data.AppDatabase.getDatabase(context)
+                val roomDecks = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    val allCards = db.flashcardDao().getAllFlashcardsSync()
+                    if (allCards.isEmpty()) return@runBlocking emptyList<QiezkaNotificationHelper.StudyDeck>()
+                    val deckList = mutableListOf<QiezkaNotificationHelper.StudyDeck>()
+                    val grouped = allCards.groupBy { it.deckId }
+                    for ((deckId, cards) in grouped) {
+                        val d = db.deckDao().getDeckById(deckId)
+                        val title = d?.title ?: "Study Deck"
+                        val studyCards = cards.map {
+                            QiezkaNotificationHelper.StudyCard(title, it.termOrQuestion, it.definitionOrAnswer)
+                        }
+                        if (studyCards.isNotEmpty()) {
+                            deckList.add(QiezkaNotificationHelper.StudyDeck(title, studyCards))
+                        }
+                    }
+                    deckList
+                }
+                if (roomDecks.isNotEmpty()) return roomDecks
+            } catch (_: Exception) {}
+
             val candidateFiles = listOf(
                 File(context.filesDir, "studom_resources"),
                 File(context.filesDir, "Documents/studom_resources"),

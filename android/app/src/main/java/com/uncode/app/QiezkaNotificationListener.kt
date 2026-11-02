@@ -1,5 +1,6 @@
 package com.uncode.app
 
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.ContentProviderClient
 import android.content.Context
@@ -73,6 +74,7 @@ class QiezkaNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        super.onNotificationRemoved(sbn)
         // Natural OS heartbeat on notification dismissal
         ensureSirenWatchdogAlive()
     }
