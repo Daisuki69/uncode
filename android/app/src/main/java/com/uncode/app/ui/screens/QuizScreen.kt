@@ -1,4 +1,4 @@
-﻿package com.uncode.app.ui.screens
+package com.uncode.app.ui.screens
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -449,9 +449,9 @@ fun QuizScreen(
                                                 val latencyMs = (System.currentTimeMillis() - questionStartTime).coerceAtLeast(0L)
                                                 val latencySec = latencyMs / 1000f
                                                 val (title, color) = when {
-                                                    latencySec < 1.5f -> "INSTANT" to Color(0xFF00E676)
-                                                    latencySec < 3.0f -> "SHARP" to Color(0xFF00E5FF)
-                                                    latencySec < 6.0f -> "DELIBERATE" to Color(0xFF448AFF)
+                                                    latencySec < 2.5f -> "INSTANT" to Color(0xFF00E676)
+                                                    latencySec < 3.5f -> "SHARP" to Color(0xFF00E5FF)
+                                                    latencySec < 4.5f -> "DELIBERATE" to Color(0xFF448AFF)
                                                     else -> "HESITANT" to Color(0xFFFFAB00)
                                                 }
                                                 lockedTierTitle = title

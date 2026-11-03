@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -75,6 +76,15 @@ fun DeckListScreen(
 ) {
     val decks by viewModel.allDecks.collectAsStateWithLifecycle()
     val allCards by viewModel.allFlashcards.collectAsStateWithLifecycle()
+    val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
+    val failedSessions by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
+
+    val lockedDeckIds = remember(focusSchedules, failedSessions) {
+        val set = mutableSetOf<Long>()
+        focusSchedules.forEach { set.addAll(it.selectedDeckIds) }
+        failedSessions.forEach { set.addAll(it.selectedDeckIds) }
+        set
+    }
 
     val deckStatsById = remember(allCards) {
         allCards.groupBy { it.deckId }.mapValues { (_, cards) ->
@@ -146,6 +156,7 @@ fun DeckListScreen(
                     stats != null && stats.hasReviewed -> "$totalCards cards \u2022 ${stats.masteredCards} mastered \u2022 ${stats.accuracy}% accuracy"
                     else -> "$totalCards cards \u2022 Not practiced yet"
                 }
+                val isLocked = deck.id in lockedDeckIds
 
                 Card(
                     modifier = Modifier
@@ -162,11 +173,44 @@ fun DeckListScreen(
                             .fillMaxWidth()
                             .padding(16.dp)
                     ) {
-                        Text(
-                            text = deck.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = deck.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (isLocked) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Locked",
+                                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Locked",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = statsText,

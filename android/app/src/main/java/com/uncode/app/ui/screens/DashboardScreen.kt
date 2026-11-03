@@ -26,9 +26,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
@@ -36,8 +33,6 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
@@ -147,14 +142,6 @@ fun DashboardScreen(
         }
     }
 
-    val vpnLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            viewModel.toggleSimulatedLockdown()
-        }
-    }
-
     LaunchedEffect(Unit) {
         viewModel.refreshLockdownAndServiceState()
     }
@@ -162,41 +149,15 @@ fun DashboardScreen(
     val dashboardScrollState = rememberScrollState()
     Scaffold(
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ExtendedFloatingActionButton(
+                onClick = onNavigateToStartQuiz,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.testTag("start_quiz_fab")
             ) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        viewModel.toggleSimulatedLockdown { intent ->
-                            vpnLauncher.launch(intent)
-                        }
-                    },
-                    containerColor = if (isLockdownActive) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (isLockdownActive) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("simulate_lockdown_fab")
-                ) {
-                    Icon(
-                        if (isLockdownActive) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = "Simulate Lockdown"
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        if (isLockdownActive) "Lockdown: ON" else "Lockdown: OFF",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                ExtendedFloatingActionButton(
-                    onClick = onNavigateToStartQuiz,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.testTag("start_quiz_fab")
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Start Quiz")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Start Quiz", fontWeight = FontWeight.Bold)
-                }
+                Icon(Icons.Default.PlayArrow, contentDescription = "Start Quiz")
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Start Quiz", fontWeight = FontWeight.Bold)
             }
         },
         modifier = modifier
@@ -226,26 +187,34 @@ fun DashboardScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val hasRescheduled = focusSchedules.any { it.isRescheduled }
+                    val pendingConsequenceCount = failedSessions.size + focusSchedules.count { it.isRescheduled }
                     IconButton(
                         onClick = onNavigateToFailedHomeworks,
                         modifier = Modifier.testTag("dashboard_failed_homeworks_button")
                     ) {
-                        BadgedBox(
-                            badge = {
-                                if (failedSessions.isNotEmpty()) {
+                        if (pendingConsequenceCount > 0) {
+                            BadgedBox(
+                                badge = {
                                     Badge(
                                         containerColor = MaterialTheme.colorScheme.error,
                                         contentColor = MaterialTheme.colorScheme.onError
                                     ) {
-                                        Text(failedSessions.size.toString())
+                                        Text(pendingConsequenceCount.toString())
                                     }
                                 }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Failed Sessions",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
                             }
-                        ) {
+                        } else {
                             Icon(
                                 imageVector = Icons.Default.Warning,
                                 contentDescription = "Failed Sessions",
-                                tint = if (failedSessions.isNotEmpty() || isConsequenceActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                                tint = if (isConsequenceActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
                             )
                         }
                     }
@@ -259,7 +228,8 @@ fun DashboardScreen(
             }
 
             if (isConsequenceActive) {
-                if (failedSessions.isNotEmpty()) {
+                val hasRescheduled = focusSchedules.any { it.isRescheduled }
+                if (failedSessions.isNotEmpty() || hasRescheduled) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -286,7 +256,11 @@ fun DashboardScreen(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Quiz was not passed or session expired.",
+                                text = if (hasRescheduled) {
+                                    "Rescheduled session pending. Distracting apps remain restricted until passed."
+                                } else {
+                                    "Quiz was not passed or session expired."
+                                },
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 lineHeight = 16.sp
@@ -300,7 +274,10 @@ fun DashboardScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                                 shape = RoundedCornerShape(10.dp)
                             ) {
-                                Text("View Failed Sessions", fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "View Failed Sessions",
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }

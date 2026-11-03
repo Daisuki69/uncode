@@ -8001,6 +8001,92 @@ ightarrow$ `Status: ok`, launched in 2.66s without crashes, ANRs, or window leak
           - Verified compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 59s`).
           - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
           - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.5 Rescheduled Homework Consequence Detection, Instant-Fail Resolution & Quiz Continuity)**:
+        - *Why It Was Mandated (Forensic Diagnostics of Rescheduled Session Eviction & UI Desynchronization)*:
+          - *Instant-Fail Eviction Bug*: In `MainViewModel.syncPastDueSchedules()`, a background loop checking every 1000ms evaluated `if ((isConsequence && schedule.id == activeId) || ...) expiredToFail.add(schedule)`. When a failed homework was rescheduled to the current time, `ScheduleManager` armed the schedule and assigned `active_schedule_id = schedule.id`. Because consequence mode remained active, on the very next 1-second tick, the schedule was falsely flagged as expired, immediately evicted from `_focusSchedules`, bounced back to `_failedFocusSessions`, and booted the user out of the quiz.
+          - *Dashboard Orphaned Consequence False Positive*: `DashboardScreen.kt` branched on `if (failedSessions.isNotEmpty())` to show the consequence card, and defaulted to a yellow "Post Lockdown Active (No Failed Sessions)" card with a "Clear Orphaned State" button whenever `failedSessions` was empty. When a failed session was rescheduled into `_focusSchedules`, `failedSessions` became empty, falsely prompting the user to clear the orphaned consequence state and prematurely lifting restrictions.
+          - *Session ID Loss*: `createFocusSchedule()` generated a random UUID instead of retaining the original `failedId`, breaking association with `consequence_schedule_id` and evaluation completion.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Re-architected `syncPastDueSchedules()` to use wall-clock window bounds (`endMs = startMs + durationMs`). An item is only flagged as expired if `now >= endMs + 30_000L` AND the user is not actively inside the quiz screen (`_activeQuizQuestions.value.isEmpty()`).
+            - Updated `createFocusSchedule()` to accept optional `scheduleId: String? = null`.
+            - Updated `rescheduleFailedSession()` to pass `scheduleId = failedId`, ensuring ID preservation across rescheduling, consequence tracking, and completion.
+            - Added fallback to `repository.allFlashcardsSync()` in `startFocusSessionQuiz()` if the target deck has no flashcards.
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Updated consequence detection to evaluate `val hasRescheduled = focusSchedules.any { it.isRescheduled }`.
+            - If `failedSessions.isNotEmpty() || hasRescheduled`, displays the Red "Post Lockdown Active" card with subtitle `"Rescheduled session pending. Distracting apps remain restricted until passed."` and button `"View Failed Sessions"`.
+            - Suppresses the yellow "Clear Orphaned State" card whenever a rescheduled session exists.
+            - Updated the top bar Warning icon and badge count to include `focusSchedules.count { it.isRescheduled }`.
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**:
+            - Hardened `targetEndMs` wall-clock rollover to guarantee that if `cal.timeInMillis + totalDurationMs` has elapsed by more than 60s, it advances by 1 day so the countdown timer never starts at 0ms.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 4m 16s`).
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.6 Simulated Lockdown Button Removal & Locked Deck Detail UI Safeguard)**:
+        - *Why It Was Mandated (Simulated Button Cleanup & Workflow Integrity Parity)*:
+          - *Simulated Button Decommissioning*: The test button `simulate_lockdown_fab` ("Lockdown: ON / OFF") and its accompanying `vpnLauncher` activity callback were developer inspection artifacts that clutter the bottom dashboard and risk triggering simulated VPN lockdowns during standard user operations.
+          - *Deck Deletion & Mutation Vulnerability During Focus & Consequence Modes*: In the original Uncode implementation (commit `d42599d`), study resources attached to an active or rescheduled session were locked into a view-only mode (`[Locked (View Only)]`) to enforce strict workflow integrity. In the Jetpack Compose port, decks linked to active focus schedules, reschedules, or consequence lockdowns could still be modified or deleted via `DeckDetailScreen`, allowing a user to evade evaluation or corrupt active focus sessions.
+        - *Architectural & File Modifications*:
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Removed `simulate_lockdown_fab` and `vpnLauncher`.
+            - Simplified `Scaffold.floatingActionButton` to render only the primary `start_quiz_fab` without redundant layout column nesting.
+            - Purged unused activity result and icon imports.
+          - **`DeckDetailScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DeckDetailScreen.kt`)**:
+            - Bound lock evaluation to `isDeckLocked = focusSchedules.any { deckId in it.selectedDeckIds } || failedSessions.any { deckId in it.selectedDeckIds }`.
+            - Rendered a `Locked (In Schedule)` pill badge and Lock icon in the header.
+            - Completely hid the `delete_deck_action_button` (trash icon) and guarded the delete confirmation dialog when locked.
+            - Completely hid the `editq_flashcard_editor_button` ("Edit Deck") and empty state "Add First Flashcard" button when locked.
+          - **`DeckListScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DeckListScreen.kt`)**:
+            - Rendered a compact `[Locked]` badge on deck cards linked to any active schedule, reschedule, or failed session.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Guarded `deleteDeck(deckId)` to abort repository deletion if the deck is locked in an active focus schedule or failed session.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.7 Settings & Policy Enforcement Lockdown During Active Sessions, Reschedules & Consequences)**:
+        - *Why It Was Mandated (Parity with Original Uncode Policy Integrity Safeguard)*:
+          - *Settings Evasion Vulnerability*: In original Uncode (commit `d42599d` / `SettingsOverlay.tsx`), all service policy toggles, operating modes, and internet locks were strictly locked during active lockdown or consequence mode (`isLockedOrConsequence`). In the Jetpack Compose port, users could open Settings and toggle policy services (e.g. YouTube, AI tools, messaging apps) or switch operating modes while in consequence mode or during active focus sessions, bypassing restrictions.
+        - *Architectural & File Modifications*:
+          - **`SettingsScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`)**:
+            - Added top general informational banner: *"Some settings may not allow changes during active sessions, failed session, or pending reschedules."*
+            - Evaluated `isPolicyLocked = isLockdownActive || isConsequenceActive || failedFocusSessions.isNotEmpty() || focusSchedules.any { it.isRescheduled }`.
+            - Added `[Locked]` red badge in the Policy section header when `isPolicyLocked` is true.
+            - Passed `enabled = !isPolicyLocked` to `SettingsSelectionRow` (Safemode, Hardcore, Accessibility, VPN) and `PolicyServiceItem` (service toggles), preventing user interaction when locked.
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Guarded `setOperatingMode(mode)`, `toggleUnifiedService(serviceId, allowed)`, and `setWebProtectionMode(mode)` against modification when any lock, consequence, failed session, or reschedule is active.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.8 Latency Scoring Tier Calibration for Standard & Lockdown Quizzes)**:
+        - *Why It Was Mandated (Cognitive Retrieval Optimization & Fluency Discrimination)*:
+          - *Latency Calibration*: The previous 1.5s threshold for INSTANT was excessively strict for multi-clause questions, penalizing users during legitimate card reading and optical fixation before motor tapping. Calibrating INSTANT to < 2.5s and spacing intermediate tiers across 1.0s increments aligns grading with cognitive recall models, rewarding retrieval fluency without inducing artificial guessing pressure.
+        - *Architectural & File Modifications*:
+          - **LockedQuizScreen.kt (ndroid/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt)**:
+            - Updated latency evaluation thresholds: < 2.5s -> INSTANT (1.0 pt), 2.5s - 3.5s -> SHARP (0.75 pts), 3.5s - 4.5s -> DELIBERATE (0.50 pts), >= 4.5s -> HESITANT (0.25 pts).
+          - **QuizScreen.kt (ndroid/app/src/main/java/com/uncode/app/ui/screens/QuizScreen.kt)**:
+            - Synchronized latency evaluation thresholds for standard quiz animations to exact parity with LockedQuizScreen.kt.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via ./gradlew compileDebugKotlin.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.9 "UNREAL" Latency Tier & Horizon 1200 FPS Moving Rainbow Animation in Locked Quiz)**:
+        - *Why It Was Mandated (Hyper-Speed Retrieval Rewarding & High-Refresh Animation Parity)*:
+          - *Sub-1.5s Recall Differentiation*: For peak retrieval mastery, answering in < 1.5s represents instantaneous intuitive recall. Introducing the UNREAL tier exclusively into Lockdown Quiz awards 1.50 pts (150% score boost), allowing users who demonstrate hyper-fast mastery to achieve bonus points or compensate for prior hesitant/stumbled questions.
+          - *Horizon 1200 FPS High-Energy Animation Grounding*: Grounded in `https://playhorizon.dev` performance HUD mechanics (`overload-flow` and `overload-shake`), UNREAL features an animated moving rainbow chromatic spectrum across all spell letters and stars, an arithmetic zero-allocation O(1) HSV color function, a 50ms electric micro-shake, and a dual-layer flowing rainbow light beam directly below the title.
+        - *Architectural & File Modifications*:
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Configured UNREAL latency tier (< 1.5s -> 1.50 pts) in latencySec evaluation branch and awarded points mapping.
+            - Added arithmetic `rainbowColorAt(phase: Float)` zero-allocation color mapper.
+            - Integrated `rememberInfiniteTransition` driving `rainbowPhase` (1200ms) and `shakeOffset` (50ms).
+            - Updated `SpellLetter` to apply dynamic phase-shifted rainbow colors and luminous shadow bloom.
+            - Rendered dual-layer Horizon 1200 FPS flowing rainbow glowing light beam below the UNREAL letter row.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
 
 
 

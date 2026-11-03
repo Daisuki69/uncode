@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PinDrop
@@ -73,9 +74,15 @@ fun DeckDetailScreen(
 ) {
     val decks by viewModel.allDecks.collectAsStateWithLifecycle()
     val allCards by viewModel.allFlashcards.collectAsStateWithLifecycle()
+    val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
+    val failedSessions by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
 
     val deck = decks.find { it.id == deckId }
     val cards = remember(deckId, allCards) { allCards.filter { it.deckId == deckId } }
+    val isDeckLocked = remember(deckId, focusSchedules, failedSessions) {
+        focusSchedules.any { deckId in it.selectedDeckIds } ||
+        failedSessions.any { deckId in it.selectedDeckIds }
+    }
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
@@ -117,23 +124,54 @@ fun DeckDetailScreen(
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = deck.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                        Text(
-                            text = "${cards.size} Cards",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = deck.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (isDeckLocked) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Locked",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${cards.size} Cards",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            if (isDeckLocked) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                                ) {
+                                    Text(
+                                        text = "Locked (In Schedule)",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
-                    IconButton(
-                        onClick = { showDeleteConfirmDialog = true },
-                        modifier = Modifier.testTag("delete_deck_action_button")
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete Deck", tint = MaterialTheme.colorScheme.error)
+                    if (!isDeckLocked) {
+                        IconButton(
+                            onClick = { showDeleteConfirmDialog = true },
+                            modifier = Modifier.testTag("delete_deck_action_button")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete Deck", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
@@ -237,17 +275,19 @@ fun DeckDetailScreen(
                         Text("Start Quiz This Deck", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
 
-                    OutlinedButton(
-                        onClick = { onNavigateToEditor(deck.id) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("editq_flashcard_editor_button"),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Edit Deck")
+                    if (!isDeckLocked) {
+                        OutlinedButton(
+                            onClick = { onNavigateToEditor(deck.id) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("editq_flashcard_editor_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Edit Deck")
+                        }
                     }
                 }
             }
@@ -271,9 +311,11 @@ fun DeckDetailScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text("No cards yet in this deck", fontWeight = FontWeight.SemiBold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(onClick = { onNavigateToEditor(deck.id) }) {
-                                Text("Add First Flashcard")
+                            if (!isDeckLocked) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(onClick = { onNavigateToEditor(deck.id) }) {
+                                    Text("Add First Flashcard")
+                                }
                             }
                         }
                     }
@@ -328,7 +370,7 @@ fun DeckDetailScreen(
             item { Spacer(modifier = Modifier.height(40.dp)) }
         }
 
-        if (showDeleteConfirmDialog) {
+        if (showDeleteConfirmDialog && !isDeckLocked) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirmDialog = false },
                 title = { Text("Delete Deck?", fontWeight = FontWeight.Bold) },

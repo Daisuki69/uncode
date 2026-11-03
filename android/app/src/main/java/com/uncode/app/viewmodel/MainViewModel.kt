@@ -551,6 +551,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteDeck(deckId: Long, onDeleted: () -> Unit = {}) {
         viewModelScope.launch {
+            val isLocked = _focusSchedules.value.any { deckId in it.selectedDeckIds } ||
+                _failedFocusSessions.value.any { deckId in it.selectedDeckIds }
+            if (isLocked) {
+                onDeleted()
+                return@launch
+            }
             repository.deleteDeck(deckId)
             onDeleted()
         }
@@ -774,7 +780,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val decks = allDecks.value.filter { it.id in validDeckIds }
             val deckNameMap = decks.associate { it.id to it.title }
-            val cards = repository.getFlashcardsForDecksSync(validDeckIds)
+            var cards = repository.getFlashcardsForDecksSync(validDeckIds)
+            if (cards.isEmpty()) {
+                cards = repository.allFlashcardsSync()
+            }
             if (cards.isEmpty()) return@launch
 
             val targetCount = minOf(10, cards.size)
@@ -1336,6 +1345,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setOperatingMode(mode: String): Boolean {
         val normalized = mode.lowercase(Locale.US).trim()
         val context = getApplication<Application>()
+        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val isLockActive = lockPrefs.getBoolean("lock_active", false)
+        val isConsequence = lockPrefs.getBoolean("consequence_active", false)
+        val isPolicyLocked = isLockActive || isConsequence || _isLockdownActive.value || _isConsequenceActive.value ||
+            _failedFocusSessions.value.isNotEmpty() || _focusSchedules.value.any { it.isRescheduled }
+        if (isPolicyLocked) {
+            return false
+        }
         if (normalized == "safemode") {
             val allSchedulesToCheck = mutableListOf<FocusScheduleItem>()
             allSchedulesToCheck.addAll(_focusSchedules.value)
@@ -1375,15 +1392,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
-            val isLockActive = lockPrefs.getBoolean("lock_active", false)
-            val isConsequence = lockPrefs.getBoolean("consequence_active", false)
-            val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            if ((isLockActive || isConsequence || _isLockdownActive.value || _isConsequenceActive.value) && currentHour in 3..18) {
-                return false
-            }
         }
-        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
         lockPrefs.edit().putString("operating_mode", normalized).apply()
         _operatingMode.value = normalized
         return true
@@ -1392,6 +1401,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleUnifiedService(serviceId: String, allowed: Boolean) {
         val context = getApplication<Application>()
         val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val isLockActive = lockPrefs.getBoolean("lock_active", false)
+        val isConsequence = lockPrefs.getBoolean("consequence_active", false)
+        val isPolicyLocked = isLockActive || isConsequence || _isLockdownActive.value || _isConsequenceActive.value ||
+            _failedFocusSessions.value.isNotEmpty() || _focusSchedules.value.any { it.isRescheduled }
+        if (isPolicyLocked) {
+            return
+        }
         val currentServices = lockPrefs.getStringSet("active_unified_services", emptySet()) ?: emptySet()
         val activeServices = HashSet(currentServices)
         val key = serviceId.lowercase(Locale.US).trim()
@@ -1417,6 +1433,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setWebProtectionMode(mode: String, onVpnPermissionNeeded: ((Intent) -> Unit)? = null) {
         val context = getApplication<Application>()
+        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val isLockActive = lockPrefs.getBoolean("lock_active", false)
+        val isConsequence = lockPrefs.getBoolean("consequence_active", false)
+        val isPolicyLocked = isLockActive || isConsequence || _isLockdownActive.value || _isConsequenceActive.value ||
+            _failedFocusSessions.value.isNotEmpty() || _focusSchedules.value.any { it.isRescheduled }
+        if (isPolicyLocked) {
+            return
+        }
         if (mode == "dual_hybrid") {
             val vpnIntent = VpnService.prepare(context)
             if (vpnIntent != null && onVpnPermissionNeeded != null) {
@@ -1424,7 +1448,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return
             }
         }
-        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
         lockPrefs.edit().putString("web_protection_mode", mode).apply()
         _webProtectionMode.value = mode
         if (_isLockdownActive.value) {
@@ -1517,7 +1540,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         deckNames: String,
         activationTime: String,
         durationMinutes: Int,
-        isRescheduled: Boolean = false
+        isRescheduled: Boolean = false,
+        scheduleId: String? = null
     ): Boolean {
         val parts = activationTime.split(":")
         val h = parts.getOrNull(0)?.toIntOrNull() ?: return false
@@ -1555,7 +1579,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val newItem = FocusScheduleItem(
-            id = java.util.UUID.randomUUID().toString(),
+            id = scheduleId ?: java.util.UUID.randomUUID().toString(),
             title = title,
             activationTime = activationTime,
             durationMinutes = durationMinutes,
@@ -1768,7 +1792,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun syncPastDueSchedules() {
         val context = getApplication<Application>()
         val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
-        val isConsequence = lockPrefs.getBoolean("consequence_active", false)
         val now = System.currentTimeMillis()
 
         val currentSchedules = _focusSchedules.value.toMutableList()
@@ -1776,11 +1799,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val activeId = lockPrefs.getString("active_schedule_id", null)
         val lockEnd = lockPrefs.getLong("lock_end_time", 0L)
+        val isCurrentlyInQuiz = _activeQuizQuestions.value.isNotEmpty()
 
         for (schedule in currentSchedules) {
-            if ((isConsequence && schedule.id == activeId) ||
-                (isConsequence && lockEnd > 0L && now >= lockEnd && (activeId == null || schedule.id == activeId))) {
-                expiredToFail.add(schedule)
+            val parts = schedule.activationTime.split(":")
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: continue
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: continue
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = now
+                set(Calendar.HOUR_OF_DAY, hour)
+                set(Calendar.MINUTE, minute)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val startMs = cal.timeInMillis
+            val durationMs = schedule.durationMinutes * 60L * 1000L
+            val endMs = startMs + durationMs
+
+            val windowExpired = now >= (endMs + 30_000L)
+            val lockExpired = lockEnd > 0L && now >= (lockEnd + 30_000L) && (activeId == schedule.id)
+
+            if (!isCurrentlyInQuiz) {
+                if (schedule.isRescheduled && windowExpired) {
+                    expiredToFail.add(schedule)
+                } else if (!schedule.isRescheduled && lockExpired) {
+                    expiredToFail.add(schedule)
+                }
             }
         }
 
@@ -1818,7 +1862,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             deckNames = failed.deckNames,
             activationTime = activationTime,
             durationMinutes = durationMinutes,
-            isRescheduled = true
+            isRescheduled = true,
+            scheduleId = failedId
         )
         if (created) {
             val updated = _failedFocusSessions.value.filter { it.id != failedId }

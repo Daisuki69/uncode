@@ -93,17 +93,22 @@ fun FocusLockScreen(
         val context = viewModel.getApplication<android.app.Application>()
         val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
         val storedLockEnd = lockPrefs.getLong("lock_end_time", 0L)
-        if (storedLockEnd > System.currentTimeMillis()) {
+        val now = System.currentTimeMillis()
+        if (storedLockEnd > now) {
             storedLockEnd
         } else {
             val parts = (activeSchedule?.activationTime ?: "00:00").split(":")
             val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
             val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
             val cal = Calendar.getInstance().apply {
+                timeInMillis = now
                 set(Calendar.HOUR_OF_DAY, hour)
                 set(Calendar.MINUTE, minute)
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
+            }
+            if (cal.timeInMillis + totalDurationMs < now - 60_000L) {
+                cal.add(Calendar.DAY_OF_YEAR, 1)
             }
             cal.timeInMillis + totalDurationMs
         }

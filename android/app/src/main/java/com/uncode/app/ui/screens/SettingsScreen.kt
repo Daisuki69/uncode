@@ -22,7 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -68,6 +71,13 @@ fun SettingsScreen(
     val operatingMode by viewModel.operatingMode.collectAsStateWithLifecycle()
     val webProtectionMode by viewModel.webProtectionMode.collectAsStateWithLifecycle()
     val activeUnifiedServices by viewModel.activeUnifiedServices.collectAsStateWithLifecycle()
+    val isLockdownActive by viewModel.isLockdownActive.collectAsStateWithLifecycle()
+    val isConsequenceActive by viewModel.isConsequenceActive.collectAsStateWithLifecycle()
+    val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
+    val failedFocusSessions by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
+    val isPolicyLocked = remember(isLockdownActive, isConsequenceActive, focusSchedules, failedFocusSessions) {
+        isLockdownActive || isConsequenceActive || failedFocusSessions.isNotEmpty() || focusSchedules.any { it.isRescheduled }
+    }
     var showIncompatibleModeDialog by remember { mutableStateOf(false) }
 
     val vpnLauncher = rememberLauncherForActivityResult(
@@ -114,6 +124,34 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Some settings may not allow changes during active sessions, failed session, or pending reschedules.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                    }
                 }
             }
 
@@ -197,7 +235,8 @@ fun SettingsScreen(
                                     showIncompatibleModeDialog = true
                                 }
                             },
-                            testTag = "operating_mode_safemode"
+                            testTag = "operating_mode_safemode",
+                            enabled = !isPolicyLocked
                         )
 
                         SettingsSelectionRow(
@@ -205,7 +244,8 @@ fun SettingsScreen(
                             subtitle = "Enforcement runs 24/7",
                             isSelected = operatingMode.equals("hardcore", ignoreCase = true),
                             onClick = { viewModel.setOperatingMode("hardcore") },
-                            testTag = "operating_mode_hardcore"
+                            testTag = "operating_mode_hardcore",
+                            enabled = !isPolicyLocked
                         )
 
                         HorizontalDivider(
@@ -226,7 +266,8 @@ fun SettingsScreen(
                             subtitle = null,
                             isSelected = webProtectionMode.equals("accessibility", ignoreCase = true),
                             onClick = { viewModel.setWebProtectionMode("accessibility") },
-                            testTag = "internet_lock_accessibility"
+                            testTag = "internet_lock_accessibility",
+                            enabled = !isPolicyLocked
                         )
 
                         SettingsSelectionRow(
@@ -238,18 +279,50 @@ fun SettingsScreen(
                                     vpnLauncher.launch(intent)
                                 }
                             },
-                            testTag = "internet_lock_vpn"
+                            testTag = "internet_lock_vpn",
+                            enabled = !isPolicyLocked
                         )
                     }
                 }
             }
 
             item {
-                Text(
-                    text = "Policy",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Policy",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (isPolicyLocked) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Locked",
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Locked",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             item {
@@ -266,7 +339,8 @@ fun SettingsScreen(
                             PolicyServiceItem(
                                 service = svc,
                                 isAllowed = isAllowed,
-                                onToggle = { viewModel.toggleUnifiedService(svc.id, !isAllowed) }
+                                onToggle = { viewModel.toggleUnifiedService(svc.id, !isAllowed) },
+                                enabled = !isPolicyLocked
                             )
                             if (index < services.size - 1) {
                                 HorizontalDivider(
@@ -387,12 +461,13 @@ private fun SettingsSelectionRow(
     subtitle: String?,
     isSelected: Boolean,
     onClick: () -> Unit,
-    testTag: String
+    testTag: String,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically
@@ -402,14 +477,20 @@ private fun SettingsSelectionRow(
                 .weight(1f)
                 .padding(end = 14.dp)
         ) {
-            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(
+                text = title,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
+            )
             if (subtitle != null) {
                 Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
             }
         }
         RadioButton(
             selected = isSelected,
-            onClick = onClick
+            onClick = { if (enabled) onClick() },
+            enabled = enabled
         )
     }
 }
@@ -451,12 +532,13 @@ private fun ThemeOptionRow(
 private fun PolicyServiceItem(
     service: UnifiedService,
     isAllowed: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggle() }
+            .clickable(enabled = enabled) { onToggle() }
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag("policy_service_${service.id}"),
         verticalAlignment = Alignment.CenterVertically
@@ -473,12 +555,13 @@ private fun PolicyServiceItem(
                 Text(
                     text = service.displayName,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
+                    fontSize = 14.sp,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
                 )
                 if (service.badge.isNotBlank()) {
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = if (enabled) 0.6f else 0.3f)
                     ) {
                         Text(
                             text = service.badge,
@@ -502,7 +585,8 @@ private fun PolicyServiceItem(
         }
         Switch(
             checked = isAllowed,
-            onCheckedChange = { onToggle() },
+            onCheckedChange = { if (enabled) onToggle() },
+            enabled = enabled,
             modifier = Modifier.testTag("policy_switch_${service.id}")
         )
     }

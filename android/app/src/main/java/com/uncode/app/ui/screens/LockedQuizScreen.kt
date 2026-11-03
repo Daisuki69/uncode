@@ -4,8 +4,13 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -73,8 +78,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
@@ -463,12 +470,14 @@ fun LockedQuizScreen(
                                                 val latencyMs = (System.currentTimeMillis() - questionStartTime).coerceAtLeast(0L)
                                                 val latencySec = latencyMs / 1000f
                                                 val (title, color) = when {
-                                                    latencySec < 1.5f -> "INSTANT" to Color(0xFF00E676)
-                                                    latencySec < 3.0f -> "SHARP" to Color(0xFF00E5FF)
-                                                    latencySec < 6.0f -> "DELIBERATE" to Color(0xFF448AFF)
+                                                    latencySec < 1.5f -> "UNREAL" to Color(0xFFFF1744)
+                                                    latencySec < 2.5f -> "INSTANT" to Color(0xFF00E676)
+                                                    latencySec < 3.5f -> "SHARP" to Color(0xFF00E5FF)
+                                                    latencySec < 4.5f -> "DELIBERATE" to Color(0xFF448AFF)
                                                     else -> "HESITANT" to Color(0xFFFFAB00)
                                                 }
                                                 awardedPoints = when (title) {
+                                                    "UNREAL" -> 1.5f
                                                     "INSTANT" -> 1f
                                                     "SHARP" -> 0.75f
                                                     "DELIBERATE" -> 0.5f
@@ -550,6 +559,27 @@ fun LockedQuizScreen(
             enter = fadeIn(animationSpec = tween(150)),
             exit = fadeOut(animationSpec = tween(150))
         ) {
+            val isUnreal = lockedTierTitle == "UNREAL"
+            val infiniteTransition = rememberInfiniteTransition(label = "RainbowFlow")
+            val rainbowPhase by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1200, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "RainbowPhase"
+            )
+            val shakeOffset by infiniteTransition.animateFloat(
+                initialValue = -1.2f,
+                targetValue = 1.2f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 50, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "UnrealShake"
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -564,17 +594,22 @@ fun LockedQuizScreen(
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
-                    modifier = Modifier.padding(horizontal = 24.dp)
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .then(if (isUnreal) Modifier.offset(x = shakeOffset.dp, y = (-shakeOffset * 0.5f).dp) else Modifier)
                 ) {
+                    val starColor = if (isUnreal) rainbowColorAt(rainbowPhase) else lockedTierColor.copy(alpha = 0.75f)
+                    val starGlow = if (isUnreal) rainbowColorAt(rainbowPhase + 0.5f).copy(alpha = 0.8f) else lockedTierColor.copy(alpha = 0.8f)
+
                     Text(
                         text = "\u2727  \u2726  \u2727",
-                        color = lockedTierColor.copy(alpha = 0.75f),
+                        color = starColor,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 6.sp,
                         style = TextStyle(
                             shadow = Shadow(
-                                color = lockedTierColor.copy(alpha = 0.8f),
+                                color = starGlow,
                                 offset = Offset(0f, 0f),
                                 blurRadius = 20f
                             )
@@ -592,7 +627,45 @@ fun LockedQuizScreen(
                                 char = char,
                                 index = index,
                                 trigger = animTrigger,
-                                color = lockedTierColor
+                                color = lockedTierColor,
+                                isUnreal = isUnreal,
+                                rainbowPhase = rainbowPhase
+                            )
+                        }
+                    }
+
+                    if (isUnreal) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        val rainbowBrush = Brush.linearGradient(
+                            colors = listOf(
+                                rainbowColorAt(rainbowPhase),
+                                rainbowColorAt(rainbowPhase + 0.18f),
+                                rainbowColorAt(rainbowPhase + 0.36f),
+                                rainbowColorAt(rainbowPhase + 0.54f),
+                                rainbowColorAt(rainbowPhase + 0.72f),
+                                rainbowColorAt(rainbowPhase + 0.90f),
+                                rainbowColorAt(rainbowPhase + 1.0f)
+                            ),
+                            start = Offset(x = rainbowPhase * 500f, y = 0f),
+                            end = Offset(x = (rainbowPhase + 1f) * 500f, y = 0f),
+                            tileMode = TileMode.Repeated
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(200.dp)
+                                .height(5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .blur(8.dp)
+                                    .background(rainbowBrush, shape = RoundedCornerShape(3.dp))
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(rainbowBrush, shape = RoundedCornerShape(3.dp))
                             )
                         }
                     }
@@ -600,15 +673,18 @@ fun LockedQuizScreen(
                     Spacer(modifier = Modifier.height(24.dp))
 
                     val countdownSec = remainingTimeMs / 1000f
+                    val timerColor = if (isUnreal) rainbowColorAt(rainbowPhase + 0.5f).copy(alpha = 0.9f) else lockedTierColor.copy(alpha = 0.9f)
+                    val timerGlow = if (isUnreal) rainbowColorAt(rainbowPhase + 0.25f).copy(alpha = 0.7f) else lockedTierColor.copy(alpha = 0.7f)
+
                     Text(
                         text = String.format(java.util.Locale.US, "%.2f", countdownSec),
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
-                        color = lockedTierColor.copy(alpha = 0.9f),
+                        color = timerColor,
                         letterSpacing = 2.sp,
                         style = TextStyle(
                             shadow = Shadow(
-                                color = lockedTierColor.copy(alpha = 0.7f),
+                                color = timerGlow,
                                 offset = Offset(0f, 0f),
                                 blurRadius = 18f
                             )
@@ -625,7 +701,9 @@ private fun SpellLetter(
     char: Char,
     index: Int,
     trigger: Boolean,
-    color: Color
+    color: Color,
+    isUnreal: Boolean = false,
+    rainbowPhase: Float = 0f
 ) {
     val progress by animateFloatAsState(
         targetValue = if (trigger) 1f else 0f,
@@ -637,16 +715,18 @@ private fun SpellLetter(
         label = "SpellLetterAnim"
     )
 
+    val activeColor = if (isUnreal) rainbowColorAt(rainbowPhase + index * 0.12f) else color
+
     Text(
         text = char.toString(),
-        color = color.copy(alpha = progress),
+        color = activeColor.copy(alpha = progress),
         fontSize = 34.sp,
         fontWeight = FontWeight.Black,
         style = TextStyle(
             shadow = Shadow(
-                color = color.copy(alpha = 0.9f * progress),
+                color = activeColor.copy(alpha = 0.9f * progress),
                 offset = Offset(0f, 0f),
-                blurRadius = 28f * progress
+                blurRadius = if (isUnreal) 34f * progress else 28f * progress
             )
         ),
         modifier = Modifier
@@ -659,6 +739,22 @@ private fun SpellLetter(
             }
             .padding(horizontal = 2.dp)
     )
+}
+
+private fun rainbowColorAt(phase: Float): Color {
+    val normalized = (phase % 1f + 1f) % 1f
+    val h = normalized * 6f
+    val i = h.toInt()
+    val f = h - i
+    val q = 1f - f
+    return when (i % 6) {
+        0 -> Color(1f, f, 0.2f)
+        1 -> Color(q, 1f, 0.2f)
+        2 -> Color(0.2f, 1f, f)
+        3 -> Color(0.2f, q, 1f)
+        4 -> Color(f, 0.2f, 1f)
+        else -> Color(1f, 0.2f, q)
+    }
 }
 
 private fun Modifier.disableSplitMotionEvents(): Modifier = pointerInput(Unit) {
