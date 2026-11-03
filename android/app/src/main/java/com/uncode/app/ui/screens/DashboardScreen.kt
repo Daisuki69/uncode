@@ -434,7 +434,24 @@ fun DashboardScreen(
                 )
             }
 
-            val pagerState = rememberPagerState(pageCount = { focusSchedules.size + 1 })
+            val activeFocusSchedules = remember(focusSchedules, currentTimeMillis) {
+                focusSchedules.filter { schedule ->
+                    val parts = schedule.activationTime.split(":")
+                    val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
+                    val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                    val cal = Calendar.getInstance().apply {
+                        timeInMillis = currentTimeMillis
+                        set(Calendar.HOUR_OF_DAY, hour)
+                        set(Calendar.MINUTE, minute)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val durationMs = schedule.durationMinutes * 60L * 1000L
+                    currentTimeMillis < (cal.timeInMillis + durationMs)
+                }
+            }
+
+            val pagerState = rememberPagerState(pageCount = { activeFocusSchedules.size + 1 })
 
             Column(
                 modifier = Modifier
@@ -445,8 +462,8 @@ fun DashboardScreen(
                     state = pagerState,
                     modifier = Modifier.fillMaxWidth()
                 ) { pageIndex ->
-                    if (pageIndex < focusSchedules.size) {
-                        val schedule = focusSchedules[pageIndex]
+                    if (pageIndex < activeFocusSchedules.size) {
+                        val schedule = activeFocusSchedules[pageIndex]
                         val parts = schedule.activationTime.split(":")
                         val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
                         val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
@@ -463,7 +480,6 @@ fun DashboardScreen(
                         val endMs = startMs + durationMs
 
                         val isCurrentlyActive = currentTimeMillis in startMs until endMs
-                        val isExpired = currentTimeMillis >= endMs
                         val h12 = if (hour % 12 == 0) 12 else hour % 12
                         val period = if (hour >= 12) "PM" else "AM"
                         val formattedTime = String.format(Locale.getDefault(), "%d:%02d %s", h12, minute, period)
@@ -506,17 +522,13 @@ fun DashboardScreen(
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    if (isCurrentlyActive || isExpired) {
+                                    if (isCurrentlyActive) {
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
-                                            color = if (isCurrentlyActive) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.error
-                                            }
+                                            color = MaterialTheme.colorScheme.primary
                                         ) {
                                             Text(
-                                                text = if (isCurrentlyActive) "ACTIVE" else "EXPIRED",
+                                                text = "ACTIVE",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onPrimary,
@@ -534,7 +546,7 @@ fun DashboardScreen(
                                     Icon(
                                         imageVector = if (isCurrentlyActive) Icons.Default.Timer else Icons.Default.Schedule,
                                         contentDescription = null,
-                                        tint = if (isCurrentlyActive) MaterialTheme.colorScheme.primary else if (isExpired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+                                        tint = if (isCurrentlyActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     val timerText = if (isCurrentlyActive) {
@@ -547,8 +559,6 @@ fun DashboardScreen(
                                         } else {
                                             String.format(Locale.getDefault(), "%02d:%02d", m, s)
                                         }
-                                    } else if (isExpired) {
-                                        "00:00"
                                     } else {
                                         val diffSec = ((startMs - currentTimeMillis) / 1000L).coerceAtLeast(0)
                                         val h = diffSec / 3600
@@ -564,7 +574,7 @@ fun DashboardScreen(
                                         text = timerText,
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = if (isCurrentlyActive) MaterialTheme.colorScheme.primary else if (isExpired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                        color = if (isCurrentlyActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
 
@@ -638,14 +648,14 @@ fun DashboardScreen(
                     }
                 }
 
-                if (focusSchedules.isNotEmpty()) {
+                if (activeFocusSchedules.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        repeat(focusSchedules.size + 1) { i ->
+                        repeat(activeFocusSchedules.size + 1) { i ->
                             val isSelected = pagerState.currentPage == i
                             Box(
                                 modifier = Modifier

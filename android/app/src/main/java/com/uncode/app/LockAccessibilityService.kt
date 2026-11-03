@@ -2827,6 +2827,8 @@ open class LockAccessibilityService : AccessibilityService() {
             }
         }
 
+        checkAutoQuizTicker(currentPrefs, effectiveNow, inOperatingHours, isLockdownActive, isConsequenceActive, lockEndTime, isHardcore)
+
         // 3. State Evaluation Gate
         isHardcore = "hardcore".equals(currentPrefs.getString("operating_mode", "safemode"), ignoreCase = true)
         isConsequenceEnforcing = isConsequenceActive && (isHardcore || inOperatingHours)
@@ -3249,6 +3251,140 @@ open class LockAccessibilityService : AccessibilityService() {
         }
 
         return lastForegroundPackage
+    }
+
+    private fun checkAutoQuizTicker(
+        currentPrefs: SharedPreferences,
+        effectiveNow: Long,
+        inOperatingHours: Boolean,
+        isLockdownActive: Boolean,
+        isConsequenceActive: Boolean,
+        lockEndTime: Long,
+        isHardcore: Boolean
+    ) {
+        val autoQuizEnabled = currentPrefs.getBoolean("auto_quiz_enabled", false)
+        if (!autoQuizEnabled) return
+
+        val isFocusSessionActive = isLockdownActive || isConsequenceActive || (lockEndTime > effectiveNow)
+        if (isFocusSessionActive) return
+
+        val isInPermissibleHours = isHardcore || inOperatingHours
+        if (!isInPermissibleHours) return
+
+        val isQuizInProgress = currentPrefs.getBoolean("auto_quiz_in_progress", false)
+        val fgPkg = detectCurrentForegroundPackage() ?: lastForegroundPackage
+
+        if (isQuizInProgress) {
+            if (fgPkg != null && fgPkg != packageName && !isLauncherApp(this, fgPkg)) {
+                launchAutoQuizOverlay(currentPrefs.getString("active_auto_quiz_id", null))
+            }
+            return
+        }
+
+        if (fgPkg == null || fgPkg == packageName || isLauncherApp(this, fgPkg) || isKeyboardApp(fgPkg)) {
+            return
+        }
+
+        val whitelist = currentPrefs.getStringSet("whitelist", emptySet()) ?: emptySet()
+        val isAllowedApp = whitelist.contains(fgPkg) || KnownSafe.isCameraApp(this, fgPkg, null)
+        if (isAllowedApp) {
+            return
+        }
+
+        val mode = currentPrefs.getString("auto_quiz_mode", "usage_30") ?: "usage_30"
+        if (mode == "daily_random") {
+            val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(effectiveNow))
+            val lastQuizDate = currentPrefs.getString("auto_quiz_last_daily_date", null)
+            if (todayStr == lastQuizDate) return
+
+            var targetTimeToday = currentPrefs.getLong("auto_quiz_daily_target_time", 0L)
+            val targetDateStr = currentPrefs.getString("auto_quiz_daily_target_date", null)
+            if (targetDateStr != todayStr || targetTimeToday <= 0L) {
+                val cal = java.util.Calendar.getInstance().apply {
+                    timeInMillis = effectiveNow
+                    val (startHour, endHour) = if (isHardcore) Pair(9, 21) else Pair(19, 22)
+                    val randomHour = (startHour until endHour).random()
+                    val randomMin = (0..59).random()
+                    set(java.util.Calendar.HOUR_OF_DAY, randomHour)
+                    set(java.util.Calendar.MINUTE, randomMin)
+                    set(java.util.Calendar.SECOND, 0)
+                }
+                targetTimeToday = cal.timeInMillis
+                currentPrefs.edit()
+                    .putString("auto_quiz_daily_target_date", todayStr)
+                    .putLong("auto_quiz_daily_target_time", targetTimeToday)
+                    .apply()
+            }
+
+            if (effectiveNow >= targetTimeToday) {
+                val autoQuizId = "auto_quiz_${System.currentTimeMillis()}"
+                currentPrefs.edit()
+                    .putString("auto_quiz_last_daily_date", todayStr)
+                    .putBoolean("auto_quiz_in_progress", true)
+                    .putString("active_auto_quiz_id", autoQuizId)
+                    .putLong("auto_quiz_accumulated_seconds", 0L)
+                    .apply()
+                launchAutoQuizOverlay(autoQuizId)
+            }
+        } else {
+            val thresholdMinutes = when (mode) {
+                "usage_15" -> 15
+                "usage_45" -> 45
+                "usage_60" -> 60
+                else -> 30
+            }
+            val thresholdSec = thresholdMinutes * 60L
+            val currentAccSec = currentPrefs.getLong("auto_quiz_accumulated_seconds", 0L) + 1L
+            if (currentAccSec >= thresholdSec) {
+                val autoQuizId = "auto_quiz_${System.currentTimeMillis()}"
+                currentPrefs.edit()
+                    .putBoolean("auto_quiz_in_progress", true)
+                    .putString("active_auto_quiz_id", autoQuizId)
+                    .putLong("auto_quiz_accumulated_seconds", 0L)
+                    .apply()
+                launchAutoQuizOverlay(autoQuizId)
+            } else {
+                currentPrefs.edit().putLong("auto_quiz_accumulated_seconds", currentAccSec).apply()
+            }
+        }
+    }
+
+    private fun launchAutoQuizOverlay(autoQuizId: String?) {
+        try {
+            val launch = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                putExtra("route", "auto_quiz")
+                if (autoQuizId != null) {
+                    putExtra("auto_quiz_id", autoQuizId)
+                }
+            }
+            var optionsBundle: android.os.Bundle? = null
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                try {
+                    val activityOptions = ActivityOptions.makeBasic()
+                    val method = activityOptions.javaClass.getMethod("setPendingIntentBackgroundActivityStartMode", Int::class.javaPrimitiveType)
+                    method.invoke(activityOptions, 1)
+                    optionsBundle = activityOptions.toBundle()
+                } catch (_: Throwable) {}
+            }
+            val pi = PendingIntent.getActivity(
+                this,
+                2026,
+                launch,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            try {
+                if (optionsBundle != null) {
+                    pi.send(this, 0, null, null, null, null, optionsBundle)
+                } else {
+                    pi.send()
+                }
+            } catch (_: Exception) {
+                startActivity(launch)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "launchAutoQuizOverlay failed: ${e.message}")
+        }
     }
 
     private fun launchLockOverlay() {

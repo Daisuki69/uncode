@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,14 +48,19 @@ fun EvaluationScreen(
 ) {
     val passingScore = maxPoints * 0.8f
     val isPassed = earnedPoints >= passingScore
+    val isSessionActive = remember(scheduleId, viewModel.focusSchedules) {
+        viewModel.isFocusSessionTimerActive(scheduleId)
+    }
 
     LaunchedEffect(Unit) {
         if (isPassed) {
             viewModel.completeFocusSchedule(scheduleId, passed = true, maxPoints, earnedPoints)
             viewModel.clearLockdownSession()
         } else {
-            viewModel.completeFocusSchedule(scheduleId, passed = false, maxPoints, earnedPoints)
-            viewModel.startConsequenceSession(scheduleId)
+            if (!isSessionActive) {
+                viewModel.completeFocusSchedule(scheduleId, passed = false, maxPoints, earnedPoints)
+                viewModel.startConsequenceSession(scheduleId)
+            }
         }
     }
 
@@ -74,7 +80,10 @@ fun EvaluationScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = onBackToDashboard,
+                    onClick = {
+                        viewModel.clearActiveQuiz()
+                        onBackToDashboard()
+                    },
                     modifier = Modifier.offset(x = (-12).dp)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -52,6 +53,20 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
+    private val viewModel: MainViewModel by viewModels()
+
+    private fun handleAutoQuizIntent(targetIntent: Intent?) {
+        if (targetIntent?.getStringExtra("route") == "auto_quiz") {
+            targetIntent.removeExtra("route")
+            val current = viewModel.navigationBackStack.lastOrNull()
+            if (current !is Screen.LockedQuiz) {
+                viewModel.startAutoQuiz { finalId ->
+                    viewModel.navigationBackStack.add(Screen.LockedQuiz(finalId))
+                }
+            }
+        }
+    }
+
     companion object {
         @Volatile
         private var sIsRunning: Boolean = false
@@ -91,9 +106,9 @@ class MainActivity : ComponentActivity() {
         }
 
         QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(this)
+        handleAutoQuizIntent(intent)
 
         setContent {
-            val viewModel: MainViewModel = viewModel()
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val isDark = when (themeMode) {
                 AppThemeMode.LIGHT -> false
@@ -137,6 +152,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleAutoQuizIntent(intent)
     }
 
     override fun onDestroy() {
@@ -170,7 +186,7 @@ fun SirenQuizApp(
         backStack.add(Screen.Dashboard)
     }
 
-    BackHandler(enabled = backStack.size > 1) {
+    BackHandler(enabled = backStack.size > 1 && currentScreen !is Screen.LockedQuiz) {
         navigateBack()
     }
 

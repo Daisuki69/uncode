@@ -216,7 +216,10 @@ fun LockedQuizScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = onBack,
+                        onClick = {
+                            viewModel.clearActiveQuiz()
+                            onBack()
+                        },
                         modifier = Modifier.offset(x = (-12).dp)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Exit Quiz")

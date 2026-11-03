@@ -409,7 +409,10 @@ class FloatingOverlayService : Service() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 val isConsequence = prefs?.getBoolean("consequence_active", false) ?: false
-                putExtra("route", if (isConsequence) "logs" else "locked")
+                val isLockdown = prefs?.getBoolean("lockdown_active", false) ?: false
+                val storedEnd = prefs?.getLong("lock_end_time", 0L) ?: 0L
+                val isTimerRunning = isLockdown && storedEnd > System.currentTimeMillis()
+                putExtra("route", if (isTimerRunning) "locked" else if (isConsequence) "logs" else "locked")
             }
             startActivity(launch)
         } catch (e: Exception) {
@@ -426,25 +429,56 @@ class FloatingOverlayService : Service() {
         val effectiveNow = System.currentTimeMillis() + timeOffset
         val inOperatingHours = LockAccessibilityService.isInOperatingHours(this, effectiveNow)
 
-        // If neither lockdown nor consequence is active, cleanly dismiss immediately
         if (!isLockdownActive && !isConsequenceActive) {
-            Log.i(TAG, "FloatingOverlayService: neither lockdown nor consequence active, cleanly dismissing")
             removeFloatingView()
             stopForeground(true)
             stopSelf()
             return
         }
 
-        // If in Consequence Mode:
+        val storedEnd = prefs.getLong("lock_end_time", 0L)
+        lockEndTime = if (storedEnd > 0) storedEnd else 0L
+        val isTimerRunning = isLockdownActive && lockEndTime > effectiveNow
+
+        if (isTimerRunning) {
+            if (floatingView?.visibility != View.VISIBLE) {
+                floatingView?.visibility = View.VISIBLE
+            }
+
+            val maxDurationMinutes = getActiveScheduleDurationMinutes(prefs)
+            val maxRemainingSec = maxDurationMinutes * 60L
+
+            var remainingSec = (lockEndTime - effectiveNow) / 1000L
+            if (remainingSec > maxRemainingSec) {
+                remainingSec = maxRemainingSec
+                lockEndTime = effectiveNow + (maxRemainingSec * 1000L)
+                prefs.edit().putLong("lock_end_time", lockEndTime).apply()
+            }
+
+            val hours = remainingSec / 3600
+            val minutes = (remainingSec % 3600) / 60
+            val seconds = remainingSec % 60
+
+            val formattedTime = if (hours > 0) {
+                String.format("%d:%02d:%02d", hours, minutes, seconds)
+            } else {
+                String.format("%02d:%02d", minutes, seconds)
+            }
+
+            val current = tvTimer?.text
+            if (current == null || !formattedTime.contentEquals(current)) {
+                tvTimer?.text = formattedTime
+            }
+            return
+        }
+
         if (isConsequenceActive) {
             if (!inOperatingHours) {
-                // Outside operating hours (3:00 AM to 7:00 PM): QIEZKA does not operate.
                 if (floatingView?.visibility == View.VISIBLE) {
                     floatingView?.visibility = View.GONE
                 }
                 return
             }
-            // Inside operating hours (7:00 PM to 3:00 AM):
             if (floatingView?.visibility != View.VISIBLE) {
                 floatingView?.visibility = View.VISIBLE
             }
@@ -452,10 +486,6 @@ class FloatingOverlayService : Service() {
             return
         }
 
-        val storedEnd = prefs.getLong("lock_end_time", 0L)
-        lockEndTime = if (storedEnd > 0) storedEnd else 0L
-
-        // When timer expires without passing, transition to Consequence Mode!
         if (lockEndTime > 0 && effectiveNow >= lockEndTime) {
             prefs.edit()
                 .putBoolean("consequence_active", true)
@@ -463,32 +493,6 @@ class FloatingOverlayService : Service() {
                 .apply()
             tvTimer?.text = OVERLAY_CONSEQUENCE_TEXT
             return
-        }
-
-        val maxDurationMinutes = getActiveScheduleDurationMinutes(prefs)
-        val maxRemainingSec = maxDurationMinutes * 60L
-
-        var remainingSec = if (lockEndTime > effectiveNow) (lockEndTime - effectiveNow) / 1000L else 0L
-        if (remainingSec > maxRemainingSec) {
-            Log.w(TAG, "Remaining time (${remainingSec}s) exceeds schedule duration (${maxRemainingSec}s). Clamping.")
-            remainingSec = maxRemainingSec
-            lockEndTime = effectiveNow + (maxRemainingSec * 1000L)
-            prefs.edit().putLong("lock_end_time", lockEndTime).apply()
-        }
-
-        val hours = remainingSec / 3600
-        val minutes = (remainingSec % 3600) / 60
-        val seconds = remainingSec % 60
-
-        val formattedTime = if (hours > 0) {
-            String.format("%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format("%02d:%02d", minutes, seconds)
-        }
-
-        val current = tvTimer?.text
-        if (current == null || !formattedTime.contentEquals(current)) {
-            tvTimer?.text = formattedTime
         }
     }
 

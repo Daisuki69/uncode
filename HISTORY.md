@@ -8087,7 +8087,161 @@ ightarrow$ `Status: ok`, launched in 2.66s without crashes, ANRs, or window leak
           - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
           - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
           - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.10 "Try Your Luck" Early Quiz Failure Guard & Active Focus Session Preservation)**:
+        - *Why It Was Mandated (Early Challenge Fairness & Session Timer Integrity)*:
+          - *Premature Lockdown Exit & False Consequence Bug*: Taking a quiz early via "Take Quiz Now" was treated identically to a timeout quiz failure, immediately evicting the session, triggering consequence mode, and ending the focus block prematurely even if 30+ minutes remained. Under cognitive focus principles, an early quiz acts as a "try your luck" early-release challenge: passing unlocks early, but failing must retain the active focus session without penalty until timer completion.
+          - *Consequence Mode Boundary*: Transition to consequence mode (post-lockdown active) is strictly restricted to when the focus session timer reaches 0 (0:00) and the user fails the quiz.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `isFocusSessionTimerActive(scheduleId: String?): Boolean` evaluating whether the target session's wall-clock duration has remaining time.
+            - Added `clearActiveQuiz()` to reset active questions, score, and state flows upon exiting quizzes.
+          - **`EvaluationScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/EvaluationScreen.kt`)**:
+            - Evaluated `isSessionActive = viewModel.isFocusSessionTimerActive(scheduleId)`.
+            - Guarded failure handling: if `!isPassed && isSessionActive`, bypasses `completeFocusSchedule` and `startConsequenceSession`, preserving the active focus session.
+            - Updated verdict styling to display `Failed (Session Continues)` in orange when early exit fails, allowing user to return to `FocusLockScreen` via back navigation.
+            - Invoked `viewModel.clearActiveQuiz()` upon back navigation.
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Invoked `viewModel.clearActiveQuiz()` on early quiz exit back tap.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Non-Major Refinement (Sub-Patch 34.10 Early Exit Quiz Failure Guard & Floating Ball Countdown Parity)**:
+        - *Why It Was Mandated (Early Release Retention & Active Floating Timer Integrity)*:
+          - *Early Quiz Attempt ("Try Your Luck") Guard*: Previously, taking a quiz early from the active focus lock screen and failing immediately triggered consequence mode and evicted the session, even though several minutes or hours remained on the clock. Early quizzes now function as a try-your-luck early exit: failing while the session timer has remaining time preserves the active focus session, allowing the user to return to the focus lock screen and continue studying without penalty. Consequence mode is exclusively triggered if the timer reaches 0:00 and the mandatory quiz is failed.
+          - *Floating Ball Reschedule Timer Parity*: In `FloatingOverlayService.kt`, consequence mode evaluation previously preceded active countdown evaluation. Because consequence state persists during rescheduled sessions to prevent evasion, the floating ball erroneously showed a warning icon (`⚠️`) instead of the active ticking timer (`MM:SS`). Re-prioritizing the running timer ensures the floating HUD shows the remaining focus time across all active sessions.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `isFocusSessionTimerActive(scheduleId)` to check whether a focus session has remaining duration.
+            - Added `clearActiveQuiz()` to reset temporary quiz question collections upon leaving quiz or evaluation screens.
+          - **`EvaluationScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/EvaluationScreen.kt`)**:
+            - Guarded failure transition: only completes schedule as failed and triggers consequence mode if `!isSessionActive`. If time remains, the session is preserved.
+            - Cleaned verdict to standard `Failed👎` and wired top back button to reset active quiz state and return to focus lock.
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Wired top back arrow to invoke `viewModel.clearActiveQuiz()` before exiting.
+          - **`FloatingOverlayService.kt` (`android/app/src/main/java/com/uncode/app/FloatingOverlayService.kt`)**:
+            - Re-architected `updateTimerDisplay()` to prioritize `isTimerRunning = isLockdownActive && lockEndTime > effectiveNow`, rendering the countdown timer even during rescheduled consequence sessions.
+            - Updated `launchQiezka()` to route to `"locked"` when an active session timer is running.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+      - **Sub-Patch 34.11 (Expired Focus Session to Failed Sessions Transition Remediation)**:
+        - *Why It Was Mandated (Architectural Invariant Enforcement & State Segregation)*:
+          - *Expired Schedule Retention Bug*: Under the original uncode specification (`src/App.tsx:784-786`), a session must strictly exist in active focus schedules OR in failed homeworks, never both. Previously, `DashboardScreen.kt` erroneously rendered an `"EXPIRED"` badge with `"00:00"` timer within the active "Focus Sessions" pager, allowing expired sessions to linger indefinitely on the dashboard instead of transitioning to Failed Sessions.
+          - *Defective Past-Due Sync Branching*: In `MainViewModel.kt`, `syncPastDueSchedules()` evaluated `lockExpired` only for standard schedules (`!schedule.isRescheduled && lockExpired`), requiring `lockEnd > 0L` and `activeId == schedule.id`. When `AlarmReceiver` handled session completion, it purged `lock_end_time` and `active_schedule_id`, causing `lockExpired` to evaluate to false and preventing expired schedules from moving to `_failedFocusSessions`.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Refactored `syncPastDueSchedules()`: purged artificial branching; any schedule whose window has elapsed (`now >= endMs`) while not actively in a quiz is immediately moved from `_focusSchedules` to `_failedFocusSessions` (`FailedFocusSessionItem`) and persisted via `saveFocusSchedules` and `saveFailedFocusSessions`.
+            - Automatically invokes `startConsequenceSession` for the transitioned expired session.
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Added `activeFocusSchedules` filtering out expired sessions (`currentTimeMillis < (cal.timeInMillis + durationMs)`), ensuring only upcoming or active sessions populate the horizontal pager.
+            - Purged the `"EXPIRED"` badge surface and `"00:00"` timer branches from the Focus Sessions card UI, ensuring expired sessions are viewed exclusively through Failed Sessions (`FailedHomeworksScreen.kt`) and consequence banners.
+            - Synchronized the pager indicator dot count with `activeFocusSchedules.size + 1`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
 
+      - **Sub-Patch 34.12 (EXTREME AutoSchedule Engine & Per-Deck Duration Drum Wheel Architecture)**:
+        - *Why It Was Mandated (Autonomous Focus Enforcement & Strict 1 Session Per Day Constraint)*:
+          - *Manual Scheduling Friction*: Prior to this patch, focus sessions required purely manual creation, time selection, and deck mapping in `CreateFocusSessionScreen.kt`. Users committed to strict daily study enforcement required an autonomous mechanism to schedule daily sessions automatically without repetitive manual configuration.
+          - *Custom Per-Deck Durations with Drum Wheel Ergonomics*: Different subjects demand variable study durations (e.g. Ethics W1 at 25 min vs Ethics W2 at 20 min). Users needed fine-grained deck selection checkboxes paired with drum-style scroll wheel pickers (`ScrollWheelPicker`) supporting 5-minute step-up increments (10m, 15m, 20m, 25m, 30m... up to 90m).
+          - *Dual Randomization Modes*: Supports both `Randomized (Stats Suggestion)` (prioritizing user-chosen decks with lowest accuracy and high leech count via `overallStats.deckPerfs`) and `Randomized (Max 30m)` (random deck selection capped at 30 minutes).
+          - *Strict 1 Session Per Day Constraint*: To safeguard against multiple session collisions and schedule clutter, AutoSchedule strictly limits automated sessions to exactly one (1) per day, enforcing calendar date verification (`last_auto_scheduled_date` and same-day active schedule detection).
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added StateFlows: `autoScheduleEnabled`, `autoScheduleMode`, `autoScheduleSelectedDeckIds`, and `autoScheduleDeckDurations`.
+            - Implemented configuration persistence in `uncode_lock` SharedPreferences via `loadAutoScheduleConfig()` and `saveAutoScheduleConfig()`.
+            - Implemented reactive mutations: `setAutoScheduleEnabled()`, `setAutoScheduleMode()`, `toggleAutoScheduleDeck()`, and `updateAutoScheduleDeckDuration()`.
+            - Implemented `isAutoScheduleActiveForToday()` and `armAutoSchedule()`: validates daily limit, filters candidate decks by user preference, selects target deck via stats/random mode, computes mode-compliant non-overlapping time slot (Safemode 19:00-02:00 or Hardcore next slot), and commits via `createFocusSchedule()`.
+            - Maintained zero in-code documentation/comments (Rule 9).
+          - **`SettingsScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`)**:
+            - Embedded the `EXTREME` AutoSchedule section directly under Operating Mode in Study Enforcement.
+            - Added header with `EXTREME` badge, subtitle ("1 automated session per day"), and master activation switch.
+            - Added dual-mode selector cards for `Stats Suggestion` vs `Random (Max 30m)`.
+            - Added deck target roster displaying inclusion checkboxes, deck accuracy badges, and duration pill buttons.
+            - Integrated `ScrollWheelPicker` drum wheel dialog with 5-minute step increments (10-90m) for per-deck duration configuration.
+            - Added "Arm AutoSchedule Now" action button with real-time feedback and disabled state when a session is already scheduled for today or policy is locked.
+            - Maintained zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.12 Addendum: Standalone EXTREME Category, Isolated Step-2 Drum Pickers & Lead-Time Buffer)**:
+        - *Why It Was Mandated (Decoupled Category, Isolated Wheel Ergonomics & Anti-Immediate Lockout)*:
+          - *Standalone Category Requirement*: `EXTREME` was decoupled from `Study Enforcement` and established as a dedicated top-level section in Settings, restoring `Study Enforcement` strictly to Operating Mode and Internet Lock.
+          - *Step-2 Isolated Drum Architecture*: Modeled after Step 2 of `CreateFocusSessionScreen.kt`, tapping either `[ Randomized Deck ▼ ]` or `[ Randomized Duration ▼ ]` opens an isolated floating drum wheel popup showing exclusively the selected variable, eliminating UI clutter and enabling rapid selection.
+          - *Default Randomized Settings*: Configured `Randomized Deck` (Qiezka stats suggestion) and `Randomized Duration` (capped at 25-30m) as the default unconfigured state.
+          - *Lead-Time Scheduling Buffer*: To prevent immediate session lockouts at the exact instant AutoSchedule is enabled, the scheduling algorithm enforces a minimum 30-minute lead-time buffer (`curTotalMinutes + 30m`), scheduling to subsequent rounded time blocks within permissible operating mode windows (Safemode 19:00–02:00 or Hardcore next slot).
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Refactored state flows to `autoScheduleSelectedDeckId: StateFlow<Long?>` (null = Randomized Deck) and `autoScheduleSelectedDuration: StateFlow<Int?>` (null = Randomized Duration).
+            - Updated `loadAutoScheduleConfig()`, `saveAutoScheduleConfig()`, `setAutoScheduleDeckId()`, and `setAutoScheduleDuration()`.
+            - Updated `armAutoSchedule()` to enforce a 30-minute future lead time buffer (`minLeadMinutes = 30`), ensuring sessions are never scheduled at the exact enablement time.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`SettingsScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`)**:
+            - Restored `Study Enforcement` Card to contain only `Operating Mode` and `Internet Lock`.
+            - Added standalone `EXTREME` category header with red accent styling.
+            - Added dedicated `EXTREME` Card with a single clean row: `AutoSchedule` label, Deck anchor box with `Icons.Default.Casino` dice icon (when randomized) or deck name, Duration anchor box with `Icons.Default.Casino` dice icon (when randomized) or duration minutes, and Material 3 `Switch` ("Turn on" toggle).
+            - Implemented `Modifier.wheelAnchorGesture` directly replicating Step 2 time/duration gesture handling, allowing direct drag-to-scroll interactions and tap-to-expand isolated floating drum wheel popups with `centerAnchorProvider`.
+            - Preserved zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+
+      - **Sub-Patch 34.13 (EXTREME AutoQuiz Engine, Non-Allowed App Usage Tracking & Consequence Interceptor)**:
+        - *Why It Was Mandated (Passive Distraction Deterrence, Non-Allowed Screen Time Accountability & Severe Consequence Stakes)*:
+          - *Passive Distraction Deterrence*: While scheduled focus sessions enforce deliberate study blocks, passive phone use on non-allowed apps (social media, entertainment, games) outside focus sessions undermines retention. AutoQuiz introduces unpredictable pop-quiz flashcard interventions triggered either by accumulated non-allowed app usage or on a daily randomized pop schedule.
+          - *Strict Non-Allowed Usage Filtering*: Ticker counting occurs exclusively when the user is inside an app that is *not* in the Allowed Apps whitelist and not a core system component (launcher, system UI, dialer, camera, keyboard). Allowed apps and standby state never increment the timer.
+          - *Active Focus Session Suppression*: If any focus session is active or ongoing (`lockdown_active`, `consequence_active`, or active session timer running), the AutoQuiz timer pauses and pop quiz triggers are completely suppressed, preventing session interference.
+          - *Severe Stakes (Quiz Failure -> Consequence Mode)*: To ensure high cognitive focus and prevent trivial guessing or abandonment, a failed AutoQuiz (< 80% passing threshold or abandonment) immediately registers as a failed session (`FailedFocusSessionItem`) and initiates Consequence Mode (`startConsequenceSession`), locking the device to allowed apps until resolved.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added StateFlows: `autoQuizEnabled`, `autoQuizMode` (supporting `usage_15`, `usage_30`, `usage_45`, `usage_60`, `daily_random`), and `autoQuizSelectedDeckId` (null = Random Deck suggested by lowest accuracy).
+            - Added persistence methods: `loadAutoQuizConfig()`, `saveAutoQuizConfig()`, `setAutoQuizEnabled()`, `setAutoQuizMode()`, `setAutoQuizDeckId()`, and `startAutoQuiz(onStarted)`.
+            - Updated `completeFocusSchedule()` to intercept AutoQuiz completion: on failure (< 80%), synthesizes a `FailedFocusSessionItem`, saves to failed homeworks, and triggers `startConsequenceSession()`. On pass (>= 80%), clears active lockdown and resets accumulated usage seconds.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`SettingsScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`)**:
+            - Extended `ExtremePickerField` with `AUTO_QUIZ_MODE` and `AUTO_QUIZ_DECK`.
+            - Added the `AutoQuiz` row directly beneath `HorizontalDivider` inside the standalone `EXTREME` Card.
+            - Integrated `Modifier.wheelAnchorGesture` on both Mode and Deck buttons, enabling intuitive drag-to-scroll gestures and tap-to-expand isolated floating drum wheel popups (`ScrollWheelPicker`).
+            - Implemented Casino dice icon (`Icons.Default.Casino`) for Random Deck default and formatted mode labels (`15m`, `30m`, `45m`, `60m`, `Daily`).
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+            - Implemented `checkAutoQuizTicker()` within the 1,000ms ticker loop:
+              - Verifies `auto_quiz_enabled`.
+              - Enforces active focus session suppression (`isLockdownActive || isConsequenceActive || lockEndTime > effectiveNow`).
+              - Governed by operating hours (Safemode 19:00–03:00 vs Hardcore 24/7).
+              - Checks foreground package against Allowed Apps whitelist; increments `auto_quiz_accumulated_seconds` only when inside non-allowed apps.
+              - When threshold is reached, sets `auto_quiz_in_progress` and launches `MainActivity` via BAL-compliant `PendingIntent` (`route = "auto_quiz"`).
+              - Reorders QIEZKA back to front if user attempts to escape an in-progress AutoQuiz.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Added `handleAutoQuizIntent()` to handle `route == "auto_quiz"` from `onCreate` and `onNewIntent`, automatically preparing flashcard questions and launching `Screen.LockedQuiz`.
+            - Guarded `BackHandler` so system back presses cannot dismiss `LockedQuizScreen`.
+            - Preserved zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.13 Addendum: EXTREME Category Label Streamlining & Compact Minute Units)**:
+        - *Why It Was Mandated (Ergonomic Text Density & Uniform Compact Notation)*:
+          - *Clean Subtitle Hierarchy*: Replaced verbose subtitle `"Pop quiz on non-allowed apps"` with concise `"based on usage"` to provide symmetric aesthetic parity with `"1 session / day"` in the EXTREME section card.
+          - *Compact Time Notation in Wheels & Buttons*: Standardized all duration wheel labels and button anchors across both AutoSchedule and AutoQuiz to compact minute symbols (e.g., `30m` instead of `30 min usage`, `80m` instead of `80min` / `80 min`), preventing text truncation and ensuring clean visual centering on small display viewports.
+        - *Architectural & File Modifications*:
+          - **`SettingsScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/SettingsScreen.kt`)**:
+            - Updated AutoSchedule duration anchor button and ScrollWheelPicker formatter to `${mins}m`.
+            - Updated AutoQuiz subtitle to `"based on usage"`.
+            - Updated AutoQuiz mode ScrollWheelPicker formatter to compact labels (`15m`, `30m`, `45m`, `60m`, `Daily`).
+            - Preserved zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
 
 
 ---
