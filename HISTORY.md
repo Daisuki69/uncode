@@ -8243,6 +8243,112 @@ ightarrow$ `Status: ok`, launched in 2.66s without crashes, ANRs, or window leak
           - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
           - Confirmed zero APK build actions taken (Rule 2).
 
+      - **Non-Major Refinement (Sub-Patch 34.18: Consequence Mode Dashboard Decoupling, Lock Duration Mathematical Clamping, Launch Timeout Recovery & Latency Animation Continuity)**:
+        - *Why It Was Mandated (16hr/18hr Consequence Trap, Dimmed Button Hang & Long-Latency Missing Animation)*:
+          - *Consequence Mode vs Focus Lockdown Conflation*: When a quiz or AutoQuiz failed, consequence enforcement was armed. In original Uncode, Consequence Mode restricted background distractions while keeping the student on the Dashboard with a red "Post Lockdown Active" card directing them to "View Failed Sessions" to reschedule. In the Jetpack Compose port, `MainActivity.kt` treated `isConsequenceActive` as an active full-screen `FocusLockScreen` and synthesized a dummy item with `activationTime = "00:00"`.
+          - *Midnight Rollover & Unclamped Countdown*: Because `startConsequenceState` removed `lock_end_time`, `FocusLockScreen.kt` parsed `activationTime = "00:00"`, detected midnight as elapsed, rolled over 24 hours to tomorrow midnight, and calculated remaining time to tomorrow midnight (16 to 18 hours). Furthermore, `remainingSeconds` lacked clamping to the session duration, violating the invariant that countdowns cannot exceed duration.
+          - *Permanently Dimmed "Take Quiz Now" Button*: Tapping "Take Quiz Now" disabled the button via `isLaunchingQuiz = true`. When `startFocusSessionQuiz` received an empty deck list (such as an AutoQuiz consequence item), it exited early without calling `onStarted()`, leaving `isLaunchingQuiz` permanently true and the button permanently dimmed.
+          - *Missing Spell Animation on Long Latency*: In Sub-Patch 34.16, answer latencies exceeding `scoreThresholds.hesitant` (5.5s) fell into `else -> "" to Color.Transparent`, causing `showSpellAnimation` to be false and suppressing the spell animation completely on first-attempt correct answers.
+        - *Architectural & File Modifications*:
+          - **`MainActivity.kt` (`android/app/src/main/java/com/uncode/app/MainActivity.kt`)**:
+            - Decoupled `isConsequenceActive` from `activeSchedule` selector in `MainActivity.kt`: pure consequence mode (`isConsequenceActive && !isLockdownActive`) evaluates `activeSchedule` to null.
+            - Restored parity with original Uncode: user remains on `DashboardScreen` displaying the red "Post Lockdown Active" banner and "View Failed Sessions" button to review failed items and reschedule.
+            - Enforced `durationMinutes` in the active lockdown synthetic fallback directly as `((lockEnd - currentTimeMillis) / 60000L).toInt().coerceAtLeast(1)`.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`FocusLockScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/FocusLockScreen.kt`)**:
+            - Clamped `remainingSeconds` strictly to `0L..totalSeconds` (`totalSeconds = (durationMinutes * 60L).coerceAtLeast(1L)`), making countdowns exceeding session duration mathematically impossible.
+            - Added `LaunchedEffect(isLaunchingQuiz)` 2500ms auto-reset timeout to guarantee the "Take Quiz Now" button cannot get stuck in a disabled/dimmed state if launch stalls.
+            - Enforced `minOf(cal.timeInMillis + totalDurationMs, now + totalDurationMs)` in fallback target end timestamp calculation.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - In `startFocusSessionQuiz`: eliminated early return when deck IDs are empty; added fallback to query `repository.allFlashcardsSync()` directly from Room, ensuring `onStarted()` is reliably dispatched whenever flashcards exist.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`LockedQuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/LockedQuizScreen.kt`)**:
+            - Restored latency tier fallback to `"HESITANT" to Color(0xFFFFAB00)`.
+            - Calibrated score assignment: 1.5f (UNREAL), 1.0f (INSTANT), 0.75f (SHARP), 0.5f (DELIBERATE), and for HESITANT: 0.25f if `latencySec < scoreThresholds.hesitant` else 0f.
+            - Set `showSpellAnimation = true` for all first-attempt correct answers, ensuring the amber "HESITANT" animation always plays regardless of latency.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`QuizScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/QuizScreen.kt`)**:
+            - Restored latency tier fallback to `"HESITANT" to Color(0xFFFFAB00)` and set `showSpellAnimation = true` for all first-attempt correct answers in practice mode.
+            - Preserved zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.19: Unexpected AutoSchedule Engine, 5-Minute Stochastic Sampling, 3-Delete Revocation & Active-Lockdown Quota Fulfillment)**:
+        - *Why It Was Mandated (Predictable 30-Minute Offset Elimination, True Random Timing & Deletion Governance)*:
+          - *Predictable 30-Minute Offset Elimination*: The legacy AutoSchedule implementation generated candidate slots sequentially starting from `currentTotalMinutes + 30` and immediately committed the very first slot. As a result, toggling AutoSchedule was completely rigid and predictable (always scheduling a session 30 minutes later, or 19:00 sharp in daytime Safemode), defeating the core anti-procrastination objective of surprise focus intervention.
+          - *True Random 5-Minute Interval Sampling*: To eliminate anticipatory avoidance rituals while maintaining clean time standards, candidate activation times are now sampled in 5-minute increments (`step 5`) across the entire valid operating window (Safemode: 19:00 to 02:30 curfew limit; Hardcore: 24/7) and randomly shuffled (`allSlots.shuffle()`). The engine sequentially tests candidates against the strict 30-minute mutual exclusivity buffer and curfew limits, picking a genuinely unexpected time.
+          - *3-Delete Revocation & Immediate Re-scheduling*: If a student attempts to avoid an auto-scheduled focus session by deleting it, AutoSchedule immediately triggers another unexpected session at a new random time. Deletions are capped at 3 per calendar day (`auto_schedule_deleted_count_YYYY-MM-DD`). On the 4th session (after 3 deletions), deletion is revoked—the delete button is concealed on Dashboard and backend deletion rejects the action.
+          - *Active-Lockdown Quota Fulfillment*: The "1 session / day" requirement is now considered satisfied only when an auto-scheduled session actually becomes active (lockdown engages), tracked natively and reactively via `auto_schedule_activated_date_YYYY-MM-DD`. While unactivated, AutoSchedule maintains a pending session and autonomously rearms across day rollovers.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Added `isAutoScheduled: Boolean = false` to `FocusScheduleItem` data model with full JSON serialization and deserialization persistence.
+            - Exposed reactive `autoScheduleDeletedCount: StateFlow<Int>` backed by date-keyed SharedPreferences.
+            - Overhauled `armAutoSchedule()`: pools all 5-minute slots across the mode-governed operating window, randomizes via `shuffled()`, and commits the first candidate that satisfies the 30-minute buffer and curfew constraints.
+            - Overhauled `deleteFocusSchedule(id)`: for auto-scheduled items, blocks deletion if daily count >= 3; otherwise increments count, persists removal, and immediately rearms a new random session.
+            - Wired `checkAutoScheduleDailyStatus()` into the periodic background sync loop to detect active lockdown entry and autonomously rearm on day rollovers.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Subscribed to `autoScheduleDeletedCount` StateFlow.
+            - Conditional delete button rendering: conceals the trash icon when `isAutoSchedule && autoScheduleDeletedCount >= 3` to enforce deletion revocation on the 4th session.
+            - Preserved zero in-code documentation/comments (Rule 9).
+          - **`LockAccessibilityService.kt` (`android/app/src/main/java/com/uncode/app/LockAccessibilityService.kt`)**:
+            - Added native active tracking in `checkScheduledLockdowns`: sets `auto_schedule_activated_date_$todayStr = true` whenever native auto-start locks down an auto-scheduled item.
+            - Preserved zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.19 Addendum: Mode-Bounded Stochastic 24-Hour Sampling & Creation-Time Expiration Day-Rollover Immunity)**:
+        - *Why It Was Mandated (Cascade AutoSchedule Expiration Elimination & Full-Spectrum 24h Randomness)*:
+          - *Past-Slot Cascade Expiration Loop Elimination*: In `MainViewModel.kt`, `syncPastDueSchedules()` evaluated candidate schedule activation times strictly on today's calendar (`cal.set(Calendar.HOUR_OF_DAY, h)`). When `armAutoSchedule()` picked candidate slots earlier than the current time of day (intended for tomorrow, e.g. 11:30 AM when current time is 21:30 PM), `syncPastDueSchedules()` treated them as expired 10 hours ago on today's date, immediately failed them 1 second after creation, and dumped them into `failed_sessions_json`. This re-triggered `armAutoSchedule()` every second, ballooning the failed sessions list to 20 within seconds.
+          - *Creation-Time Expiration Day-Rollover Awareness*: To prevent newly generated sessions from expiring upon birth, `syncPastDueSchedules()` and `checkAutoScheduleDailyStatus()` now inspect `cal.timeInMillis + durationMs <= schedule.createdAt`. If the calculated end time on today's calendar had already closed before the session was even created, `cal.add(Calendar.DAY_OF_YEAR, 1)` advances the calendar by +1 day. This mathematically guarantees that a newly created session can never falsely expire upon creation.
+          - *Mode-Bounded 24-Hour Stochastic Sampling with 30-Minute Buffer*: Rather than restricting slots to the remaining hours of today (which would defeat unpredictability late at night), `armAutoSchedule()` samples across the entire 24-hour cycle:
+            - *Hardcore Mode*: Generates 283 discrete 5-minute future offsets `(30..1440 step 5)`, randomizes via `shuffled()`, and converts each offset relative to current time (`now + offset * 60_000L`). This guarantees that every candidate is strictly $\ge \text{now} + 30	ext{m}$ in the future across the full 24-hour day/night cycle while preserving total unpredictability.
+            - *Safemode*: Generates all 5-minute slots across the mode-governed curfew window (`19:00` to `02:30`, bounded by $slot + duration \le 1620$). If currently inside operating hours, pools remaining future slots ($\ge \text{now} + 30	ext{m}$) plus next evening's slots and shuffles them, ensuring strict adherence to daytime restrictions.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt` (`android/app/src/main/java/com/uncode/app/viewmodel/MainViewModel.kt`)**:
+            - Overhauled `syncPastDueSchedules()`: added `if (cal.timeInMillis + durationMs <= schedule.createdAt) cal.add(Calendar.DAY_OF_YEAR, 1)` to eliminate false expirations for next-day sessions.
+            - Overhauled `checkAutoScheduleDailyStatus()`: added matching `createdAt` day-rollover check for active lockdown detection.
+            - Overhauled `armAutoSchedule()`: implemented mode-bounded stochastic sampling enforcing $\ge \text{now} + 30	ext{m}$ buffer across 24 hours (Hardcore) and curfew window (Safemode).
+            - Preserved zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Verified compilation via `./gradlew compileDebugKotlin`.
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.19 Addendum 2: Dashboard Rogue Schedule Filter Elimination & Next-Day Countdown Synchronization)**:
+        - *Why It Was Mandated (Disappearing Tomorrow Schedule Cards on Dashboard)*:
+          - *Elimination of Unrequested `activeFocusSchedules` Filter*: During an earlier commit (`4bf376c`), a redundant UI filter was introduced in `DashboardScreen.kt` that evaluated each schedule against today's clock (`currentTimeMillis < cal.timeInMillis + durationMs`). Because `MainViewModel.kt` is the sole authoritative state holder for `_focusSchedules`, this UI filter erroneously discarded any focus session scheduled for tomorrow morning or afternoon (such as an overnight AutoSchedule session at 04:05 AM), concealing it behind the empty `+ Add` placeholder card.
+          - *Next-Day Card Display & Accurate Countdown*: The rogue UI filter was purged, restoring direct rendering of `focusSchedules` in the HorizontalPager. In addition, the card time calculator was updated with `if (cal.timeInMillis + durationMs <= schedule.createdAt) cal.add(Calendar.DAY_OF_YEAR, 1)` so that future next-day sessions display accurate countdowns (e.g. `Starts in 05:50:xx`) rather than evaluating against past hours today.
+        - *Architectural & File Modifications*:
+          - **`DashboardScreen.kt` (`android/app/src/main/java/com/uncode/app/ui/screens/DashboardScreen.kt`)**:
+            - Removed `activeFocusSchedules` filter; bound `HorizontalPager` directly to `focusSchedules`.
+            - Added `createdAt` calendar rollover check to ensure next-day schedule cards calculate correct start timestamps and countdowns.
+            - Preserved zero in-code documentation/comments (Rule 9).
+        - *Verification Procedures & Quality Adherence*:
+          - Confirmed zero in-code comments, docstrings, or TODOs (Rule 9).
+          - Confirmed zero APK build actions taken (Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.20: System Back Navigation Hardening, Monotonic Quiz Card Transitions, Standard Decks Rename & Math Decks Section)**:
+        - *Why It Was Mandated (App Exiting on Back Press, Missing Push-Left on Failed Cards, Deck Taxonomy)*:
+          - *Back Press Exiting the App*: `MainActivity.kt` disabled its root `BackHandler` whenever the current screen was `LockedQuiz` or the back stack held a single entry, so unhandled back presses fell through to Android and exited the app. The handler now stays enabled on every non-Dashboard screen, `navigateBack()` falls back to Dashboard when the stack has a single non-Dashboard entry, and back from `LockedQuiz` clears the active quiz before navigating. `StartQuiz` is replaced by `ActiveQuiz` on launch so results return to Dashboard.
+          - *Dialog Back Handling*: Pressing back with the discard dialog (`FlashcardEditorScreen.kt`) or abandon dialog (`CreateFocusSessionScreen.kt`) open re-triggered the dialog instead of dismissing it; `FailedHomeworksScreen.kt` popped the entire screen while the reschedule picker was open; `EvaluationScreen.kt` skipped `clearActiveQuiz()`. Each now handles back locally.
+          - *Missing Push-Left on Failed Cards*: `LockedQuizScreen.kt` and `QuizScreen.kt` keyed the top `AnimatedContent` by `cardId` for annotated questions, so consecutive questions on the same card produced no transition, and non-monotonic card IDs produced a push-right slide. The top container is now keyed by a monotonic `cardStep` (increments only when the card changes), so a shared annotated diagram stays stationary while the prompt and choices always push left, and a different card pushes left in full. The content lambda is bound to the transition target so the outgoing question no longer snaps to the next one.
+          - *Standard Decks & Math Decks*: "My Decks" is renamed "Standard Decks" on Dashboard and Deck List. A "Math Decks (In Construction)" section with an Info icon opens a dialog (with an X close button) explaining template-based problem generation.
+        - *Architectural & File Modifications*:
+          - **`MainActivity.kt`**: Hardened `navigateBack()` and root `BackHandler`; `StartQuiz` replaced on `ActiveQuiz` launch.
+          - **`LockedQuizScreen.kt`, `QuizScreen.kt`**: Added `cardStepByQuestionIndex`; top `AnimatedContent` keyed by card step; prompt rendered within the choices transition for annotated questions.
+          - **`FlashcardEditorScreen.kt`, `CreateFocusSessionScreen.kt`, `FailedHomeworksScreen.kt`, `EvaluationScreen.kt`**: Local back handling.
+          - **`DashboardScreen.kt`, `DeckListScreen.kt`**: Standard Decks rename and Math Decks section.
+          - **`MathDeckInfoDialog.kt` (`android/app/src/main/java/com/uncode/app/ui/components/MathDeckInfoDialog.kt`)**: New dialog component.
+        - *Verification Procedures & Quality Adherence*:
+          - Compilation was intentionally not verified at the user's direction; no APK was built (Rule 2).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 9).
+
 
 ---
 

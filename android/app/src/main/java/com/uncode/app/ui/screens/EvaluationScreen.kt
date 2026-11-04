@@ -1,5 +1,6 @@
 package com.uncode.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,6 +51,11 @@ fun EvaluationScreen(
     val isPassed = earnedPoints >= passingScore
     val isSessionActive = remember(scheduleId, viewModel.focusSchedules) {
         viewModel.isFocusSessionTimerActive(scheduleId)
+    }
+
+    BackHandler {
+        viewModel.clearActiveQuiz()
+        onBackToDashboard()
     }
 
     LaunchedEffect(Unit) {

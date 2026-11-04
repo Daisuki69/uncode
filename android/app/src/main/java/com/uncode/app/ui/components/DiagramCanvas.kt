@@ -1,6 +1,11 @@
-﻿package com.uncode.app.ui.components
+package com.uncode.app.ui.components
 
+import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.net.Uri
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
 import java.util.PriorityQueue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -65,6 +70,47 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+private fun getImageIntrinsicDimensions(context: android.content.Context, uriString: String): Size? {
+    return try {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        var rotationDegrees = 0
+        if (uriString.startsWith("content://")) {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val exif = ExifInterface(stream)
+                val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                rotationDegrees = when (orientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                    ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                    ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                    else -> 0
+                }
+            }
+        } else {
+            val cleanPath = if (uriString.startsWith("file://")) Uri.parse(uriString).path ?: uriString.removePrefix("file://") else uriString
+            BitmapFactory.decodeFile(cleanPath, options)
+            val exif = ExifInterface(cleanPath)
+            val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            rotationDegrees = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        }
+        val rawW = options.outWidth.toFloat()
+        val rawH = options.outHeight.toFloat()
+        if (rawW <= 0f || rawH <= 0f) null
+        else if (rotationDegrees == 90 || rotationDegrees == 270) Size(rawH, rawW)
+        else Size(rawW, rawH)
+    } catch (_: Exception) {
+        null
+    }
+}
+
 @Composable
 fun DiagramCanvas(
     diagramType: String?,
@@ -79,15 +125,16 @@ fun DiagramCanvas(
     externalTrashCoordinates: LayoutCoordinates? = null,
     isHoveringTrash: Boolean = false,
     onHoverTrashChanged: ((Boolean) -> Unit)? = null,
-    onCanvasTapped: ((Offset, Float, Float) -> Unit)? = null, // pixel offset, normX, normY
+    onCanvasTapped: ((Offset, Float, Float) -> Unit)? = null,
+    onImageBoundsChanged: ((Float, Float, Float, Float) -> Unit)? = null,
     onAnnotationTapped: ((AnnotationItem) -> Unit)? = null,
     onAutoAddAnswerBox: ((AnnotationItem) -> Unit)? = null,
     onAnswerChanged: ((AnnotationItem, String) -> Unit)? = null,
     onDeleteAnnotation: ((AnnotationItem) -> Unit)? = null,
-    onBoxDragged: ((AnnotationItem, Float, Float) -> Unit)? = null, // normX, normY
-    onTargetDragged: ((AnnotationItem, Float, Float) -> Unit)? = null, // normX, normY
+    onBoxDragged: ((AnnotationItem, Float, Float) -> Unit)? = null,
+    onTargetDragged: ((AnnotationItem, Float, Float) -> Unit)? = null,
     onCornerInvertedChanged: ((AnnotationItem, Boolean) -> Unit)? = null,
-    onLineMoved: ((AnnotationItem, Float, Float, Float, Float) -> Unit)? = null // targetX, targetY, boxX, boxY
+    onLineMoved: ((AnnotationItem, Float, Float, Float, Float) -> Unit)? = null
 ) {
     var canvasLayoutCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val density = LocalDensity.current
@@ -101,6 +148,14 @@ fun DiagramCanvas(
     val currentOnLineMoved by rememberUpdatedState(onLineMoved)
     val currentOnDeleteAnnotation by rememberUpdatedState(onDeleteAnnotation)
 
+    val context = LocalContext.current
+    val isCustomImage = diagramType != null && !diagramType.startsWith("diagram_")
+    val intrinsicDimensions = remember(diagramType) {
+        if (isCustomImage && diagramType != null) {
+            getImageIntrinsicDimensions(context, diagramType)
+        } else null
+    }
+
     BoxWithConstraints(
         modifier = modifier
             .background(Color(0xFF0F172A))
@@ -110,10 +165,17 @@ fun DiagramCanvas(
             }
             .then(
                 if (onCanvasTapped != null) {
-                    Modifier.pointerInput(onCanvasTapped) {
+                    Modifier.pointerInput(onCanvasTapped, intrinsicDimensions) {
+                        val scale = if (intrinsicDimensions != null && intrinsicDimensions.width > 0f && intrinsicDimensions.height > 0f) {
+                            minOf(size.width.toFloat() / intrinsicDimensions.width, size.height.toFloat() / intrinsicDimensions.height)
+                        } else 1f
+                        val rw = if (intrinsicDimensions != null && intrinsicDimensions.width > 0f) intrinsicDimensions.width * scale else size.width.toFloat()
+                        val rh = if (intrinsicDimensions != null && intrinsicDimensions.height > 0f) intrinsicDimensions.height * scale else size.height.toFloat()
+                        val ox = (size.width.toFloat() - rw) / 2f
+                        val oy = (size.height.toFloat() - rh) / 2f
                         detectTapGestures { offset ->
-                            val normX = (offset.x / size.width).coerceIn(0f, 1f)
-                            val normY = (offset.y / size.height).coerceIn(0f, 1f)
+                            val normX = if (rw > 0f) ((offset.x - ox) / rw).coerceIn(0f, 1f) else 0.5f
+                            val normY = if (rh > 0f) ((offset.y - oy) / rh).coerceIn(0f, 1f) else 0.5f
                             onCanvasTapped.invoke(offset, normX, normY)
                         }
                     }
@@ -121,7 +183,7 @@ fun DiagramCanvas(
             )
             .then(
                 if (isInteractiveEditor) {
-                    Modifier.pointerInput(isInteractiveEditor, densityScale) {
+                    Modifier.pointerInput(isInteractiveEditor, densityScale, intrinsicDimensions) {
                         var activeItem: AnnotationItem? = null
                         var fingerX = 0f
                         var fingerY = 0f
@@ -129,6 +191,14 @@ fun DiagramCanvas(
                         var curTy = 0f
                         var curBx = 0f
                         var curBy = 0f
+
+                        val scale = if (intrinsicDimensions != null && intrinsicDimensions.width > 0f && intrinsicDimensions.height > 0f) {
+                            minOf(size.width.toFloat() / intrinsicDimensions.width, size.height.toFloat() / intrinsicDimensions.height)
+                        } else 1f
+                        val rw = if (intrinsicDimensions != null && intrinsicDimensions.width > 0f) intrinsicDimensions.width * scale else size.width.toFloat()
+                        val rh = if (intrinsicDimensions != null && intrinsicDimensions.height > 0f) intrinsicDimensions.height * scale else size.height.toFloat()
+                        val ox = (size.width.toFloat() - rw) / 2f
+                        val oy = (size.height.toFloat() - rh) / 2f
 
                         detectDragGestures(
                             onDragStart = { offset ->
@@ -142,18 +212,26 @@ fun DiagramCanvas(
                                     measuredSizes = measuredBoxSizes,
                                     widthPx = width,
                                     heightPx = height,
-                                    densityScale = densityScale
+                                    densityScale = densityScale,
+                                    imgOffsetX = ox,
+                                    imgOffsetY = oy,
+                                    renderedW = rw,
+                                    renderedH = rh
                                 )
                                 val routeMap = computeAllAnnotationRoutes(
                                     annotations = liveAnnotations,
                                     resolvedBoxRects = resolvedRects,
                                     widthPx = width,
                                     heightPx = height,
-                                    densityScale = densityScale
+                                    densityScale = densityScale,
+                                    imgOffsetX = ox,
+                                    imgOffsetY = oy,
+                                    renderedW = rw,
+                                    renderedH = rh
                                 )
 
                                 for (item in liveAnnotations.asReversed()) {
-                                    val tPos = Offset(item.targetX * width, item.targetY * height)
+                                    val tPos = Offset(ox + item.targetX * rw, oy + item.targetY * rh)
                                     val bPos = resolvedRects[item.id]?.center ?: Offset(item.boxX * width, item.boxY * height)
                                     val points = routeMap[item.id] ?: listOf(tPos, bPos)
 
@@ -197,12 +275,12 @@ fun DiagramCanvas(
                                     change.consume()
                                     val width = size.width.toFloat()
                                     val height = size.height.toFloat()
-                                    val dx = dragAmount.x / width
-                                    val dy = dragAmount.y / height
-                                    curTx = (curTx + dx).coerceIn(0.02f, 0.98f)
-                                    curTy = (curTy + dy).coerceIn(0.02f, 0.98f)
-                                    curBx = (curBx + dx).coerceIn(0.02f, 0.98f)
-                                    curBy = (curBy + dy).coerceIn(0.02f, 0.98f)
+                                    val dx = if (rw > 0f) dragAmount.x / rw else 0f
+                                    val dy = if (rh > 0f) dragAmount.y / rh else 0f
+                                    curTx = (curTx + dx).coerceIn(0.01f, 0.99f)
+                                    curTy = (curTy + dy).coerceIn(0.01f, 0.99f)
+                                    curBx = (curBx + dragAmount.x / width).coerceIn(0.02f, 0.98f)
+                                    curBy = (curBy + dragAmount.y / height).coerceIn(0.02f, 0.98f)
                                     fingerX += dragAmount.x
                                     fingerY += dragAmount.y
 
@@ -251,6 +329,23 @@ fun DiagramCanvas(
         val widthPx = constraints.maxWidth.toFloat()
         val heightPx = constraints.maxHeight.toFloat()
 
+        val (imgOffsetX, imgOffsetY, renderedW, renderedH) = remember(widthPx, heightPx, intrinsicDimensions) {
+            if (intrinsicDimensions != null && intrinsicDimensions.width > 0f && intrinsicDimensions.height > 0f) {
+                val scale = minOf(widthPx / intrinsicDimensions.width, heightPx / intrinsicDimensions.height)
+                val rw = intrinsicDimensions.width * scale
+                val rh = intrinsicDimensions.height * scale
+                val ox = (widthPx - rw) / 2f
+                val oy = (heightPx - rh) / 2f
+                floatArrayOf(ox, oy, rw, rh)
+            } else {
+                floatArrayOf(0f, 0f, widthPx, heightPx)
+            }
+        }
+
+        LaunchedEffect(imgOffsetX, imgOffsetY, renderedW, renderedH) {
+            onImageBoundsChanged?.invoke(imgOffsetX, imgOffsetY, renderedW, renderedH)
+        }
+
         val checkHoveringTrash: (Float, Float) -> Boolean = remember(externalTrashCoordinates, canvasLayoutCoordinates) {
             { xPx: Float, yPx: Float ->
                 val trash = externalTrashCoordinates
@@ -271,14 +366,35 @@ fun DiagramCanvas(
             }
         }
 
-        if (diagramType?.startsWith("content://") == true || diagramType?.startsWith("file://") == true) {
-            val imageUri = remember(diagramType) { Uri.parse(diagramType) }
-            AsyncImage(
-                model = imageUri,
-                contentDescription = "Custom Flashcard Diagram",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
+        if (isCustomImage && diagramType != null) {
+            val imageModel = remember(diagramType) {
+                if (diagramType.startsWith("content://") || diagramType.startsWith("file://")) {
+                    Uri.parse(diagramType)
+                } else {
+                    File(diagramType)
+                }
+            }
+            var imageLoadFailed by remember(diagramType) { mutableStateOf(false) }
+            if (imageLoadFailed) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Image unavailable",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 12.sp
+                    )
+                }
+            } else {
+                AsyncImage(
+                    model = imageModel,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                    onError = { imageLoadFailed = true }
+                )
+            }
         } else {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 when (diagramType) {
@@ -294,34 +410,46 @@ fun DiagramCanvas(
         val annotationsSnapshot = annotations.toList()
         val measuredSizesSnapshot = measuredBoxSizes.toMap()
 
-        val resolvedBoxRects = remember(annotationsSnapshot, measuredSizesSnapshot, widthPx, heightPx, densityScale) {
+        val resolvedBoxRects = remember(annotationsSnapshot, measuredSizesSnapshot, widthPx, heightPx, densityScale, imgOffsetX, imgOffsetY, renderedW, renderedH) {
             resolveNonOverlappingBoxRects(
                 annotations = annotationsSnapshot,
                 measuredSizes = measuredSizesSnapshot,
                 widthPx = widthPx,
                 heightPx = heightPx,
-                densityScale = densityScale
+                densityScale = densityScale,
+                imgOffsetX = imgOffsetX,
+                imgOffsetY = imgOffsetY,
+                renderedW = renderedW,
+                renderedH = renderedH
             )
         }
 
-        val allRoutes = remember(annotationsSnapshot, resolvedBoxRects, widthPx, heightPx, densityScale) {
+        val allRoutes = remember(annotationsSnapshot, resolvedBoxRects, widthPx, heightPx, densityScale, imgOffsetX, imgOffsetY, renderedW, renderedH) {
             computeAllAnnotationRoutes(
                 annotations = annotationsSnapshot,
                 resolvedBoxRects = resolvedBoxRects,
                 widthPx = widthPx,
                 heightPx = heightPx,
-                densityScale = densityScale
+                densityScale = densityScale,
+                imgOffsetX = imgOffsetX,
+                imgOffsetY = imgOffsetY,
+                renderedW = renderedW,
+                renderedH = renderedH
             )
         }
 
-        val allMoveHandles = remember(annotationsSnapshot, allRoutes, resolvedBoxRects, widthPx, heightPx, densityScale) {
+        val allMoveHandles = remember(annotationsSnapshot, allRoutes, resolvedBoxRects, widthPx, heightPx, densityScale, imgOffsetX, imgOffsetY, renderedW, renderedH) {
             computeAllSafeMoveHandles(
                 annotations = annotationsSnapshot,
                 allRoutes = allRoutes,
                 resolvedBoxRects = resolvedBoxRects,
                 widthPx = widthPx,
                 heightPx = heightPx,
-                densityScale = densityScale
+                densityScale = densityScale,
+                imgOffsetX = imgOffsetX,
+                imgOffsetY = imgOffsetY,
+                renderedW = renderedW,
+                renderedH = renderedH
             )
         }
 
@@ -331,7 +459,7 @@ fun DiagramCanvas(
                     val isSelected = item.id == selectedAnnotationId
                     val isHighlighted = item.id == highlightedAnnotationId
 
-                    val targetPos = Offset(item.targetX * size.width, item.targetY * size.height)
+                    val targetPos = Offset(imgOffsetX + item.targetX * renderedW, imgOffsetY + item.targetY * renderedH)
                     val boxPos = resolvedBoxRects[item.id]?.center ?: Offset(item.boxX * size.width, item.boxY * size.height)
 
                     val lineColor = when {
@@ -387,12 +515,12 @@ fun DiagramCanvas(
             key(item.id) {
                 val resolvedCenter = resolvedBoxRects[item.id]?.center ?: Offset(item.boxX * widthPx, item.boxY * heightPx)
                 val fallbackPoints = listOf(
-                    Offset(item.targetX * widthPx, item.targetY * heightPx),
+                    Offset(imgOffsetX + item.targetX * renderedW, imgOffsetY + item.targetY * renderedH),
                     resolvedCenter
                 )
                 val defaultHandle = Offset(
-                    (item.targetX * widthPx + resolvedCenter.x) / 2f,
-                    (item.targetY * heightPx + resolvedCenter.y) / 2f
+                    (imgOffsetX + item.targetX * renderedW + resolvedCenter.x) / 2f,
+                    (imgOffsetY + item.targetY * renderedH + resolvedCenter.y) / 2f
                 )
                 DiagramAnnotationItemOverlay(
                     item = item,
@@ -402,6 +530,10 @@ fun DiagramCanvas(
                     safeMoveHandlePos = allMoveHandles[item.id] ?: defaultHandle,
                     widthPx = widthPx,
                     heightPx = heightPx,
+                    imgOffsetX = imgOffsetX,
+                    imgOffsetY = imgOffsetY,
+                    renderedW = renderedW,
+                    renderedH = renderedH,
                     isSelected = item.id == selectedAnnotationId,
                     isHighlighted = item.id == highlightedAnnotationId,
                     isRevealed = revealedAnnotationIds.contains(item.id) || !maskLabels,
@@ -438,6 +570,10 @@ private fun DiagramAnnotationItemOverlay(
     safeMoveHandlePos: Offset,
     widthPx: Float,
     heightPx: Float,
+    imgOffsetX: Float = 0f,
+    imgOffsetY: Float = 0f,
+    renderedW: Float = widthPx,
+    renderedH: Float = heightPx,
     isSelected: Boolean,
     isHighlighted: Boolean,
     isRevealed: Boolean,
@@ -634,30 +770,30 @@ private fun DiagramAnnotationItemOverlay(
     }
 
     if (isInteractiveEditor) {
-        val targetPxX = (item.targetX * widthPx).roundToInt()
-        val targetPxY = (item.targetY * heightPx).roundToInt()
+        val targetPxX = (imgOffsetX + item.targetX * renderedW).roundToInt()
+        val targetPxY = (imgOffsetY + item.targetY * renderedH).roundToInt()
         Box(
             modifier = Modifier
                 .offset { IntOffset(targetPxX - targetHalfPx, targetPxY - targetHalfPx) }
                 .size(48.dp)
-                .pointerInput("target_drag_${item.id}") {
+                .pointerInput("target_drag_${item.id}", imgOffsetX, imgOffsetY, renderedW, renderedH) {
                     var accTx = currentItem.targetX
                     var accTy = currentItem.targetY
-                    var fingerX = accTx * widthPx
-                    var fingerY = accTy * heightPx
+                    var fingerX = imgOffsetX + accTx * renderedW
+                    var fingerY = imgOffsetY + accTy * renderedH
                     detectDragGestures(
                         onDragStart = {
                             accTx = currentItem.targetX
                             accTy = currentItem.targetY
-                            fingerX = accTx * widthPx
-                            fingerY = accTy * heightPx
+                            fingerX = imgOffsetX + accTx * renderedW
+                            fingerY = imgOffsetY + accTy * renderedH
                             val overTrash = checkHoveringTrash(fingerX, fingerY)
                             onHoverTrashStateChanged(overTrash)
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            accTx = (accTx + dragAmount.x / widthPx).coerceIn(0.02f, 0.98f)
-                            accTy = (accTy + dragAmount.y / heightPx).coerceIn(0.02f, 0.98f)
+                            accTx = (accTx + dragAmount.x / renderedW).coerceIn(0.01f, 0.99f)
+                            accTy = (accTy + dragAmount.y / renderedH).coerceIn(0.01f, 0.99f)
                             fingerX += dragAmount.x
                             fingerY += dragAmount.y
                             val overTrash = checkHoveringTrash(fingerX, fingerY)
@@ -698,7 +834,7 @@ private fun DiagramAnnotationItemOverlay(
             modifier = Modifier
                 .offset { IntOffset(midPxX - handleHalfPx, midPxY - handleHalfPx) }
                 .size(36.dp)
-                .pointerInput("line_body_drag_${item.id}") {
+                .pointerInput("line_body_drag_${item.id}", imgOffsetX, imgOffsetY, renderedW, renderedH) {
                     var accTx = currentItem.targetX
                     var accTy = currentItem.targetY
                     var accBx = (currentResolvedBoxCenter.x / widthPx).coerceIn(0.02f, 0.98f)
@@ -719,12 +855,12 @@ private fun DiagramAnnotationItemOverlay(
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            val dx = dragAmount.x / widthPx
-                            val dy = dragAmount.y / heightPx
-                            accTx = (accTx + dx).coerceIn(0.02f, 0.98f)
-                            accTy = (accTy + dy).coerceIn(0.02f, 0.98f)
-                            accBx = (accBx + dx).coerceIn(0.02f, 0.98f)
-                            accBy = (accBy + dy).coerceIn(0.02f, 0.98f)
+                            val dx = dragAmount.x / renderedW
+                            val dy = dragAmount.y / renderedH
+                            accTx = (accTx + dx).coerceIn(0.01f, 0.99f)
+                            accTy = (accTy + dy).coerceIn(0.01f, 0.99f)
+                            accBx = (accBx + dragAmount.x / widthPx).coerceIn(0.02f, 0.98f)
+                            accBy = (accBy + dragAmount.y / heightPx).coerceIn(0.02f, 0.98f)
                             fingerX += dragAmount.x
                             fingerY += dragAmount.y
 
@@ -1047,7 +1183,11 @@ private fun resolveNonOverlappingBoxRects(
     measuredSizes: Map<String, androidx.compose.ui.unit.IntSize>,
     widthPx: Float,
     heightPx: Float,
-    densityScale: Float
+    densityScale: Float,
+    imgOffsetX: Float = 0f,
+    imgOffsetY: Float = 0f,
+    renderedW: Float = widthPx,
+    renderedH: Float = heightPx
 ): Map<String, Rect> {
     if (annotations.isEmpty() || widthPx <= 0f || heightPx <= 0f) return emptyMap()
     val n = annotations.size
@@ -1072,8 +1212,8 @@ private fun resolveNonOverlappingBoxRects(
         cy[i] = (item.boxY * heightPx).coerceIn(minY, maxY)
     }
 
-    val pinX = FloatArray(n) { annotations[it].targetX * widthPx }
-    val pinY = FloatArray(n) { annotations[it].targetY * heightPx }
+    val pinX = FloatArray(n) { imgOffsetX + annotations[it].targetX * renderedW }
+    val pinY = FloatArray(n) { imgOffsetY + annotations[it].targetY * renderedH }
 
     for (iter in 0 until 24) {
         var moved = false
@@ -1199,7 +1339,11 @@ private fun computeAllAnnotationRoutes(
     resolvedBoxRects: Map<String, Rect>,
     widthPx: Float,
     heightPx: Float,
-    densityScale: Float
+    densityScale: Float,
+    imgOffsetX: Float = 0f,
+    imgOffsetY: Float = 0f,
+    renderedW: Float = widthPx,
+    renderedH: Float = heightPx
 ): Map<String, List<Offset>> {
     val n = annotations.size
     if (n == 0 || widthPx <= 0f || heightPx <= 0f) return emptyMap()
@@ -1215,12 +1359,12 @@ private fun computeAllAnnotationRoutes(
     }
     val pinRadius = 11f * densityScale
     val pinRects = Array(n) { idx ->
-        val tx = annotations[idx].targetX * widthPx
-        val ty = annotations[idx].targetY * heightPx
+        val tx = imgOffsetX + annotations[idx].targetX * renderedW
+        val ty = imgOffsetY + annotations[idx].targetY * renderedH
         Rect(tx - pinRadius, ty - pinRadius, tx + pinRadius, ty + pinRadius)
     }
     val starts = Array(n) { idx ->
-        Offset(annotations[idx].targetX * widthPx, annotations[idx].targetY * heightPx)
+        Offset(imgOffsetX + annotations[idx].targetX * renderedW, imgOffsetY + annotations[idx].targetY * renderedH)
     }
     val ends = Array(n) { idx ->
         boxRects[idx].center
@@ -1702,7 +1846,11 @@ private fun computeAllSafeMoveHandles(
     resolvedBoxRects: Map<String, Rect>,
     widthPx: Float,
     heightPx: Float,
-    densityScale: Float
+    densityScale: Float,
+    imgOffsetX: Float = 0f,
+    imgOffsetY: Float = 0f,
+    renderedW: Float = widthPx,
+    renderedH: Float = heightPx
 ): Map<String, Offset> {
     if (annotations.isEmpty() || widthPx <= 0f || heightPx <= 0f) return emptyMap()
     val handleHalf = 19f * densityScale
@@ -1716,8 +1864,8 @@ private fun computeAllSafeMoveHandles(
         if (br != null) {
             allBoxObstacles.add(Rect(br.left - 3f * densityScale, br.top - 3f * densityScale, br.right + 3f * densityScale, br.bottom + 3f * densityScale))
         }
-        val tx = item.targetX * widthPx
-        val ty = item.targetY * heightPx
+        val tx = imgOffsetX + item.targetX * renderedW
+        val ty = imgOffsetY + item.targetY * renderedH
         allBoxObstacles.add(Rect(tx - pinRad, ty - pinRad, tx + pinRad, ty + pinRad))
     }
 
@@ -1725,7 +1873,7 @@ private fun computeAllSafeMoveHandles(
 
     for (item in annotations) {
         val poly = allRoutes[item.id] ?: listOf(
-            Offset(item.targetX * widthPx, item.targetY * heightPx),
+            Offset(imgOffsetX + item.targetX * renderedW, imgOffsetY + item.targetY * renderedH),
             resolvedBoxRects[item.id]?.center ?: Offset(item.boxX * widthPx, item.boxY * heightPx)
         )
         var bestPt: Offset? = null

@@ -32,11 +32,13 @@ import com.uncode.app.repository.DeckRepository
 import androidx.compose.runtime.mutableStateListOf
 import com.uncode.app.ui.Screen
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
@@ -178,7 +180,8 @@ data class FocusScheduleItem(
     val deckNames: String = "",
     val isActive: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
-    val isRescheduled: Boolean = false
+    val isRescheduled: Boolean = false,
+    val isAutoScheduled: Boolean = false
 )
 
 data class FailedFocusSessionItem(
@@ -190,6 +193,14 @@ data class FailedFocusSessionItem(
     val failedTimestamp: Long = System.currentTimeMillis(),
     val earnedPoints: Float = 0f,
     val maxPoints: Float = 0f
+)
+
+data class ScoreThresholds(
+    val unreal: Float = 1.5f,
+    val instant: Float = 2.5f,
+    val sharp: Float = 3.5f,
+    val deliberate: Float = 4.5f,
+    val hesitant: Float = 5.5f
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -264,6 +275,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _autoScheduleSelectedDuration = MutableStateFlow<Int?>(null)
     val autoScheduleSelectedDuration: StateFlow<Int?> = _autoScheduleSelectedDuration.asStateFlow()
 
+    private val _autoScheduleDeletedCount = MutableStateFlow(0)
+    val autoScheduleDeletedCount: StateFlow<Int> = _autoScheduleDeletedCount.asStateFlow()
+
     private val _autoQuizEnabled = MutableStateFlow(false)
     val autoQuizEnabled: StateFlow<Boolean> = _autoQuizEnabled.asStateFlow()
 
@@ -286,6 +300,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             while (true) {
                 delay(1000L)
                 syncPastDueSchedules()
+                checkAutoScheduleDailyStatus()
             }
         }
     }
@@ -509,6 +524,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setThemeMode(mode: AppThemeMode) {
         _themeMode.value = mode
         appPrefs.edit().putString("theme_mode", mode.name).apply()
+    }
+
+    private val _scoreThresholds = MutableStateFlow(
+        ScoreThresholds(
+            unreal = appPrefs.getFloat("score_tier_unreal", 1.5f),
+            instant = appPrefs.getFloat("score_tier_instant", 2.5f),
+            sharp = appPrefs.getFloat("score_tier_sharp", 3.5f),
+            deliberate = appPrefs.getFloat("score_tier_deliberate", 4.5f),
+            hesitant = appPrefs.getFloat("score_tier_hesitant", 5.5f)
+        )
+    )
+    val scoreThresholds: StateFlow<ScoreThresholds> = _scoreThresholds.asStateFlow()
+
+    fun updateScoreThresholds(unreal: Float, instant: Float, sharp: Float, deliberate: Float, hesitant: Float): Boolean {
+        if (unreal <= 0f || unreal >= instant || instant >= sharp || sharp >= deliberate || deliberate >= hesitant) {
+            return false
+        }
+        appPrefs.edit()
+            .putFloat("score_tier_unreal", unreal)
+            .putFloat("score_tier_instant", instant)
+            .putFloat("score_tier_sharp", sharp)
+            .putFloat("score_tier_deliberate", deliberate)
+            .putFloat("score_tier_hesitant", hesitant)
+            .apply()
+        _scoreThresholds.value = ScoreThresholds(unreal, instant, sharp, deliberate, hesitant)
+        return true
+    }
+
+    fun resetScoreThresholds() {
+        appPrefs.edit()
+            .remove("score_tier_unreal")
+            .remove("score_tier_instant")
+            .remove("score_tier_sharp")
+            .remove("score_tier_deliberate")
+            .remove("score_tier_hesitant")
+            .apply()
+        _scoreThresholds.value = ScoreThresholds()
     }
 
     private val _selectedDeckIdsForQuiz = MutableStateFlow<Set<Long>>(emptySet())
@@ -789,18 +841,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var focusSessionQuizJob: Job? = null
+
     fun startFocusSessionQuiz(deckIds: List<Long>, onStarted: () -> Unit = {}) {
-        viewModelScope.launch {
+        if (focusSessionQuizJob?.isActive == true) return
+        focusSessionQuizJob = viewModelScope.launch {
+            _quizFinishedSessionId.value = null
+            _quizEarnedPoints.value = 0f
+            _activeQuizQuestions.value = emptyList()
             val validDeckIds = if (deckIds.isNotEmpty()) {
                 deckIds
             } else {
                 allDecks.value.map { it.id }
             }
-            if (validDeckIds.isEmpty()) return@launch
 
             val decks = allDecks.value.filter { it.id in validDeckIds }
             val deckNameMap = decks.associate { it.id to it.title }
-            var cards = repository.getFlashcardsForDecksSync(validDeckIds)
+            var cards = if (validDeckIds.isNotEmpty()) {
+                repository.getFlashcardsForDecksSync(validDeckIds)
+            } else {
+                emptyList()
+            }
             if (cards.isEmpty()) {
                 cards = repository.allFlashcardsSync()
             }
@@ -1543,7 +1604,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         deckNames = obj.optString("deckNames", ""),
                         isActive = obj.optBoolean("isActive", true),
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-                        isRescheduled = obj.optBoolean("isRescheduled", false)
+                        isRescheduled = obj.optBoolean("isRescheduled", false),
+                        isAutoScheduled = obj.optBoolean("isAutoScheduled", false)
                     )
                 )
             }
@@ -1561,7 +1623,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activationTime: String,
         durationMinutes: Int,
         isRescheduled: Boolean = false,
-        scheduleId: String? = null
+        scheduleId: String? = null,
+        isAutoScheduled: Boolean = false
     ): Boolean {
         val parts = activationTime.split(":")
         val h = parts.getOrNull(0)?.toIntOrNull() ?: return false
@@ -1607,7 +1670,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             deckNames = deckNames,
             isActive = true,
             createdAt = System.currentTimeMillis(),
-            isRescheduled = isRescheduled
+            isRescheduled = isRescheduled,
+            isAutoScheduled = isAutoScheduled
         )
         current.add(newItem)
         saveFocusSchedules(current)
@@ -1650,11 +1714,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startAutoQuiz(onStarted: (String) -> Unit = {}) {
         viewModelScope.launch {
+            clearActiveQuiz()
+            var availableDecks = allDecks.value
+            if (availableDecks.isEmpty()) {
+                availableDecks = repository.allDecks.first()
+            }
             val chosenDeckId = _autoQuizSelectedDeckId.value
             val targetDeckId = if (chosenDeckId != null) {
                 chosenDeckId
             } else {
-                val availableDecks = allDecks.value
                 if (availableDecks.isEmpty()) -1L
                 else {
                     val stats = overallStats.value
@@ -1686,6 +1754,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _autoScheduleSelectedDeckId.value = if (dId == -1L) null else dId
         val dur = prefs.getInt("auto_schedule_duration", 0)
         _autoScheduleSelectedDuration.value = if (dur == 0) null else dur
+        _autoScheduleDeletedCount.value = getAutoScheduleDeletedCountForToday()
     }
 
     private fun saveAutoScheduleConfig() {
@@ -1716,48 +1785,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         saveAutoScheduleConfig()
     }
 
-    fun isAutoScheduleActiveForToday(): Boolean {
-        val context = getApplication<Application>()
-        val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+    fun getTodayDateString(): String {
         val todayCal = Calendar.getInstance()
-        val todayStr = String.format(Locale.US, "%04d-%02d-%02d",
+        return String.format(Locale.US, "%04d-%02d-%02d",
             todayCal.get(Calendar.YEAR),
             todayCal.get(Calendar.MONTH) + 1,
             todayCal.get(Calendar.DAY_OF_MONTH)
         )
-        if (prefs.getString("last_auto_scheduled_date", null) == todayStr) {
-            return true
+    }
+
+    fun isAutoScheduleMetForToday(): Boolean {
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val todayStr = getTodayDateString()
+        return prefs.getBoolean("auto_schedule_activated_date_$todayStr", false)
+    }
+
+    fun markAutoScheduleActivatedForToday() {
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val todayStr = getTodayDateString()
+        prefs.edit().putBoolean("auto_schedule_activated_date_$todayStr", true).apply()
+    }
+
+    fun getAutoScheduleDeletedCountForToday(): Int {
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val todayStr = getTodayDateString()
+        return prefs.getInt("auto_schedule_deleted_count_$todayStr", 0)
+    }
+
+    fun incrementAutoScheduleDeletedCountForToday() {
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val todayStr = getTodayDateString()
+        val next = prefs.getInt("auto_schedule_deleted_count_$todayStr", 0) + 1
+        prefs.edit().putInt("auto_schedule_deleted_count_$todayStr", next).apply()
+        _autoScheduleDeletedCount.value = next
+    }
+
+    private fun checkAutoScheduleDailyStatus() {
+        if (!_autoScheduleEnabled.value) return
+        val now = System.currentTimeMillis()
+        val currentSchedules = _focusSchedules.value
+
+        val activeAuto = currentSchedules.find { sched ->
+            if (!sched.isActive) return@find false
+            if (!sched.isAutoScheduled && !sched.title.startsWith("Auto:")) return@find false
+            val parts = sched.activationTime.split(":")
+            val h = parts.getOrNull(0)?.toIntOrNull() ?: return@find false
+            val m = parts.getOrNull(1)?.toIntOrNull() ?: return@find false
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = now
+                set(Calendar.HOUR_OF_DAY, h)
+                set(Calendar.MINUTE, m)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val durationMs = sched.durationMinutes * 60_000L
+            if (cal.timeInMillis + durationMs <= sched.createdAt) {
+                cal.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            val startMs = cal.timeInMillis
+            val endMs = startMs + durationMs
+            now in startMs until endMs
         }
-        val todayStartCal = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
+        if (activeAuto != null) {
+            markAutoScheduleActivatedForToday()
         }
-        val todayEndCal = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-            set(Calendar.MILLISECOND, 999)
+
+        if (!isAutoScheduleMetForToday()) {
+            val hasPending = currentSchedules.any {
+                it.isActive && (it.isAutoScheduled || it.title.startsWith("Auto:"))
+            }
+            if (!hasPending) {
+                armAutoSchedule()
+            }
         }
-        val startOfDay = todayStartCal.timeInMillis
-        val endOfDay = todayEndCal.timeInMillis
-        return _focusSchedules.value.any { it.isActive && it.createdAt in startOfDay..endOfDay }
     }
 
     fun armAutoSchedule(): Boolean {
         if (!_autoScheduleEnabled.value) {
             return false
         }
-        val context = getApplication<Application>()
-        val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
-        val todayCal = Calendar.getInstance()
-        val todayStr = String.format(Locale.US, "%04d-%02d-%02d",
-            todayCal.get(Calendar.YEAR),
-            todayCal.get(Calendar.MONTH) + 1,
-            todayCal.get(Calendar.DAY_OF_MONTH)
-        )
-        if (isAutoScheduleActiveForToday()) {
+        if (isAutoScheduleMetForToday()) {
+            return false
+        }
+        val hasPendingAuto = _focusSchedules.value.any {
+            it.isActive && (it.isAutoScheduled || it.title.startsWith("Auto:"))
+        }
+        if (hasPendingAuto) {
             return false
         }
 
@@ -1774,7 +1891,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             availableDecks.minByOrNull { deck ->
                 val perf = stats.deckPerformances.find { it.deckId == deck.id }
                 perf?.accuracy ?: 0
-            } ?: availableDecks.first()
+            } ?: availableDecks.shuffled().first()
         }
 
         val chosenDuration = _autoScheduleSelectedDuration.value
@@ -1784,41 +1901,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             25
         }
 
-        val nowCal = Calendar.getInstance()
-        val curH = nowCal.get(Calendar.HOUR_OF_DAY)
-        val curM = nowCal.get(Calendar.MINUTE)
-        val curTotalMinutes = curH * 60 + curM
-        val minLeadMinutes = 30
+        val now = System.currentTimeMillis()
         val isHardcore = _operatingMode.value.equals("hardcore", ignoreCase = true)
 
         val candidateTimes = mutableListOf<String>()
         if (isHardcore) {
-            var startMins = curTotalMinutes + minLeadMinutes
-            val remainder = startMins % 30
-            if (remainder != 0) {
-                startMins += (30 - remainder)
-            }
-            for (i in 0 until 48) {
-                val totalM = (startMins + i * 30) % 1440
-                val h = totalM / 60
-                val m = totalM % 60
+            val offsets = (30..1440 step 5).toList().shuffled()
+            for (offset in offsets) {
+                val targetMs = now + offset * 60_000L
+                val cal = Calendar.getInstance().apply { timeInMillis = targetMs }
+                val h = cal.get(Calendar.HOUR_OF_DAY)
+                val m = cal.get(Calendar.MINUTE)
                 candidateTimes.add(String.format(Locale.US, "%02d:%02d", h, m))
             }
         } else {
-            val safemodeHours = listOf("19:00", "19:30", "20:00", "20:30", "21:00", "21:30", "22:00", "22:30", "23:00", "23:30", "00:00", "00:30", "01:00", "01:30", "02:00")
-            for (timeStr in safemodeHours) {
-                val parts = timeStr.split(":")
-                val h = parts[0].toInt()
-                val m = parts[1].toInt()
-                val slotTotalMins = if (h in 0..2) (h + 24) * 60 + m else h * 60 + m
-                val normalizedCurMins = if (curH in 0..2) (curH + 24) * 60 + curM else curH * 60 + curM
-                if (slotTotalMins >= normalizedCurMins + minLeadMinutes) {
-                    candidateTimes.add(timeStr)
+            val nowCal = Calendar.getInstance().apply { timeInMillis = now }
+            val curH = nowCal.get(Calendar.HOUR_OF_DAY)
+            val curM = nowCal.get(Calendar.MINUTE)
+            val normalizedCurMins = if (curH in 0..2) (curH + 24) * 60 + curM else curH * 60 + curM
+            val isCurrentlyInSafemodeWindow = (curH >= 19 || curH < 3)
+
+            val candidateSlots = mutableListOf<String>()
+            if (isCurrentlyInSafemodeWindow) {
+                val minLeadSlot = normalizedCurMins + 30
+                for (slot in 1140..1620 step 5) {
+                    if (slot >= minLeadSlot && slot + finalDuration <= 1620) {
+                        val normM = slot % 1440
+                        candidateSlots.add(String.format(Locale.US, "%02d:%02d", normM / 60, normM % 60))
+                    }
                 }
             }
-            if (candidateTimes.isEmpty()) {
-                candidateTimes.add("19:00")
+            for (slot in 1140..1620 step 5) {
+                if (slot + finalDuration <= 1620) {
+                    val normM = slot % 1440
+                    val timeStr = String.format(Locale.US, "%02d:%02d", normM / 60, normM % 60)
+                    if (!candidateSlots.contains(timeStr)) {
+                        candidateSlots.add(timeStr)
+                    }
+                }
             }
+            candidateTimes.addAll(candidateSlots.shuffled())
         }
 
         for (candidateTime in candidateTimes) {
@@ -1827,10 +1949,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 selectedDeckIds = listOf(targetDeck.id),
                 deckNames = targetDeck.title,
                 activationTime = candidateTime,
-                durationMinutes = finalDuration
+                durationMinutes = finalDuration,
+                isAutoScheduled = true
             )
             if (created) {
-                prefs.edit().putString("last_auto_scheduled_date", todayStr).apply()
                 return true
             }
         }
@@ -1839,8 +1961,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteFocusSchedule(id: String) {
-        val target = _focusSchedules.value.find { it.id == id }
-        if (target != null && target.isRescheduled) {
+        val target = _focusSchedules.value.find { it.id == id } ?: return
+        if (target.isRescheduled) {
             val currentFailed = _failedFocusSessions.value.toMutableList()
             currentFailed.removeAll { it.id == target.id }
             currentFailed.add(
@@ -1862,6 +1984,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             startConsequenceSession(target.id)
             return
         }
+
+        if (target.isAutoScheduled || target.title.startsWith("Auto:")) {
+            if (getAutoScheduleDeletedCountForToday() >= 3) {
+                return
+            }
+            incrementAutoScheduleDeletedCountForToday()
+            val updated = _focusSchedules.value.filter { it.id != id }
+            saveFocusSchedules(updated)
+            armAutoSchedule()
+            return
+        }
+
         val updated = _focusSchedules.value.filter { it.id != id }
         saveFocusSchedules(updated)
     }
@@ -1884,6 +2018,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             obj.put("isActive", item.isActive)
             obj.put("createdAt", item.createdAt)
             obj.put("isRescheduled", item.isRescheduled)
+            obj.put("isAutoScheduled", item.isAutoScheduled)
             arr.put(obj)
         }
         val appPrefs = context.getSharedPreferences("siren_app_prefs", Context.MODE_PRIVATE)
@@ -2132,8 +2267,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }
-            val startMs = cal.timeInMillis
             val durationMs = schedule.durationMinutes * 60L * 1000L
+            if (cal.timeInMillis + durationMs <= schedule.createdAt) {
+                cal.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            val startMs = cal.timeInMillis
             val endMs = startMs + durationMs
 
             if (now >= endMs) {

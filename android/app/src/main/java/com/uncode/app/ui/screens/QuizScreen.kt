@@ -99,6 +99,7 @@ fun QuizScreen(
     val score by viewModel.quizScore.collectAsStateWithLifecycle()
     val streak by viewModel.quizStreak.collectAsStateWithLifecycle()
     val finishedSessionId by viewModel.quizFinishedSessionId.collectAsStateWithLifecycle()
+    val scoreThresholds by viewModel.scoreThresholds.collectAsStateWithLifecycle()
 
     var selectedOption by remember { mutableStateOf<String?>(null) }
     var isAnswerSubmitted by remember { mutableStateOf(false) }
@@ -115,6 +116,22 @@ fun QuizScreen(
     var submittedQuestionIndices by remember { mutableStateOf(setOf<Int>()) }
     var wrongOptionsByQuestion by remember { mutableStateOf(mapOf<Int, Set<String>>()) }
     var lastTapTimestamp by remember { mutableLongStateOf(0L) }
+
+    val cardStepByQuestionIndex = remember(questions) {
+        val steps = IntArray(questions.size)
+        var currentStep = 0
+        for (i in questions.indices) {
+            val q = questions[i]
+            if (i > 0) {
+                val prev = questions[i - 1]
+                if (!q.isAnnotated || !prev.isAnnotated || q.cardId != prev.cardId) {
+                    currentStep++
+                }
+            }
+            steps[i] = currentStep
+        }
+        steps
+    }
 
     LaunchedEffect(finishedSessionId) {
         if (finishedSessionId != null) {
@@ -243,10 +260,10 @@ fun QuizScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                val topTargetKey = if (currentQ.isAnnotated) currentQ.cardId else currentIndex.toLong()
+                val currentCardStep = cardStepByQuestionIndex.getOrElse(currentIndex) { 0 }
 
                 AnimatedContent(
-                    targetState = topTargetKey,
+                    targetState = currentCardStep,
                     transitionSpec = {
                         if (targetState > initialState) {
                             (slideIntoContainer(
@@ -272,14 +289,16 @@ fun QuizScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                ) { _ ->
+                ) { targetStep ->
+                    val representativeIndex = cardStepByQuestionIndex.indexOfFirst { it == targetStep }.takeIf { it >= 0 } ?: currentIndex
+                    val topQ = questions.getOrNull(representativeIndex) ?: return@AnimatedContent
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.Top
                     ) {
-                        if (currentQ.isAnnotated && currentQ.photoUri != null) {
+                        if (topQ.isAnnotated && topQ.photoUri != null) {
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -288,26 +307,15 @@ fun QuizScreen(
                                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                             ) {
                                 DiagramCanvas(
-                                    diagramType = currentQ.photoUri,
+                                    diagramType = topQ.photoUri,
                                     modifier = Modifier.fillMaxSize(),
-                                    annotations = currentQ.annotations,
-                                    highlightedAnnotationId = currentQ.targetAnnotationId,
-                                    revealedAnnotationIds = revealedAnnotationIds,
+                                    annotations = topQ.annotations,
+                                    highlightedAnnotationId = if (representativeIndex == currentIndex) currentQ.targetAnnotationId else topQ.targetAnnotationId,
+                                    revealedAnnotationIds = if (representativeIndex == currentIndex) revealedAnnotationIds else emptySet(),
                                     maskLabels = true
                                 )
                             }
-
-                            if (currentQ.prompt.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = currentQ.prompt,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        } else if (!currentQ.isAnnotated && currentQ.photoUri != null) {
+                        } else if (!topQ.isAnnotated && topQ.photoUri != null) {
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -316,17 +324,17 @@ fun QuizScreen(
                                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                             ) {
                                 DiagramCanvas(
-                                    diagramType = currentQ.photoUri,
+                                    diagramType = topQ.photoUri,
                                     modifier = Modifier.fillMaxSize(),
                                     annotations = emptyList(),
                                     maskLabels = false
                                 )
                             }
 
-                            if (currentQ.prompt.isNotBlank()) {
+                            if (topQ.prompt.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = currentQ.prompt,
+                                    text = topQ.prompt,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     textAlign = TextAlign.Center,
@@ -366,7 +374,7 @@ fun QuizScreen(
                                     Spacer(modifier = Modifier.height(10.dp))
 
                                     Text(
-                                        text = currentQ.prompt,
+                                        text = topQ.prompt,
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         textAlign = TextAlign.Center,
@@ -413,6 +421,17 @@ fun QuizScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        if (targetQ.isAnnotated && targetQ.prompt.isNotBlank()) {
+                            Text(
+                                text = targetQ.prompt,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 4.dp)
+                            )
+                        }
                         targetQ.options.forEachIndexed { optIndex, optionText ->
                             val isCardSubmitted = targetIndex in submittedQuestionIndices
                             val cardWrongs = wrongOptionsByQuestion.getOrElse(targetIndex) { emptySet() }
@@ -449,9 +468,9 @@ fun QuizScreen(
                                                 val latencyMs = (System.currentTimeMillis() - questionStartTime).coerceAtLeast(0L)
                                                 val latencySec = latencyMs / 1000f
                                                 val (title, color) = when {
-                                                    latencySec < 2.5f -> "INSTANT" to Color(0xFF00E676)
-                                                    latencySec < 3.5f -> "SHARP" to Color(0xFF00E5FF)
-                                                    latencySec < 4.5f -> "DELIBERATE" to Color(0xFF448AFF)
+                                                    latencySec < scoreThresholds.instant -> "INSTANT" to Color(0xFF00E676)
+                                                    latencySec < scoreThresholds.sharp -> "SHARP" to Color(0xFF00E5FF)
+                                                    latencySec < scoreThresholds.deliberate -> "DELIBERATE" to Color(0xFF448AFF)
                                                     else -> "HESITANT" to Color(0xFFFFAB00)
                                                 }
                                                 lockedTierTitle = title

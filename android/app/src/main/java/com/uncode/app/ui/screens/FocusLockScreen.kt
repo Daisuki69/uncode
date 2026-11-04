@@ -69,17 +69,31 @@ fun FocusLockScreen(
     onTimeout: (com.uncode.app.viewmodel.FocusScheduleItem) -> Unit = {}
 ) {
     val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
+    val failedSchedules by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
+    val autoDeckId by viewModel.autoQuizSelectedDeckId.collectAsStateWithLifecycle()
     val activeSchedule = remember(focusSchedules, scheduleId) {
         focusSchedules.find { it.id == scheduleId } ?: focusSchedules.firstOrNull { it.isActive }
     }
     val allowedApps by viewModel.allowedApps.collectAsStateWithLifecycle()
     val decks by viewModel.allDecks.collectAsStateWithLifecycle()
     val allCards by viewModel.allFlashcards.collectAsStateWithLifecycle()
-    val assignedDecks = remember(decks, activeSchedule) {
-        decks.filter { activeSchedule?.selectedDeckIds?.contains(it.id) == true }
+    val assignedDecks = remember(decks, activeSchedule, scheduleId, failedSchedules, autoDeckId) {
+        val fromActive = decks.filter { activeSchedule?.selectedDeckIds?.contains(it.id) == true }
+        if (fromActive.isNotEmpty()) fromActive
+        else {
+            val failed = failedSchedules.find { it.id == scheduleId }
+            val fromFailed = decks.filter { failed?.selectedDeckIds?.contains(it.id) == true }
+            if (fromFailed.isNotEmpty()) fromFailed
+            else if (autoDeckId != null) {
+                val fromAuto = decks.filter { it.id == autoDeckId }
+                if (fromAuto.isNotEmpty()) fromAuto else decks.take(1)
+            } else {
+                decks.take(1)
+            }
+        }
     }
 
-    val primaryDeckId = assignedDecks.firstOrNull()?.id ?: activeSchedule?.selectedDeckIds?.firstOrNull()
+    val primaryDeckId = assignedDecks.firstOrNull()?.id ?: activeSchedule?.selectedDeckIds?.firstOrNull() ?: decks.firstOrNull()?.id
     var viewingDeckId by remember { mutableStateOf<Long?>(null) }
 
     BackHandler(enabled = viewingDeckId != null) {
@@ -110,7 +124,7 @@ fun FocusLockScreen(
             if (cal.timeInMillis + totalDurationMs < now - 60_000L) {
                 cal.add(Calendar.DAY_OF_YEAR, 1)
             }
-            cal.timeInMillis + totalDurationMs
+            minOf(cal.timeInMillis + totalDurationMs, now + totalDurationMs)
         }
     }
 
@@ -118,6 +132,14 @@ fun FocusLockScreen(
 
     val updatedOnTimeout by rememberUpdatedState(onTimeout)
     val updatedOnTakeQuizNow by rememberUpdatedState(onTakeQuizNow)
+    var isLaunchingQuiz by remember(activeSchedule?.id) { mutableStateOf(false) }
+
+    LaunchedEffect(isLaunchingQuiz) {
+        if (isLaunchingQuiz) {
+            delay(2500L)
+            isLaunchingQuiz = false
+        }
+    }
 
     LaunchedEffect(targetEndMs, activeSchedule) {
         while (true) {
@@ -130,8 +152,8 @@ fun FocusLockScreen(
         }
     }
 
-    val remainingSeconds = ((targetEndMs - currentTimeMillis) / 1000L).coerceAtLeast(0L)
     val totalSeconds = (durationMinutes * 60L).coerceAtLeast(1L)
+    val remainingSeconds = ((targetEndMs - currentTimeMillis) / 1000L).coerceIn(0L, totalSeconds)
     val progress = (remainingSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
 
     Column(
@@ -322,7 +344,7 @@ fun FocusLockScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = assignedDecks.firstOrNull()?.title ?: (activeSchedule?.title ?: "Focus Session"),
+                                text = assignedDecks.firstOrNull()?.title ?: (failedSchedules.find { it.id == scheduleId }?.title ?: (activeSchedule?.title ?: "Focus Session")),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -350,8 +372,13 @@ fun FocusLockScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Button(
-                    onClick = { activeSchedule?.let { updatedOnTakeQuizNow(it) } },
-                    enabled = remainingSeconds > 5L,
+                    onClick = {
+                        if (!isLaunchingQuiz) {
+                            isLaunchingQuiz = true
+                            activeSchedule?.let { updatedOnTakeQuizNow(it) }
+                        }
+                    },
+                    enabled = remainingSeconds > 5L && !isLaunchingQuiz,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -365,7 +392,7 @@ fun FocusLockScreen(
                         text = "Take Quiz Now",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (remainingSeconds > 5L) Color.White else Color(0xFF9CA3AF)
+                        color = if (remainingSeconds > 5L && !isLaunchingQuiz) Color.White else Color(0xFF9CA3AF)
                     )
                 }
 

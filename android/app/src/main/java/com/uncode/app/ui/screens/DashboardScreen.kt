@@ -32,6 +32,9 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Functions
+import androidx.compose.material.icons.filled.Info
+import com.uncode.app.ui.components.MathDeckInfoDialog
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
@@ -133,7 +136,9 @@ fun DashboardScreen(
     val isConsequenceActive by viewModel.isConsequenceActive.collectAsStateWithLifecycle()
     val failedSessions by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
     val operatingMode by viewModel.operatingMode.collectAsStateWithLifecycle()
+    val autoScheduleDeletedCount by viewModel.autoScheduleDeletedCount.collectAsStateWithLifecycle()
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var showMathDeckInfo by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -434,24 +439,7 @@ fun DashboardScreen(
                 )
             }
 
-            val activeFocusSchedules = remember(focusSchedules, currentTimeMillis) {
-                focusSchedules.filter { schedule ->
-                    val parts = schedule.activationTime.split(":")
-                    val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
-                    val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
-                    val cal = Calendar.getInstance().apply {
-                        timeInMillis = currentTimeMillis
-                        set(Calendar.HOUR_OF_DAY, hour)
-                        set(Calendar.MINUTE, minute)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }
-                    val durationMs = schedule.durationMinutes * 60L * 1000L
-                    currentTimeMillis < (cal.timeInMillis + durationMs)
-                }
-            }
-
-            val pagerState = rememberPagerState(pageCount = { activeFocusSchedules.size + 1 })
+            val pagerState = rememberPagerState(pageCount = { focusSchedules.size + 1 })
 
             Column(
                 modifier = Modifier
@@ -462,8 +450,8 @@ fun DashboardScreen(
                     state = pagerState,
                     modifier = Modifier.fillMaxWidth()
                 ) { pageIndex ->
-                    if (pageIndex < activeFocusSchedules.size) {
-                        val schedule = activeFocusSchedules[pageIndex]
+                    if (pageIndex < focusSchedules.size) {
+                        val schedule = focusSchedules[pageIndex]
                         val parts = schedule.activationTime.split(":")
                         val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
                         val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
@@ -476,6 +464,9 @@ fun DashboardScreen(
                             set(Calendar.MILLISECOND, 0)
                         }
                         val durationMs = schedule.durationMinutes * 60L * 1000L
+                        if (cal.timeInMillis + durationMs <= schedule.createdAt) {
+                            cal.add(Calendar.DAY_OF_YEAR, 1)
+                        }
                         val startMs = cal.timeInMillis
                         val endMs = startMs + durationMs
 
@@ -588,16 +579,20 @@ fun DashboardScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.outline
                                     )
-                                    IconButton(
-                                        onClick = { viewModel.deleteFocusSchedule(schedule.id) },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete",
-                                            tint = MaterialTheme.colorScheme.outline,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                    val isAutoSchedule = schedule.isAutoScheduled || schedule.title.startsWith("Auto:")
+                                    val isDeleteRevoked = isAutoSchedule && autoScheduleDeletedCount >= 3
+                                    if (!isDeleteRevoked) {
+                                        IconButton(
+                                            onClick = { viewModel.deleteFocusSchedule(schedule.id) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.outline,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -648,14 +643,14 @@ fun DashboardScreen(
                     }
                 }
 
-                if (activeFocusSchedules.isNotEmpty()) {
+                if (focusSchedules.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        repeat(activeFocusSchedules.size + 1) { i ->
+                        repeat(focusSchedules.size + 1) { i ->
                             val isSelected = pagerState.currentPage == i
                             Box(
                                 modifier = Modifier
@@ -681,7 +676,7 @@ fun DashboardScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "My Decks",
+                    text = "Standard Decks",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -737,6 +732,44 @@ fun DashboardScreen(
                 }
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Math Decks",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = "In Construction",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = { showMathDeckInfo = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "What is Math Deck?",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -853,6 +886,10 @@ fun DashboardScreen(
                         }
                     }
                 }
+            }
+
+            if (showMathDeckInfo) {
+                MathDeckInfoDialog(onDismiss = { showMathDeckInfo = false })
             }
 
             if (showAppSelector) {

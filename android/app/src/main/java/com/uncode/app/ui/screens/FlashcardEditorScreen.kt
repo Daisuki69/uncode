@@ -97,6 +97,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -107,7 +108,11 @@ import com.uncode.app.data.Deck
 import com.uncode.app.ui.components.DiagramCanvas
 import com.uncode.app.viewmodel.EditableCardDraft
 import com.uncode.app.viewmodel.MainViewModel
+import java.io.File
+import java.io.FileOutputStream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -160,15 +165,44 @@ fun FlashcardEditorScreen(
     var showDiscardConfirmDialog by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+    val editorCoroutineScope = rememberCoroutineScope()
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        if (uri != null && activePickingCardIndex in cardDrafts.indices) {
-            val current = cardDrafts[activePickingCardIndex]
-            cardDrafts[activePickingCardIndex] = current.copy(
-                photoUri = uri.toString(),
-                isAnnotated = false
-            )
+        val targetIdx = activePickingCardIndex
+        if (uri != null && targetIdx in cardDrafts.indices) {
+            editorCoroutineScope.launch(Dispatchers.IO) {
+                val savedUri = try {
+                    val diagramsDir = File(context.filesDir, "diagrams")
+                    if (!diagramsDir.exists()) {
+                        diagramsDir.mkdirs()
+                    }
+                    val extension = when (context.contentResolver.getType(uri)) {
+                        "image/png" -> "png"
+                        "image/webp" -> "webp"
+                        else -> "jpg"
+                    }
+                    val destFile = File(diagramsDir, "diagram_${System.currentTimeMillis()}.$extension")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    Uri.fromFile(destFile).toString()
+                } catch (_: Exception) {
+                    uri.toString()
+                }
+                withContext(Dispatchers.Main) {
+                    if (targetIdx in cardDrafts.indices) {
+                        val current = cardDrafts[targetIdx]
+                        cardDrafts[targetIdx] = current.copy(
+                            photoUri = savedUri,
+                            isAnnotated = false
+                        )
+                    }
+                }
+            }
         }
         activePickingCardIndex = -1
     }
@@ -238,6 +272,8 @@ fun FlashcardEditorScreen(
     val handleBack = {
         if (activeAnnotatingIndex != -1) {
             activeAnnotatingIndex = -1
+        } else if (showDiscardConfirmDialog) {
+            showDiscardConfirmDialog = false
         } else if (hasUnsavedChanges) {
             showDiscardConfirmDialog = true
         } else {
@@ -488,6 +524,8 @@ fun FlashcardEditorScreen(
                         }
                     }
 
+                    var canvasImageBounds by remember { mutableStateOf(floatArrayOf(0f, 0f, 1f, 1f)) }
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -506,7 +544,10 @@ fun FlashcardEditorScreen(
                             externalTrashCoordinates = trashAreaCoordinates,
                             isHoveringTrash = isHoveringTrash,
                             onHoverTrashChanged = { isHoveringTrash = it },
-                            onCanvasTapped = null, // DRAG ONLY! NO TAP TO CREATE!
+                            onCanvasTapped = null,
+                            onImageBoundsChanged = { ox, oy, rw, rh ->
+                                canvasImageBounds = floatArrayOf(ox, oy, rw, rh)
+                            },
                             onAutoAddAnswerBox = { item ->
                                 val idx = cardAnnotations.indexOfFirst { it.id == item.id }
                                 if (idx != -1) {
@@ -609,8 +650,14 @@ fun FlashcardEditorScreen(
                                                         val canvasBounds = Rect(canvasTopLeft, Size(canvasWidth, canvasHeight))
 
                                                         if (canvasBounds.contains(currentFingerInRoot)) {
-                                                            val normX = ((currentFingerInRoot.x - canvasBounds.left) / canvasWidth).coerceIn(0.06f, 0.94f)
-                                                            val normY = ((currentFingerInRoot.y - canvasBounds.top) / canvasHeight).coerceIn(0.06f, 0.94f)
+                                                            val ox = canvasImageBounds[0]
+                                                            val oy = canvasImageBounds[1]
+                                                            val rw = canvasImageBounds[2]
+                                                            val rh = canvasImageBounds[3]
+                                                            val touchInCanvasX = currentFingerInRoot.x - canvasBounds.left
+                                                            val touchInCanvasY = currentFingerInRoot.y - canvasBounds.top
+                                                            val normX = if (rw > 0f) ((touchInCanvasX - ox) / rw).coerceIn(0.02f, 0.98f) else 0.5f
+                                                            val normY = if (rh > 0f) ((touchInCanvasY - oy) / rh).coerceIn(0.02f, 0.98f) else 0.5f
                                                             val candidateOffsets = arrayOf(
                                                                 0.18f to -0.10f,
                                                                 0.18f to 0.10f,
@@ -621,8 +668,10 @@ fun FlashcardEditorScreen(
                                                                 0.24f to 0.0f,
                                                                 -0.24f to 0.0f
                                                             )
-                                                            var chosenBx = (normX + 0.18f).coerceIn(0.08f, 0.92f)
-                                                            var chosenBy = (normY - 0.10f).coerceIn(0.08f, 0.92f)
+                                                            val boxNormX = (touchInCanvasX / canvasWidth).coerceIn(0.08f, 0.92f)
+                                                            val boxNormY = (touchInCanvasY / canvasHeight).coerceIn(0.08f, 0.92f)
+                                                            var chosenBx = (boxNormX + 0.18f).coerceIn(0.08f, 0.92f)
+                                                            var chosenBy = (boxNormY - 0.10f).coerceIn(0.08f, 0.92f)
                                                             var bestClearance = -1f
                                                             for (off in candidateOffsets) {
                                                                 val cx = (normX + off.first).coerceIn(0.08f, 0.92f)

@@ -83,6 +83,13 @@ import com.uncode.app.viewmodel.MainViewModel
 import kotlin.math.abs
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Casino
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
@@ -108,6 +115,26 @@ fun SettingsScreen(
     val isLockdownActive by viewModel.isLockdownActive.collectAsStateWithLifecycle()
     val isConsequenceActive by viewModel.isConsequenceActive.collectAsStateWithLifecycle()
     val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
+    val scoreThresholds by viewModel.scoreThresholds.collectAsStateWithLifecycle()
+
+    var unrealInput by remember(scoreThresholds.unreal) { mutableStateOf(scoreThresholds.unreal.toString()) }
+    var instantInput by remember(scoreThresholds.instant) { mutableStateOf(scoreThresholds.instant.toString()) }
+    var sharpInput by remember(scoreThresholds.sharp) { mutableStateOf(scoreThresholds.sharp.toString()) }
+    var deliberateInput by remember(scoreThresholds.deliberate) { mutableStateOf(scoreThresholds.deliberate.toString()) }
+    var hesitantInput by remember(scoreThresholds.hesitant) { mutableStateOf(scoreThresholds.hesitant.toString()) }
+
+    val uVal = unrealInput.toFloatOrNull()
+    val iVal = instantInput.toFloatOrNull()
+    val sVal = sharpInput.toFloatOrNull()
+    val dVal = deliberateInput.toFloatOrNull()
+    val hVal = hesitantInput.toFloatOrNull()
+
+    val uErr = uVal == null || uVal <= 0f || (iVal != null && uVal >= iVal)
+    val iErr = iVal == null || (uVal != null && iVal <= uVal) || (sVal != null && iVal >= sVal)
+    val sErr = sVal == null || (iVal != null && sVal <= iVal) || (dVal != null && sVal >= dVal)
+    val dErr = dVal == null || (sVal != null && dVal <= sVal) || (hVal != null && dVal >= hVal)
+    val hErr = hVal == null || (dVal != null && hVal <= dVal)
+    val hasScoreError = uErr || iErr || sErr || dErr || hErr
     val failedFocusSessions by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
     val isPolicyLocked = remember(isLockdownActive, isConsequenceActive, focusSchedules, failedFocusSessions) {
         isLockdownActive || isConsequenceActive || failedFocusSessions.isNotEmpty() || focusSchedules.any { it.isRescheduled }
@@ -917,6 +944,169 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
+                        text = "Score Modification",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    TextButton(
+                        onClick = { viewModel.resetScoreThresholds() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            text = "Reset to Defaults",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                        ScoreThresholdRow(
+                            title = "★  Unreal",
+                            titleColor = Color(0xFFFF1744),
+                            subtitle = "Locked Quiz only",
+                            value = unrealInput,
+                            onValueChange = { newText ->
+                                unrealInput = newText
+                                val u = newText.toFloatOrNull()
+                                if (u != null && iVal != null && sVal != null && dVal != null && hVal != null) {
+                                    if (u > 0f && u < iVal && iVal < sVal && sVal < dVal && dVal < hVal) {
+                                        viewModel.updateScoreThresholds(u, iVal, sVal, dVal, hVal)
+                                    }
+                                }
+                            },
+                            isError = uErr
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+
+                        ScoreThresholdRow(
+                            title = "●  Instant",
+                            titleColor = Color(0xFF00E676),
+                            value = instantInput,
+                            onValueChange = { newText ->
+                                instantInput = newText
+                                val i = newText.toFloatOrNull()
+                                if (uVal != null && i != null && sVal != null && dVal != null && hVal != null) {
+                                    if (uVal > 0f && uVal < i && i < sVal && sVal < dVal && dVal < hVal) {
+                                        viewModel.updateScoreThresholds(uVal, i, sVal, dVal, hVal)
+                                    }
+                                }
+                            },
+                            isError = iErr
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+
+                        ScoreThresholdRow(
+                            title = "●  Sharp",
+                            titleColor = Color(0xFF00E5FF),
+                            value = sharpInput,
+                            onValueChange = { newText ->
+                                sharpInput = newText
+                                val s = newText.toFloatOrNull()
+                                if (uVal != null && iVal != null && s != null && dVal != null && hVal != null) {
+                                    if (uVal > 0f && uVal < iVal && iVal < s && s < dVal && dVal < hVal) {
+                                        viewModel.updateScoreThresholds(uVal, iVal, s, dVal, hVal)
+                                    }
+                                }
+                            },
+                            isError = sErr
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+
+                        ScoreThresholdRow(
+                            title = "●  Deliberate",
+                            titleColor = Color(0xFF448AFF),
+                            value = deliberateInput,
+                            onValueChange = { newText ->
+                                deliberateInput = newText
+                                val d = newText.toFloatOrNull()
+                                if (uVal != null && iVal != null && sVal != null && d != null && hVal != null) {
+                                    if (uVal > 0f && uVal < iVal && iVal < sVal && sVal < d && d < hVal) {
+                                        viewModel.updateScoreThresholds(uVal, iVal, sVal, d, hVal)
+                                    }
+                                }
+                            },
+                            isError = dErr
+                        )
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+
+                        ScoreThresholdRow(
+                            title = "●  Hesitant",
+                            titleColor = Color(0xFFFFAB00),
+                            value = hesitantInput,
+                            onValueChange = { newText ->
+                                hesitantInput = newText
+                                val h = newText.toFloatOrNull()
+                                if (uVal != null && iVal != null && sVal != null && dVal != null && h != null) {
+                                    if (uVal > 0f && uVal < iVal && iVal < sVal && sVal < dVal && dVal < h) {
+                                        viewModel.updateScoreThresholds(uVal, iVal, sVal, dVal, h)
+                                    }
+                                }
+                            },
+                            isError = hErr
+                        )
+
+                        if (hasScoreError) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Tiers must strictly increase: Unreal < Instant < Sharp < Deliberate < Hesitant",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
                         text = "Policy",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
@@ -1352,3 +1542,108 @@ private fun Modifier.wheelAnchorGesture(
     }
 }
 
+
+
+@Composable
+private fun ScoreThresholdRow(
+    title: String,
+    titleColor: Color,
+    value: String,
+    onValueChange: (String) -> Unit,
+    isError: Boolean,
+    subtitle: String? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = titleColor
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        ScoreThresholdInputBox(
+            value = value,
+            onValueChange = onValueChange,
+            isError = isError
+        )
+    }
+}
+
+@Composable
+private fun ScoreThresholdInputBox(
+    value: String,
+    onValueChange: (String) -> Unit,
+    isError: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val bgColor = if (isError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val decimalRegex = remember { Regex("^\\d*(\\.\\d{0,2})?$") }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = modifier
+            .width(76.dp)
+            .height(36.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = { input ->
+                    val sanitized = input.replace(',', '.')
+                    if (sanitized.isEmpty() || sanitized.matches(decimalRegex)) {
+                        onValueChange(sanitized)
+                    }
+                },
+                textStyle = TextStyle(
+                    color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                ),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier.weight(1f),
+                decorationBox = { innerTextField ->
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        innerTextField()
+                    }
+                }
+            )
+            Text(
+                text = "s",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}

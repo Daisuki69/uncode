@@ -172,12 +172,22 @@ fun SirenQuizApp(
     val currentScreen = backStack.lastOrNull() ?: Screen.Dashboard
 
     fun navigateTo(screen: Screen) {
+        if (backStack.lastOrNull() == screen) return
+        if (screen is Screen.LockedQuiz && backStack.any { it is Screen.LockedQuiz }) return
         backStack.add(screen)
     }
 
     fun navigateBack() {
         if (backStack.size > 1) {
-            backStack.removeAt(backStack.lastIndex)
+            val removed = backStack.removeAt(backStack.lastIndex)
+            if (removed is Screen.LockedQuiz) {
+                while (backStack.lastOrNull() is Screen.LockedQuiz) {
+                    backStack.removeAt(backStack.lastIndex)
+                }
+            }
+        } else if (backStack.isNotEmpty() && currentScreen !is Screen.Dashboard) {
+            backStack.clear()
+            backStack.add(Screen.Dashboard)
         }
     }
 
@@ -186,12 +196,18 @@ fun SirenQuizApp(
         backStack.add(Screen.Dashboard)
     }
 
-    BackHandler(enabled = backStack.size > 1 && currentScreen !is Screen.LockedQuiz) {
+    val canNavigateBack = backStack.size > 1 || (backStack.isNotEmpty() && currentScreen !is Screen.Dashboard)
+
+    BackHandler(enabled = canNavigateBack) {
+        if (currentScreen is Screen.LockedQuiz) {
+            viewModel.clearActiveQuiz()
+        }
         navigateBack()
     }
 
     val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
     val isLockdownActive by viewModel.isLockdownActive.collectAsStateWithLifecycle()
+    val isConsequenceActive by viewModel.isConsequenceActive.collectAsStateWithLifecycle()
     val operatingMode by viewModel.operatingMode.collectAsStateWithLifecycle()
     val isSafemode = operatingMode.equals("safemode", ignoreCase = true)
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -205,10 +221,13 @@ fun SirenQuizApp(
 
     var pendingQuizSchedule by remember { mutableStateOf<com.uncode.app.viewmodel.FocusScheduleItem?>(null) }
 
-    val activeSchedule = remember(focusSchedules, isLockdownActive, currentTimeMillis, pendingQuizSchedule, isSafemode) {
+    val activeSchedule = remember(focusSchedules, isLockdownActive, isConsequenceActive, currentTimeMillis, pendingQuizSchedule, isSafemode) {
         if (pendingQuizSchedule != null) {
             return@remember pendingQuizSchedule
         }
+        val context = viewModel.getApplication<android.app.Application>()
+        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+
         val inWindowSchedule = focusSchedules.firstOrNull { schedule ->
             if (!schedule.isActive) return@firstOrNull false
             val parts = schedule.activationTime.split(":")
@@ -230,8 +249,11 @@ fun SirenQuizApp(
             val durationMs = schedule.durationMinutes * 60L * 1000L
             val startMs = cal.timeInMillis
             val endMs = startMs + durationMs
+            val lastCompleted = lockPrefs.getLong("last_completed_window_end_${schedule.id}", 0L)
             listOf(-86_400_000L, 0L, 86_400_000L).any { offset ->
-                currentTimeMillis in (startMs + offset)..(endMs + offset + 10_000L)
+                val wStart = startMs + offset
+                val wEnd = endMs + offset
+                currentTimeMillis in wStart..(wEnd + 10_000L) && lastCompleted < wEnd
             }
         }
         if (inWindowSchedule != null) {
@@ -241,14 +263,32 @@ fun SirenQuizApp(
             if (isSafemode && currentHour in 3..18) {
                 null
             } else {
-                val context = viewModel.getApplication<android.app.Application>()
-                val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
                 val lockEnd = lockPrefs.getLong("lock_end_time", 0L)
                 if (lockEnd <= 0L || currentTimeMillis >= lockEnd) {
                     null
                 } else {
                     val activeId = lockPrefs.getString("active_schedule_id", null)
+                    val remainingMins = ((lockEnd - currentTimeMillis) / 60000L).toInt().coerceAtLeast(1)
                     focusSchedules.find { it.id == activeId }
+                        ?: viewModel.failedFocusSessions.value.find { it.id == activeId }?.let { failed ->
+                            com.uncode.app.viewmodel.FocusScheduleItem(
+                                id = failed.id,
+                                title = failed.title,
+                                activationTime = "00:00",
+                                durationMinutes = remainingMins,
+                                selectedDeckIds = failed.selectedDeckIds,
+                                deckNames = failed.deckNames,
+                                isActive = true
+                            )
+                        }
+                        ?: com.uncode.app.viewmodel.FocusScheduleItem(
+                            id = activeId ?: "lockdown",
+                            title = "Focus Lockdown",
+                            activationTime = "00:00",
+                            durationMinutes = remainingMins,
+                            selectedDeckIds = emptyList(),
+                            isActive = true
+                        )
                 }
             }
         } else {
@@ -364,6 +404,9 @@ fun SirenQuizApp(
                     preselectedDeckId = screen.preselectedDeckId,
                     onBack = { navigateBack() },
                     onLaunchQuiz = {
+                        if (backStack.isNotEmpty()) {
+                            backStack.removeAt(backStack.lastIndex)
+                        }
                         navigateTo(Screen.ActiveQuiz)
                     }
                 )

@@ -1,5 +1,6 @@
 package com.uncode.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -152,11 +153,16 @@ fun FailedHomeworksScreen(
     val isRescheduleValid = rescheduleError == null
 
     var activeField by remember { mutableStateOf(ReschedulePickerField.NONE) }
+
+    BackHandler(enabled = rescheduleTarget != null) {
+        activeField = ReschedulePickerField.NONE
+        rescheduleTarget = null
+    }
     val coroutineScope = rememberCoroutineScope()
 
-    val hourListState = rememberLazyListState(initialFirstVisibleItemIndex = hours.indexOf(selectedHour12).coerceAtLeast(0))
-    val minuteListState = rememberLazyListState(initialFirstVisibleItemIndex = minutes.indexOf(selectedMinute).coerceAtLeast(0))
-    val durationListState = rememberLazyListState(initialFirstVisibleItemIndex = durationRange.indexOf(effectiveDuration).coerceAtLeast(0))
+    val hourListState = rememberLazyListState(initialFirstVisibleItemIndex = (50_000 * hours.size) + hours.indexOf(selectedHour12).coerceAtLeast(0))
+    val minuteListState = rememberLazyListState(initialFirstVisibleItemIndex = (50_000 * minutes.size) + minutes.indexOf(selectedMinute).coerceAtLeast(0))
+    val durationListState = rememberLazyListState(initialFirstVisibleItemIndex = (50_000 * durationRange.size) + durationRange.indexOf(effectiveDuration).coerceAtLeast(0))
 
     val centerAnchorProvider = remember {
         object : PopupPositionProvider {
@@ -345,9 +351,12 @@ fun FailedHomeworksScreen(
                                     selectedDurationMinutes = session.durationMinutes.coerceIn(1, 90)
                                     activeField = ReschedulePickerField.NONE
                                     coroutineScope.launch {
-                                        hourListState.scrollToItem(clampedHours.indexOf(selectedHour12).coerceAtLeast(0))
-                                        minuteListState.scrollToItem(minutes.indexOf(initM).coerceAtLeast(0))
-                                        durationListState.scrollToItem(durationRange.indexOf(effectiveDuration).coerceAtLeast(0))
+                                        val hIdx = clampedHours.indexOf(selectedHour12).coerceAtLeast(0)
+                                        val mIdx = minutes.indexOf(initM).coerceAtLeast(0)
+                                        val dIdx = durationRange.indexOf(effectiveDuration).coerceAtLeast(0)
+                                        hourListState.scrollToItem((50_000 * clampedHours.size) + hIdx)
+                                        minuteListState.scrollToItem((50_000 * minutes.size) + mIdx)
+                                        durationListState.scrollToItem((50_000 * durationRange.size) + dIdx)
                                     }
                                     rescheduleTarget = session
                                 },
@@ -462,9 +471,10 @@ fun FailedHomeworksScreen(
                                                         val itemCenter = item.offset + item.size / 2
                                                         abs(itemCenter - viewportCenter)
                                                     }
-                                                    closest?.index?.coerceIn(0, hours.lastIndex) ?: hourListState.firstVisibleItemIndex.coerceIn(0, hours.lastIndex)
+                                                    val raw = closest?.index ?: hourListState.firstVisibleItemIndex
+                                                    ((raw % hours.size) + hours.size) % hours.size
                                                 } else {
-                                                    hourListState.firstVisibleItemIndex.coerceIn(0, hours.lastIndex)
+                                                    ((hourListState.firstVisibleItemIndex % hours.size) + hours.size) % hours.size
                                                 }
                                                 selectedHour12 = hours[targetIndex]
                                                 if (!isHardcore) {
@@ -509,7 +519,8 @@ fun FailedHomeworksScreen(
                                                     onCenterClicked = { activeField = ReschedulePickerField.NONE },
                                                     modifier = Modifier.width(56.dp),
                                                     itemHeight = 32.dp,
-                                                    visibleItemCount = 5
+                                                    visibleItemCount = 5,
+                                                    isInfinite = true
                                                 )
                                             }
                                         }
@@ -567,9 +578,10 @@ fun FailedHomeworksScreen(
                                                         val itemCenter = item.offset + item.size / 2
                                                         abs(itemCenter - viewportCenter)
                                                     }
-                                                    closest?.index?.coerceIn(0, minutes.lastIndex) ?: minuteListState.firstVisibleItemIndex.coerceIn(0, minutes.lastIndex)
+                                                    val raw = closest?.index ?: minuteListState.firstVisibleItemIndex
+                                                    ((raw % minutes.size) + minutes.size) % minutes.size
                                                 } else {
-                                                    minuteListState.firstVisibleItemIndex.coerceIn(0, minutes.lastIndex)
+                                                    ((minuteListState.firstVisibleItemIndex % minutes.size) + minutes.size) % minutes.size
                                                 }
                                                 selectedMinute = minutes[targetIndex]
                                                 coroutineScope.launch {
@@ -607,7 +619,8 @@ fun FailedHomeworksScreen(
                                                     labelFormatter = { String.format(Locale.getDefault(), "%02d", it) },
                                                     modifier = Modifier.width(56.dp),
                                                     itemHeight = 32.dp,
-                                                    visibleItemCount = 5
+                                                    visibleItemCount = 5,
+                                                    isInfinite = true
                                                 )
                                             }
                                         }
@@ -701,9 +714,10 @@ fun FailedHomeworksScreen(
                                                         val itemCenter = item.offset + item.size / 2
                                                         abs(itemCenter - viewportCenter)
                                                     }
-                                                    closest?.index?.coerceIn(0, durationRange.lastIndex) ?: durationListState.firstVisibleItemIndex.coerceIn(0, durationRange.lastIndex)
+                                                    val raw = closest?.index ?: durationListState.firstVisibleItemIndex
+                                                    ((raw % durationRange.size) + durationRange.size) % durationRange.size
                                                 } else {
-                                                    durationListState.firstVisibleItemIndex.coerceIn(0, durationRange.lastIndex)
+                                                    ((durationListState.firstVisibleItemIndex % durationRange.size) + durationRange.size) % durationRange.size
                                                 }
                                                 selectedDurationMinutes = durationRange[targetIndex]
                                                 coroutineScope.launch {
@@ -738,9 +752,11 @@ fun FailedHomeworksScreen(
                                                     listState = durationListState,
                                                     onItemSelected = { selectedDurationMinutes = it },
                                                     onCenterClicked = { activeField = ReschedulePickerField.NONE },
+                                                    labelFormatter = { "${it}m" },
                                                     modifier = Modifier.width(56.dp),
                                                     itemHeight = 32.dp,
-                                                    visibleItemCount = 5
+                                                    visibleItemCount = 5,
+                                                    isInfinite = true
                                                 )
                                             }
                                         }
@@ -808,28 +824,43 @@ private fun <T> ScrollWheelPicker(
     modifier: Modifier = Modifier,
     visibleItemCount: Int = 5,
     itemHeight: Dp = 32.dp,
+    isInfinite: Boolean = false,
     labelFormatter: (T) -> String = { it.toString() }
 ) {
     val coroutineScope = rememberCoroutineScope()
     val wheelHeight = itemHeight * visibleItemCount
+    val totalCount = if (isInfinite && items.isNotEmpty()) 100_000 * items.size else items.size
+    val baseOffset = if (isInfinite && items.isNotEmpty()) 50_000 * items.size else 0
 
     val centeredIndex by remember {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val visibleItems = layoutInfo.visibleItemsInfo
-            if (visibleItems.isEmpty() || items.isEmpty()) return@derivedStateOf listState.firstVisibleItemIndex.coerceIn(0, items.lastIndex)
+            if (visibleItems.isEmpty() || items.isEmpty()) return@derivedStateOf listState.firstVisibleItemIndex.coerceIn(0, totalCount.coerceAtLeast(1) - 1)
             val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
             val closest = visibleItems.minByOrNull { item ->
                 val itemCenter = item.offset + item.size / 2
                 abs(itemCenter - viewportCenter)
             }
-            closest?.index?.coerceIn(0, items.lastIndex) ?: listState.firstVisibleItemIndex.coerceIn(0, items.lastIndex)
+            closest?.index ?: listState.firstVisibleItemIndex
         }
     }
 
-    LaunchedEffect(centeredIndex) {
-        if (centeredIndex in items.indices) {
-            onItemSelected(items[centeredIndex])
+    val actualIndex = remember(centeredIndex, items.size) {
+        if (items.isEmpty()) 0
+        else ((centeredIndex % items.size) + items.size) % items.size
+    }
+
+    LaunchedEffect(actualIndex) {
+        if (actualIndex in items.indices) {
+            onItemSelected(items[actualIndex])
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (isInfinite && items.isNotEmpty() && listState.firstVisibleItemIndex < baseOffset / 2) {
+            val cur = ((listState.firstVisibleItemIndex % items.size) + items.size) % items.size
+            listState.scrollToItem(baseOffset + cur)
         }
     }
 
@@ -851,9 +882,14 @@ private fun <T> ScrollWheelPicker(
             flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
             contentPadding = PaddingValues(vertical = itemHeight * (visibleItemCount / 2))
         ) {
-            items(items.size) { index ->
-                val item = items[index]
-                val distance = abs(index - centeredIndex)
+            items(totalCount) { rawIndex ->
+                val itemIndex = if (isInfinite && items.isNotEmpty()) {
+                    ((rawIndex % items.size) + items.size) % items.size
+                } else {
+                    rawIndex
+                }
+                val item = items[itemIndex]
+                val distance = abs(rawIndex - centeredIndex)
                 val alpha = when (distance) {
                     0 -> 1f
                     1 -> 0.4f
@@ -878,9 +914,9 @@ private fun <T> ScrollWheelPicker(
                             if (distance == 0) {
                                 onCenterClicked()
                             } else {
-                                onItemSelected(items[index])
+                                onItemSelected(item)
                                 coroutineScope.launch {
-                                    listState.animateScrollToItem(index)
+                                    listState.animateScrollToItem(rawIndex)
                                 }
                             }
                         },

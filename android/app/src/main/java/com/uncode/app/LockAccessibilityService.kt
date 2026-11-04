@@ -3501,6 +3501,15 @@ open class LockAccessibilityService : AccessibilityService() {
                     if (schedEndTime <= lastCompletedEnd) {
                         continue
                     }
+                    if (s.optBoolean("isAutoScheduled", false) || s.optString("title", "").startsWith("Auto:")) {
+                        val todayCal = Calendar.getInstance().apply { timeInMillis = effectiveNow }
+                        val todayStr = String.format(Locale.US, "%04d-%02d-%02d",
+                            todayCal.get(Calendar.YEAR),
+                            todayCal.get(Calendar.MONTH) + 1,
+                            todayCal.get(Calendar.DAY_OF_MONTH)
+                        )
+                        prefs.edit().putBoolean("auto_schedule_activated_date_$todayStr", true).apply()
+                    }
                     prefs.edit()
                         .putBoolean("lockdown_active", true)
                         .putLong("lock_end_time", schedEndTime)
