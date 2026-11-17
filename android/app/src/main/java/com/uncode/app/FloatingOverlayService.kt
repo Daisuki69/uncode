@@ -193,7 +193,9 @@ class FloatingOverlayService : Service() {
         val maxRemainingSec = maxDurationMinutes * 60L
         if (lockEndTime > effectiveNow + (maxRemainingSec * 1000L)) {
             lockEndTime = effectiveNow + (maxRemainingSec * 1000L)
-            prefs.edit().putLong("lock_end_time", lockEndTime).apply()
+            if (storedEnd > 0L) {
+                prefs.edit().putLong("lock_end_time", lockEndTime).apply()
+            }
             Log.i(TAG, "onStartCommand: Clamped lockEndTime to duration ${maxDurationMinutes}m")
         }
 
@@ -411,8 +413,19 @@ class FloatingOverlayService : Service() {
                 val isConsequence = prefs?.getBoolean("consequence_active", false) ?: false
                 val isLockdown = prefs?.getBoolean("lockdown_active", false) ?: false
                 val storedEnd = prefs?.getLong("lock_end_time", 0L) ?: 0L
+                val isAutoQuiz = prefs?.getBoolean("auto_quiz_in_progress", false) ?: false
+                val autoQuizEnd = prefs?.getLong("auto_quiz_end_time", 0L) ?: 0L
                 val isTimerRunning = isLockdown && storedEnd > System.currentTimeMillis()
-                putExtra("route", if (isTimerRunning) "locked" else if (isConsequence) "logs" else "locked")
+                val isAutoQuizRunning = isAutoQuiz && autoQuizEnd > System.currentTimeMillis()
+                if (isAutoQuizRunning) {
+                    putExtra("route", "auto_quiz")
+                    val activeQuizId = prefs?.getString("active_auto_quiz_id", null)
+                    if (activeQuizId != null) {
+                        putExtra("auto_quiz_id", activeQuizId)
+                    }
+                } else {
+                    putExtra("route", if (isTimerRunning) "locked" else if (isConsequence) "logs" else "locked")
+                }
             }
             startActivity(launch)
         } catch (e: Exception) {
@@ -424,12 +437,13 @@ class FloatingOverlayService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isLockdownActive = prefs.getBoolean("lockdown_active", false)
         val isConsequenceActive = prefs.getBoolean("consequence_active", false)
+        val isAutoQuizInProgress = prefs.getBoolean("auto_quiz_in_progress", false)
 
         val timeOffset = prefs.getLong("time_offset", 0L)
         val effectiveNow = System.currentTimeMillis() + timeOffset
         val inOperatingHours = LockAccessibilityService.isInOperatingHours(this, effectiveNow)
 
-        if (!isLockdownActive && !isConsequenceActive) {
+        if (!isLockdownActive && !isConsequenceActive && !isAutoQuizInProgress) {
             removeFloatingView()
             stopForeground(true)
             stopSelf()
@@ -437,8 +451,9 @@ class FloatingOverlayService : Service() {
         }
 
         val storedEnd = prefs.getLong("lock_end_time", 0L)
+        val isLockTimerRunning = isLockdownActive && storedEnd > effectiveNow
         lockEndTime = if (storedEnd > 0) storedEnd else 0L
-        val isTimerRunning = isLockdownActive && lockEndTime > effectiveNow
+        val isTimerRunning = isLockTimerRunning
 
         if (isTimerRunning) {
             if (floatingView?.visibility != View.VISIBLE) {

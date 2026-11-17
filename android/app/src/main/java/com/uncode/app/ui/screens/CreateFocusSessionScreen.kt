@@ -101,7 +101,11 @@ fun CreateFocusSessionScreen(
     modifier: Modifier = Modifier
 ) {
     var currentStep by remember { mutableIntStateOf(1) }
-    val decks by viewModel.allDecks.collectAsStateWithLifecycle()
+    var selectedQuizType by remember { mutableStateOf("standard") }
+    val allDecks by viewModel.allDecks.collectAsStateWithLifecycle()
+    val decks = remember(allDecks, selectedQuizType) {
+        if (selectedQuizType == "math") allDecks.filter { it.category == "math" } else allDecks.filter { it.category != "math" }
+    }
     val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
     val operatingMode by viewModel.operatingMode.collectAsStateWithLifecycle()
     val selectedDeckIds = remember { mutableStateListOf<Long>() }
@@ -116,12 +120,14 @@ fun CreateFocusSessionScreen(
         if (isHardcore) (1..12).toList() else listOf(7, 8, 9, 10, 11, 12, 1, 2)
     }
 
-    val nowCalendar = remember { Calendar.getInstance() }
-    val currentH24 = remember { nowCalendar.get(Calendar.HOUR_OF_DAY) }
-    val currentM = remember { nowCalendar.get(Calendar.MINUTE) }
     val (defaultH24, defaultM) = remember(isHardcore) {
-        if (isHardcore || (currentH24 >= 19 || currentH24 < 3)) {
-            currentH24 to currentM
+        val cal = Calendar.getInstance()
+        val addMins = 5 - (cal.get(Calendar.MINUTE) % 5)
+        cal.add(Calendar.MINUTE, addMins)
+        val h24 = cal.get(Calendar.HOUR_OF_DAY)
+        val m = cal.get(Calendar.MINUTE)
+        if (isHardcore || (h24 >= 19 || h24 < 3)) {
+            h24 to m
         } else {
             19 to 0
         }
@@ -215,8 +221,8 @@ fun CreateFocusSessionScreen(
     }
 
     BackHandler(enabled = !isNavigatingAway) {
-        if (currentStep == 2) {
-            currentStep = 1
+        if (currentStep > 1) {
+            currentStep -= 1
         } else {
             handleBackAttempt()
         }
@@ -267,7 +273,11 @@ fun CreateFocusSessionScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = if (currentStep == 1) "Step 1: Select Deck" else "Step 2: Schedule",
+                            text = when (currentStep) {
+                                1 -> "Step 1: Select Quiz Type"
+                                2 -> "Step 2: Select Deck"
+                                else -> "Step 3: Schedule"
+                            },
                             fontWeight = FontWeight.Bold
                         )
                     },
@@ -275,8 +285,8 @@ fun CreateFocusSessionScreen(
                         IconButton(
                             enabled = !isNavigatingAway,
                             onClick = {
-                                if (currentStep == 2) {
-                                    currentStep = 1
+                                if (currentStep > 1) {
+                                    currentStep -= 1
                                 } else {
                                     handleBackAttempt()
                                 }
@@ -292,13 +302,47 @@ fun CreateFocusSessionScreen(
             },
             floatingActionButton = {
                 if (currentStep == 1) {
+                    ExtendedFloatingActionButton(
+                        onClick = { currentStep = 2 },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.testTag("focus_session_type_next_fab")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Next", fontWeight = FontWeight.Bold)
+                    }
+                } else if (currentStep == 2) {
                     AnimatedVisibility(
                         visible = selectedDeckIds.isNotEmpty(),
                         enter = fadeIn(animationSpec = tween(180)) + scaleIn(animationSpec = tween(180)),
                         exit = fadeOut(animationSpec = tween(140)) + scaleOut(animationSpec = tween(140))
                     ) {
                         ExtendedFloatingActionButton(
-                            onClick = { currentStep = 2 },
+                            onClick = {
+                                val cal = Calendar.getInstance()
+                                val addMins = 5 - (cal.get(Calendar.MINUTE) % 5)
+                                cal.add(Calendar.MINUTE, addMins)
+                                val h24 = cal.get(Calendar.HOUR_OF_DAY)
+                                val m = cal.get(Calendar.MINUTE)
+                                val (initH24, initM) = if (isHardcore || (h24 >= 19 || h24 < 3)) {
+                                    h24 to m
+                                } else {
+                                    19 to 0
+                                }
+                                val h12 = if (initH24 % 12 == 0) 12 else initH24 % 12
+                                val period = if (initH24 >= 12) "PM" else "AM"
+                                selectedHour12 = if (h12 in hours) h12 else hours.first()
+                                selectedMinute = initM
+                                selectedPeriod = if (isHardcore) period else (if (selectedHour12 in 7..11) "PM" else "AM")
+                                coroutineScope.launch {
+                                    val hIdx = hours.indexOf(selectedHour12).coerceAtLeast(0)
+                                    val mIdx = minutes.indexOf(selectedMinute).coerceAtLeast(0)
+                                    hourListState.scrollToItem((50_000 * hours.size) + hIdx)
+                                    minuteListState.scrollToItem((50_000 * minutes.size) + mIdx)
+                                }
+                                currentStep = 3
+                            },
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.testTag("focus_session_next_fab")
@@ -350,6 +394,80 @@ fun CreateFocusSessionScreen(
             }
         ) { innerPadding ->
             if (currentStep == 1) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = innerPadding.calculateTopPadding() + 8.dp,
+                        bottom = innerPadding.calculateBottomPadding() + 88.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(
+                        items = listOf(
+                            "standard" to ("Standard" to "Flashcards, definitions & diagrams"),
+                            "math" to ("Math" to "Procedural formula decks")
+                        ),
+                        key = { it.first }
+                    ) { (typeKey, labels) ->
+                        val isSelected = selectedQuizType == typeKey
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (selectedQuizType != typeKey) {
+                                        selectedQuizType = typeKey
+                                        selectedDeckIds.clear()
+                                    }
+                                }
+                                .testTag("focus_quiz_type_$typeKey"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                }
+                            ),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = labels.first,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = labels.second,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = {
+                                        if (selectedQuizType != typeKey) {
+                                            selectedQuizType = typeKey
+                                            selectedDeckIds.clear()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (currentStep == 2) {
                 if (decks.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -483,7 +601,7 @@ fun CreateFocusSessionScreen(
                                                         activeField = ActivePickerField.NONE
                                                     } else {
                                                         coroutineScope.launch {
-                                                            hourListState.scrollToItem(hours.indexOf(selectedHour12).coerceAtLeast(0))
+                                                            hourListState.scrollToItem((50_000 * hours.size) + hours.indexOf(selectedHour12).coerceAtLeast(0))
                                                         }
                                                         activeField = ActivePickerField.HOUR
                                                     }
@@ -525,7 +643,7 @@ fun CreateFocusSessionScreen(
                                                         selectedPeriod = if (selectedHour12 in 7..11) "PM" else "AM"
                                                     }
                                                     coroutineScope.launch {
-                                                        hourListState.scrollToItem(targetIndex)
+                                                        hourListState.scrollToItem((50_000 * hours.size) + targetIndex)
                                                     }
                                                     activeField = ActivePickerField.NONE
                                                 }
@@ -593,7 +711,7 @@ fun CreateFocusSessionScreen(
                                                         activeField = ActivePickerField.NONE
                                                     } else {
                                                         coroutineScope.launch {
-                                                            minuteListState.scrollToItem(minutes.indexOf(selectedMinute).coerceAtLeast(0))
+                                                            minuteListState.scrollToItem((50_000 * minutes.size) + minutes.indexOf(selectedMinute).coerceAtLeast(0))
                                                         }
                                                         activeField = ActivePickerField.MINUTE
                                                     }
@@ -632,7 +750,7 @@ fun CreateFocusSessionScreen(
                                                     }
                                                     selectedMinute = minutes[targetIndex]
                                                     coroutineScope.launch {
-                                                        minuteListState.scrollToItem(targetIndex)
+                                                        minuteListState.scrollToItem((50_000 * minutes.size) + targetIndex)
                                                     }
                                                     activeField = ActivePickerField.NONE
                                                 }
@@ -737,7 +855,7 @@ fun CreateFocusSessionScreen(
                                                         activeField = ActivePickerField.NONE
                                                     } else {
                                                         coroutineScope.launch {
-                                                            durationListState.scrollToItem(durationRange.indexOf(selectedDurationMinutes).coerceAtLeast(0))
+                                                            durationListState.scrollToItem((50_000 * durationRange.size) + durationRange.indexOf(selectedDurationMinutes).coerceAtLeast(0))
                                                         }
                                                         activeField = ActivePickerField.DURATION
                                                     }
@@ -776,7 +894,7 @@ fun CreateFocusSessionScreen(
                                                     }
                                                     selectedDurationMinutes = durationRange[targetIndex]
                                                     coroutineScope.launch {
-                                                        durationListState.scrollToItem(targetIndex)
+                                                        durationListState.scrollToItem((50_000 * durationRange.size) + targetIndex)
                                                     }
                                                     activeField = ActivePickerField.NONE
                                                 }

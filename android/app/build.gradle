@@ -20,8 +20,10 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            shrinkResources true
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
@@ -78,6 +80,7 @@ dependencies {
     implementation 'com.google.mediapipe:tasks-text:0.10.26.1'
     implementation 'androidx.graphics:graphics-path:1.1.0'
     implementation 'io.coil-kt:coil-compose:2.7.0'
+    implementation 'org.matheclipse:matheclipse-parser:3.2.0'
 
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

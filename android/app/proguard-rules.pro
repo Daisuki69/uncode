@@ -16,6 +16,16 @@
 # debugging stack traces.
 #-keepattributes SourceFile,LineNumberTable
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-keep class com.uncode.app.data.** { *; }
+-keep class com.uncode.app.LockPlugin { *; }
+-keep class com.getcapacitor.** { *; }
+-keep class com.google.mediapipe.** { *; }
+-keep class com.google.protobuf.** { *; }
+-keep class com.google.common.flogger.** { *; }
+-keep class org.matheclipse.** { *; }
+-dontwarn com.google.mediapipe.**
+-dontwarn com.google.protobuf.**
+-dontwarn com.google.common.flogger.**
+-dontwarn org.matheclipse.**
+-dontwarn org.apache.commons.**
+-dontwarn javax.annotation.**

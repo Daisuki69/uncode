@@ -200,6 +200,28 @@ object KnownDistracting {
         "com.chelpus.lackypatch",                    // Lucky Patcher
         "catch_.me_.if_.you_.can_",                  // GameGuardian
         "com.topjohnwu.magisk",
+        "io.github.huskydg.magisk",
+        "io.github.vvb2060.magisk",
+        "me.weishu.kernelsu",
+        "com.rifsxd.ksunext",
+        "com.sukisu.ultra",
+        "com.resukisu.resukisu",
+        "com.makosu.manager",
+        "me.bmax.apatch",
+        "org.lsposed.manager",
+        "org.matrix.vector",
+        "org.matrix.vector.manager",
+        "org.meowcat.edxposed.manager",
+        "moe.shizuku.privileged.api",
+        "com.dergoogler.dhizuku",
+        "com.catchingnow.icebox",
+        "com.aistra.hail",
+        "me.piebridge.brevent",
+        "com.oasisfeng.greenify",
+        "deltazero.amarok",
+        "rikka.appops",
+        "com.oasisfeng.island",
+        "net.typeblog.shelter",
 
         // ── Proxy Browsers, Cloud Renderers & Onion Bypasses ──
         "org.torproject.torbrowser",
@@ -452,7 +474,25 @@ object KnownDistracting {
                lower.contains(".vinted.") ||
                lower.contains(".shopping.") ||
                lower.contains(".ecommerce.") ||
-               lower.contains(".marketplace.")
+               lower.contains(".marketplace.") ||
+               lower.contains("kernelsu") ||
+               lower.contains("ksunext") ||
+               lower.contains("sukisu") ||
+               lower.contains("resukisu") ||
+               lower.contains("bakasu") ||
+               lower.contains("makosu") ||
+               lower.contains("kowsu") ||
+               lower.contains("wildksu") ||
+               lower.contains("apatch") ||
+               lower.contains("lsposed") ||
+               lower.contains("edxposed") ||
+               lower.contains("vector.manager") ||
+               lower.contains("shizuku") ||
+               lower.contains("dhizuku") ||
+               lower.contains("icebox") ||
+               lower.contains("brevent") ||
+               lower.contains("greenify") ||
+               lower.contains("appops")
     }
 
     private fun hasDistractingLabelSignature(lowerLabel: String): Boolean {
@@ -543,7 +583,24 @@ object KnownDistracting {
                lowerLabel.contains("商城") ||
                lowerLabel.contains("购物") ||
                lowerLabel.contains("ショッピング") ||
-               lowerLabel.contains("belanja")
+               lowerLabel.contains("belanja") ||
+               lowerLabel.contains("kernelsu") ||
+               lowerLabel.contains("ksunext") ||
+               lowerLabel.contains("sukisu") ||
+               lowerLabel.contains("resukisu") ||
+               lowerLabel.contains("bakasu") ||
+               lowerLabel.contains("makosu") ||
+               lowerLabel.contains("kowsu") ||
+               lowerLabel.contains("wildksu") ||
+               lowerLabel.contains("apatch") ||
+               lowerLabel.contains("lsposed") ||
+               lowerLabel.contains("edxposed") ||
+               lowerLabel.contains("shizuku") ||
+               lowerLabel.contains("dhizuku") ||
+               lowerLabel.contains("icebox") ||
+               lowerLabel.contains("brevent") ||
+               lowerLabel.contains("greenify") ||
+               lowerLabel.contains("app ops")
     }
 
     @JvmField

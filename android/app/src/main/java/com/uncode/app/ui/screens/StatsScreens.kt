@@ -1,9 +1,11 @@
-﻿package com.uncode.app.ui.screens
+package com.uncode.app.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1425,7 +1427,22 @@ fun DeckStatsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(card.termOrQuestion, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            if (deck?.category == "math") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    com.uncode.app.math.ui.math.MathFormulaView(
+                                        formula = com.uncode.app.math.ui.MathFormatter.toDisplayString(card.termOrQuestion),
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            } else {
+                                Text(card.termOrQuestion, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            }
                             Text(
                                 if (card.timesReviewed > 0) "${card.timesCorrect}/${card.timesReviewed} correct ($cardAcc%)" else "Not yet reviewed",
                                 fontSize = 11.sp,

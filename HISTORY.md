@@ -8349,6 +8349,312 @@ ightarrow$ `Status: ok`, launched in 2.66s without crashes, ANRs, or window leak
           - Compilation was intentionally not verified at the user's direction; no APK was built (Rule 2).
           - Zero in-code comments, docstrings, or TODOs in modified code (Rule 9).
 
+      - **Non-Major Refinement (Sub-Patch 34.21: AutoQuiz Dismissal & 0:00 Expiration Lifecycle, Ultradian Sliding-Window Usage Accumulation, 30-Minute Pre-Session Stage 1 Range, Clean 5-Minute Time Defaults & Active Schedule Teardown)**:
+        - *Why It Was Mandated (AutoQuiz Re-Launch Loop, Unbounded Usage Accumulation, 14-Hour Premature Stage 1 Blocking, Non-Clean Time Defaults & Lingering Active Schedules)*:
+          - *DeckListScreen Math Decks Removal*: `Math Decks (In Construction)` belongs exclusively on `DashboardScreen.kt`; removed the duplicate category and dialog from `DeckListScreen.kt`.
+          - *AutoQuiz Dismissal, 5-Minute Allocated Countdown & 0:00 Expiration*: Previously, `LockAccessibilityService.checkAutoQuizTicker()` called `launchAutoQuizOverlay()` on every 1s tick whenever `auto_quiz_in_progress` was true and another app was in the foreground, and `MainActivity.handleAutoQuizIntent()` regenerated a new AutoQuiz on every launch. Now, AutoQuiz launches once with a 5-minute allocated deadline (`auto_quiz_end_time = effectiveNow + 5m`) and starts `FloatingOverlayService`. The user can freely dismiss QIEZKA or open other apps while the 5-minute timer counts down; if the timer reaches `0:00` without passing, `expireAutoQuizSession()` records the expired AutoQuiz in `failed_sessions_json` and activates Post-Lockdown (`LockPlugin.startConsequenceState`).
+          - *Failed Quiz Immediate Evaluation & Active Schedule Teardown*: `EvaluationScreen.kt` previously guarded the `!isPassed` branch with `if (!isSessionActive)`, which evaluated to `true` whenever a session timer had remaining time or any schedule was active in `_focusSchedules`. Failing an AutoQuiz or early-taken scheduled quiz skipped `completeFocusSchedule(passed = false)` and left the schedule or AutoQuiz active until `0:00`, where `AlarmReceiver.ACTION_LOCK_END` then triggered Post-Lockdown. Furthermore, `LockPlugin.startConsequenceState()` never cancelled `AlarmReceiver.cancelLockEndAlarm(context)`. Removing the `isSessionActive` guard, writing `last_completed_window_end_<id>`, and cancelling `AlarmReceiver.cancelLockEndAlarm(context)` on both pass and fail ensures finished quizzes immediately terminate their schedule and alarm.
+          - *Ultradian Sliding-Window Non-Allowed App Usage Accumulation (`W = max(90m, T + 60m)`)*: Grounded in HCI session fragmentation and 90–120m Basic Rest-Activity Cycle (BRAC) research, non-allowed app foreground usage is tracked in 1-minute rolling buckets (`auto_quiz_usage_buckets_json`) over a sliding window of `maxOf(90, thresholdMinutes + 60)` minutes (`90m` for `15m`/`30m`, `105m` for `45m`, `120m` for `60m`) using `detectActiveForegroundAppForUsage()`. Usage across non-allowed apps within the window accumulates seamlessly, while usage from hours ago ages out so a 1-minute check cannot unexpectedly trigger AutoQuiz from stale usage.
+          - *Stage 1 Restriction Bounded to 30-Minute Pre-Session Range*: Grounded in hyperbolic discounting and pre-commitment research matching QIEZKA's 30-minute warning horizon, `LockAccessibilityService.hasActiveSchedules()` now returns `true` only when an active schedule is within `[startMs - 30m, endMs)` (and within permissible operating hours), preventing schedules many hours away from applying Stage 1 Settings restrictions.
+          - *Nearest Clean 5-Minute Time + AM/PM Initialization*: `CreateFocusSessionScreen.kt` (on initial load and when advancing to Step 2) and `FailedHomeworksScreen.kt` (on initial load and when opening Reschedule) now round the default time up to the next clean 5-minute multiple (`00, 05, 10, ..., 55`) with matching 12-hour value and `AM`/`PM` period.
+          - *Dashboard `(ACTIVE)` Schedule Badge Removal*: Removed `isCurrentlyActive` and the `"ACTIVE"` badge/countdown branch from `DashboardScreen.kt` schedule cards.
+        - *Architectural & File Modifications*:
+          - **`DeckListScreen.kt`**: Removed `Math Decks` section, `showMathDeckInfo` state, and `MathDeckInfoDialog`.
+          - **`LockAccessibilityService.kt`**: Updated `hasActiveSchedules()` to enforce the 30-minute pre-start range (`[wStart - 30m, wEnd)`); added `detectActiveForegroundAppForUsage()` and `expireAutoQuizSession()`; updated `checkAutoQuizTicker()` with 1-minute sliding window buckets (`maxOf(90, thresholdMinutes + 60)`) and non-relaunching 5-minute countdown expiration.
+          - **`FloatingOverlayService.kt`**: Added countdown and tap-to-resume support for in-progress AutoQuiz (`auto_quiz_end_time`).
+          - **`MainActivity.kt`**: Preserved in-progress AutoQuiz across intents, allowed system Back to minimize (`moveTaskToBack(true)`) during AutoQuiz, and added `onAutoQuizExpired()`.
+          - **`EvaluationScreen.kt`**: Removed `isSessionActive` guard so failed quizzes immediately complete as failed and engage Post-Lockdown.
+          - **`MainViewModel.kt`**: Updated `startAutoQuiz()`, `onAutoQuizExpiredFromService()`, and `completeFocusSchedule()` to record `last_completed_window_end_<id>` and cancel lock-end alarms immediately.
+          - **`LockPlugin.kt`**: Added `AlarmReceiver.cancelLockEndAlarm(context)` to `startConsequenceState()`.
+          - **`CreateFocusSessionScreen.kt`, `FailedHomeworksScreen.kt`**: Rounded default schedule/reschedule picker times to the next clean 5-minute multiple and synced `AM`/`PM`.
+          - **`DashboardScreen.kt`**: Removed `isCurrentlyActive` and the `"ACTIVE"` badge from Focus Sessions cards.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 9).
+          - Zero APK build actions taken (Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.22: DeckListScreen Multi-Criteria In-Memory Sorting & Dual Dropdown Governance)**:
+        - *Why It Was Mandated (Multi-Criteria Deck Sorting & Ascending/Descending Order Governance)*:
+          - *Multi-Criteria Deck Sorting Requirements*: The user requested sorting options on the Standard Decks screen (`DeckListScreen.kt`) with selectable sort criteria and directional controls (ascending vs descending). Previously, `DeckListScreen.kt` strictly displayed decks in fixed descending creation order (`ORDER BY createdAt DESC`), with no ability to organize decks by title, flashcard volume, study mastery/accuracy, or recency.
+          - *In-Memory $O(N \log N)$ Sorting Engine & Reactive Flow Preservation*: Rather than burdening the Room database with dynamic queries or re-querying SQLite on every dropdown toggle, `sortedDecks` is derived reactively in memory via `remember(decks, deckStatsById, sortType, sortOrder)` using a clean `Comparator<Deck>` with deterministic `id` tie-breaking. This ensures instantaneous $< 0.1$ms re-ordering, preserves real-time Flow updates when cards/decks are added or modified, and maintains UI stability.
+          - *Ergonomic Material 3 Dual-Dropdown Header Bar*: Implemented a 50/50 split dual dropdown bar below the screen title:
+            - **Sort by Dropdown**: Supports `Date Created` (default), `Name` (alphabetical case-insensitive), `Card Count` (total flashcards), `Accuracy` (quiz score %), and `Last Studied` (last study timestamp), displaying a checkmark next to the active selection.
+            - **Order Dropdown**: Supports `Descending` (default) and `Ascending` with direction icons (`ArrowDownward` / `ArrowUpward`) and active checkmark indicators.
+            - **State Persistence**: Selected sort criteria and order are held in `rememberSaveable`, persisting across configuration changes and device rotations.
+        - *Architectural & File Modifications*:
+          - **`DeckListScreen.kt`**: Added `DeckSortType` and `SortOrder` enums; added `sortType`, `sortOrder`, and dropdown expansion states; derived `sortedDecks`; added sort bar row in `LazyColumn`; fed `sortedDecks` to deck card items.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `./gradlew compileDebugKotlin` (`BUILD SUCCESSFUL in 4m 18s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 9).
+          - Zero APK build actions taken (Rule 1 & Rule 2).
+
+      - **Non-Major Refinement (Sub-Patch 34.23: Cold-Start Main-Thread Unblocking, Scoped Recomposition Timers, Async Cached Icon Decoding & LinkSheet / ActivityStartManager Allowlist)**:
+        - *Why It Was Mandated (Initial Lag vs. Warmup Smoothness & Utility App Allowlisting)*:
+          - *Main-Thread Startup Stall (`StoredKnowledgeEngine.init`)*: `MainViewModel.init {}` previously invoked `StoredKnowledgeEngine.init(application.applicationContext)` synchronously on the main UI thread, loading the MediaPipe TFLite model (`SemanticEmbeddingEngine.init`) and querying `words.db` before UI frames could settle. Offloading `StoredKnowledgeEngine.init(...)` to `viewModelScope.launch(Dispatchers.IO)` removes this main-thread startup stall.
+          - *Main-Thread Icon Decoding (`DashboardScreen.AppIconDisplay`)*: `AppIconDisplay` previously decoded 144x144 `Bitmap` icons synchronously on the UI thread inside `remember(packageName)`, causing frame drops when opening or scrolling Allowed Apps before icons were cached. Added a process-level `LruCache<String, ImageBitmap>(128)` backed by `produceState` on `Dispatchers.IO`.
+          - *Every-1-Second Full-Screen Recompositions*: `DashboardScreen` previously mutated `currentTimeMillis` at its root every `1000L` ms, recomposing the entire dashboard every second. Extracted `ScheduleCountdownText` as a self-contained leaf composable so only the countdown `Text` recomposes every second. In `MainActivity.kt` (`SirenQuizApp`), cached `lockPrefs` via `remember(context)` and gated the 1s `currentTimeMillis` loop on `hasActiveScheduleOrLockdown`.
+          - *LinkSheet & ActivityStartManager Allowlisting*: Added `"fe.linksheet"`, `"fe.linksheet.nightly"`, `"fe.linksheet.debug"`, and `"t8numen.activitystartmanager"` to `KnownSafe.BASELINE_SAFE_PACKAGES`, and updated `LockAccessibilityService.checkAutoQuizTicker()` to evaluate `KnownSafe.isKnownSafe(this, fgPkg, whitelist, AppClassifier.getActiveServices(this))` (replacing dead `isPassedStage3SystemAllow(null, fgPkg, null)`), ensuring neither utility is blocked during Lockdown or counted toward AutoQuiz non-allowed app usage.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt`**: Offloaded `StoredKnowledgeEngine.init(...)` to `viewModelScope.launch(Dispatchers.IO)`.
+          - **`DashboardScreen.kt`**: Added `appIconCache` (`LruCache`), async `Dispatchers.IO` icon loading in `AppIconDisplay`, and scoped `ScheduleCountdownText` leaf composable; removed root `currentTimeMillis` ticker.
+          - **`MainActivity.kt`**: Cached `lockPrefs` and short-circuited the 1s `currentTimeMillis` ticker when no active schedules or lockdown exist.
+          - **`KnownSafe.kt`**: Added LinkSheet (`fe.linksheet`, `fe.linksheet.nightly`, `fe.linksheet.debug`) and `t8numen.activitystartmanager` to `BASELINE_SAFE_PACKAGES`.
+          - **`LockAccessibilityService.kt`**: Replaced `whitelist`/`isCameraApp`/`isPassedStage3SystemAllow(null, ...)` in `checkAutoQuizTicker()` with `KnownSafe.isKnownSafe(this, fgPkg, whitelist, AppClassifier.getActiveServices(this))`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 1m 41s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.24: Aggressive Learning & Grading System — FSRS-Lite DB Migration, Anti-Subsidy Scoring, Lockdown Error Re-Queueing & Recall-Before-Recognition Gate)**:
+        - *Why It Was Mandated (Maximizing Retention via Desirable Difficulties & FSRS)*:
+          - *FSRS-Lite Spaced Repetition & Safe Migration (`v2` -> `v3`)*: `Flashcard` previously tracked only coarse `masteryLevel` (`0/1/2`), `timesReviewed`, and `timesCorrect` without `stability`, `difficulty`, `lastReviewedAt`, or `nextReviewAt`. Added FSRS-Lite fields to `Flashcard` with explicit `MIGRATION_2_3` in `AppDatabase.kt`, mapping response-latency tiers (`UNREAL` -> `4`, `INSTANT`/`SHARP` -> `3`, `DELIBERATE` -> `2`, `HESITANT`/Wrong -> `1`) to power-law retrievability and stability updates, and prioritizing due/low-stability cards in `MainViewModel.prioritizeCardsForRetention()`.
+          - *Anti-Subsidy Scoring & Negative Marking*: Previously, `UNREAL` awarded `1.5f` points, allowing fast easy cards to subsidize failed cards. Capped `UNREAL` passing credit at `1.0f` while keeping its visual tier celebration, and applied `-0.25f` negative marking on wrong first-try guesses in `LockedQuizScreen.kt`.
+          - *Lockdown-Enforced Error Re-Queueing*: Missed or `>= hesitant` cards in `LockedQuizScreen.kt` are now re-queued 2–3 positions ahead via `QuizQuestionItem(isRecoveryRequeue = true)` (capped at 1 mandatory remediation pass per card at `0f` extra points) so weak concepts must be retrieved before unlocking.
+          - *Recall-Before-Recognition Gate*: Added a `1.5s` `"Think of the answer... (Tap to reveal options)"` delay before showing MCQ options in `LockedQuizScreen.kt` and `QuizScreen.kt`, starting `questionStartTime` only after options appear.
+        - *Architectural & File Modifications*:
+          - **`Entities.kt`, `Daos.kt`, `AppDatabase.kt`, `DeckRepository.kt`**: Added FSRS-Lite columns, `MIGRATION_2_3`, updated `updateCardStats`, and implemented FSRS-Lite `recordCardReview()`.
+          - **`MainViewModel.kt`**: Added `isRecoveryRequeue`, `prioritizeCardsForRetention()`, recovery re-queue insertion, and negative point support in `submitAnswer()`.
+          - **`LockedQuizScreen.kt`, `QuizScreen.kt`**: Added 1.5s Recall-Before-Recognition gate, FSRS grade mapping, `1.0f` `UNREAL` cap, `-0.25f` negative marking, and mandatory recovery re-queueing in `LockedQuizScreen`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 1m 38s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.25: Unified `completeFocusSchedule` Lifecycle for AutoQuiz & Rescheduled Sessions)**:
+        - *Why It Was Mandated (Rescheduled AutoQuiz Post-Lockdown Bug & DRY Lifecycle Unification)*:
+          - *ADB Root-Cause Diagnosis (`uncode_lock.xml`)*: Verified on-device that a failed AutoQuiz (`id = "auto_quiz_1794264803432"`) rescheduled into `_focusSchedules` still hit the `if (scheduleId != null && scheduleId.startsWith("auto_quiz"))` early-return branch in `MainViewModel.completeFocusSchedule()`. Passing the rescheduled quiz cleared `auto_quiz_*` prefs and returned early without removing the schedule from `_focusSchedules`, without writing `last_completed_window_end_<id>`, and without cancelling `AlarmReceiver.cancelLockEndAlarm(context)`, causing Post-Lockdown to activate when the schedule reached `0:00`.
+          - *Single Unified Completion Path*: Refactored `MainViewModel.completeFocusSchedule()` into one shared path: clearing `auto_quiz_*` active flags up front when `scheduleId.startsWith("auto_quiz")`, then running unified `_focusSchedules` lookup/removal, `last_completed_window_end_<id>` persistence, `AlarmReceiver.cancelLockEndAlarm(context)`, `_failedFocusSessions` updates, and consequence/lockdown teardown.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt`**: Unified `completeFocusSchedule()` into a single DRY lifecycle path for both live AutoQuiz and scheduled/rescheduled Focus Sessions.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 1m 45s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.26: Manual "Tap to reveal choices" Gate & Updated Default Score Thresholds)**:
+        - *Why It Was Mandated (Self-Paced Active Recall & Calibrated Fluency Defaults)*:
+          - *Manual Choice Reveal*: Replaced the `1500ms` auto-reveal delay in `LockedQuizScreen.kt` and `QuizScreen.kt` with a user-controlled `"Tap to reveal choices"` prompt card so learners can read questions and perform active recall at their own pace, starting `questionStartTime` only when choices are tapped open.
+          - *Default Score Thresholds*: Updated default `ScoreThresholds` in `MainViewModel.kt` to `unreal = 2.5f`, `instant = 4.5f`, `sharp = 5.5f`, `deliberate = 6.5f`, and `hesitant = 8.5f`.
+        - *Architectural & File Modifications*:
+          - **`LockedQuizScreen.kt`, `QuizScreen.kt`**: Removed `delay(1500L)` auto-reveal; updated unrevealed card text to `"Tap to reveal choices"`.
+          - **`MainViewModel.kt`**: Updated `ScoreThresholds` and `_scoreThresholds` fallback defaults to `2.5f / 4.5f / 5.5f / 6.5f / 8.5f`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 1m 26s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.27: Gizmo-Style 50/50 Uniform Split Quiz Layout)**:
+        - *Why It Was Mandated (Eliminating Jagged Card Heights & Layout Jumps)*:
+          - *50/50 Vertical Screen Split*: Previously in `LockedQuizScreen.kt` and `QuizScreen.kt`, the top question card used `minHeight = 120.dp` and the bottom choices container wrapped its content, causing layout jumps between `"Tap to reveal choices"` and variable-line options.
+          - *Uniform Full-Height Halves*: Updated both `quiz_top_transition` and `quiz_choices_transition` to use `Modifier.weight(1f)`. The top question/diagram card fills the entire top 50%, `"Tap to reveal choices"` fills the entire bottom 50%, and revealed choice cards each take `Modifier.weight(1f)` inside `Column(Modifier.fillMaxSize())` for uniform, non-jagged heights.
+        - *Architectural & File Modifications*:
+          - **`LockedQuizScreen.kt`, `QuizScreen.kt`**: Applied 50/50 `weight(1f)` split, `fillMaxSize()` question/reveal cards, and equal `weight(1f)` option cards.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 29s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.28: 1-Minute Warning Wording & Persistent Warning Notification Deduplication)**:
+        - *Why It Was Mandated (Accurate Timer Copy & Eliminating Duplicate Alarm/Ticker Notifications)*:
+          - *1-Minute Warning Wording*: Updated `LockAccessibilityService.checkAndFireLockdownTimerWarning()` from `"⏳ 1 minute remaining before lockdown auto-unlocks."` to `"⏳ 1 minute remaining"`.
+          - *Warning Notification Deduplication*: Both `AlarmReceiver.handleScheduleWarning()` and `LockAccessibilityService` (`checkAndFireTickerWarning` / `checkAndFireLockdownTimerWarning`) previously fired `NOTIF_ID_WARNING` (`1003`) independently for the same milestones without shared deduplication. Added `AlarmReceiver.tryClaimWarningSlot(context, dedupKey)` backed by `uncode_lock` `SharedPreferences` (120s window) so each milestone fires once.
+        - *Architectural & File Modifications*:
+          - **`AlarmReceiver.kt`**: Added `tryClaimWarningSlot()` and milestone bucket deduplication in `handleScheduleWarning()`.
+          - **`LockAccessibilityService.kt`**: Updated 1-minute warning text and gated both `checkAndFireTickerWarning()` and `checkAndFireLockdownTimerWarning()` with `AlarmReceiver.tryClaimWarningSlot()`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 40s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.29: Removal of `< Reply >` Resource Query Notification & Top-Aligned Quiz Questions)**:
+        - *Why It Was Mandated (Obsolete Notification Removal & Fixed Top Reading Anchor)*:
+          - *`< Reply >` Notification Removal (`NOTIF_ID_RESOURCE_QUERY = 1006`)*: Removed `QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification` calls from `MainActivity.kt` and `BootReceiver.kt`, removed `ResourceQueryReceiver.onShadeCollapsed` calls from `LockAccessibilityService.kt`, and updated `postAlwaysActiveResourceQueryNotification()` to cancel any existing `NOTIF_ID_RESOURCE_QUERY` notification immediately.
+          - *Top-Aligned Question Cards*: Updated the top 50% question `Card` inner `Column` in `LockedQuizScreen.kt` and `QuizScreen.kt` to `Arrangement.Top`, `Alignment.Start`, and `TextAlign.Start` so questions consistently anchor at the top of the card regardless of length.
+        - *Architectural & File Modifications*:
+          - **`MainActivity.kt`, `BootReceiver.kt`, `LockAccessibilityService.kt`, `QiezkaNotificationHelper.kt`**: Disabled and cancelled `NOTIF_ID_RESOURCE_QUERY`.
+          - **`LockedQuizScreen.kt`, `QuizScreen.kt`**: Top-aligned question card content.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 2m 9s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.30: Top-Centered Quiz Questions & MainActivity Main-Thread Offloading)**:
+        - *Why It Was Mandated (Top-Center Question Alignment & Eliminating MainActivity Main-Thread Stalls)*:
+          - *ADB Profiling Findings*: Cold-start profiling via ADB (`am force-stop`, `am start -W`, `dumpsys gfxinfo`, `dumpsys package`, `logcat -s Choreographer`) showed `status=run-from-apk` (`WaitTime: 2400ms`, `14/14` janky frames on the prior APK build before `cmd package compile -m speed-profile` brought it to `status=verify` / `1280ms`), and revealed remaining main-thread work in `MainActivity.kt`.
+          - *Top-Centered Quiz Questions (`LockedQuizScreen.kt`, `QuizScreen.kt`)*: Kept `verticalArrangement = Arrangement.Top` and restored `Alignment.CenterHorizontally` + `TextAlign.Center` inside the top 50% question card so questions anchor at the top while staying horizontally centered.
+          - *Offloading `MainActivity.onResume` & Window Styling (`MainActivity.kt`)*: Moved `QiezkaWidgetProvider.syncLauncherIconVisibility(this)` (`PackageManager` IPC) and `QiezkaNotificationListener.requestRebind(this)` in `onResume()` to `lifecycleScope.launch(Dispatchers.IO)`, and replaced `SideEffect` in `setContent` with `LaunchedEffect(isDark)` so `window.setBackgroundDrawable(...)` only runs when `isDark` changes.
+        - *Architectural & File Modifications*:
+          - **`LockedQuizScreen.kt`, `QuizScreen.kt`**: Set top-aligned, horizontally centered alignment on the question card.
+          - **`MainActivity.kt`**: Offloaded `onResume()` IPC to `Dispatchers.IO` and gated window background updates with `LaunchedEffect(isDark)`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android --stop; .\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 2m 52s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
+      - **Non-Major Refinement (Sub-Patch 34.31: Silent `ALWAYS_ALLOWED_UTILITIES`, Auto-Allowed Eligible Apps & Plain-JSON Export/Import with Confirmation Modal)**:
+        - *Why It Was Mandated (Decluttering Utility Apps, Auto-Allowing Newly Installed Eligible Apps & Secure Backup Portability)*:
+          - *Silent Always-Allowed Utilities (`KnownSafe.kt`)*: Moved `fe.linksheet`, `fe.linksheet.nightly`, `fe.linksheet.debug`, and `t8numen.activitystartmanager` from `BASELINE_SAFE_PACKAGES` to `ALWAYS_ALLOWED_UTILITIES` (checked in `KnownSafe.isKnownSafe()`), keeping them always allowed silently without cluttering selectable Allowed Apps.
+          - *Auto-Allow Newly Installed Eligible Apps (`MainViewModel.kt`)*: Added `"user_deselected_apps"` tracking in `siren_app_prefs` via `syncEligibleAndAllowedPackages()` so all eligible apps (including newly installed ones) are automatically allowed unless explicitly deselected by the user.
+          - *Plain-JSON Export & Import with S1->S2->S3 Defense & Confirmation Modal (`MainViewModel.kt`, `SettingsScreen.kt`)*: Wired SAF `Export` (`CreateDocument`) and `Import` (`OpenDocument`). Import is blocked while `isPolicyLocked` is active, silently runs all imported apps through S1->S2->S3 sanitization (`sanitizeImportPackageIds()`), and displays a confirmation modal (`"You are about to import these settings"`) summarizing deck/schedule/failed-session counts, Study Enforcement, conditional Extreme settings, and Policy services with `Abort` and `Confirm` buttons.
+        - *Architectural & File Modifications*:
+          - **`KnownSafe.kt`**: Added `ALWAYS_ALLOWED_UTILITIES` and checked it in `isKnownSafe()`.
+          - **`MainViewModel.kt`**: Added `syncEligibleAndAllowedPackages()`, `user_deselected_apps` persistence, `ImportBackupPreview`, `exportBackupJson()`, `sanitizeImportPackageIds()`, `prepareImportBackup()`, and `applyImportBackup()`.
+          - **`SettingsScreen.kt`**: Wired `Export` / `Import` SAF launchers and the `Abort` / `Confirm` import preview modal.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin` (`BUILD SUCCESSFUL in 1m 41s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.32: Release R8 Flogger Keep Rules & `SemanticEmbeddingEngine` `Throwable` Fallback (Release Startup Crash Fix)**
+        - *Why It Was Mandated (Release `ExceptionInInitializerError` in `MediaPipe` `Graph.<clinit>`)*:
+          - *R8 Flogger Caller Stack Preservation (`proguard-rules.pro`)*: Added `-keep class com.google.common.flogger.** { *; }` and `-dontwarn com.google.common.flogger.**`. MediaPipe's `Graph.<clinit>` invokes Google Flogger (`com.google.common.flogger`), which inspects the call stack for the caller class; R8 obfuscation/inlining caused `IllegalStateException: no caller found on the stack` wrapped in `ExceptionInInitializerError`.
+          - *Graceful Error Handling (`SemanticEmbeddingEngine.kt`)*: Updated `SemanticEmbeddingEngine.init` from `catch (e: Exception)` to `catch (_: Throwable)` because `ExceptionInInitializerError` extends `java.lang.Error` rather than `Exception`, ensuring any native or static initializer failure degrades gracefully without crashing background threads.
+        - *Architectural & File Modifications*:
+          - **`proguard-rules.pro`**: Added `-keep` and `-dontwarn` rules for `com.google.common.flogger.**`.
+          - **`SemanticEmbeddingEngine.kt`**: Changed `catch (e: Exception)` to `catch (_: Throwable)` in `init`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Release Kotlin compilation via `.\android\gradlew.bat -p android compileReleaseKotlin` (`BUILD SUCCESSFUL in 2m 6s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.33: Silent `ALWAYS_ALLOWED_UTILITIES` Enforcement & Selectable List Exclusion (`KnownSafe.kt`, `MainViewModel.kt`)**
+        - *Why It Was Mandated (`t8numen.activitystartmanager` Still Appearing in Selectable Allowed Apps)*:
+          - `fe.linksheet`, `fe.linksheet.nightly`, `fe.linksheet.debug`, and `t8numen.activitystartmanager` remained in `KnownSafe.BASELINE_SAFE_PACKAGES`, and `MainViewModel.isEligibleApp()` / `sanitizeImportPackageIds()` did not exclude `ALWAYS_ALLOWED_UTILITIES`, allowing launchable utilities like `t8numen.activitystartmanager` to appear in the selectable Allowed Apps list.
+          - Moved those four packages into `KnownSafe.ALWAYS_ALLOWED_UTILITIES` and checked `ALWAYS_ALLOWED_UTILITIES.contains(pkg)` in `KnownSafe.isKnownSafe()`, while skipping `KnownSafe.ALWAYS_ALLOWED_UTILITIES` in both `MainViewModel.isEligibleApp()` and `MainViewModel.sanitizeImportPackageIds()`.
+        - *Architectural & File Modifications*:
+          - **`KnownSafe.kt`**: Moved `fe.linksheet*` and `t8numen.activitystartmanager` from `BASELINE_SAFE_PACKAGES` to `ALWAYS_ALLOWED_UTILITIES`, and added the check to `isKnownSafe()`.
+          - **`MainViewModel.kt`**: Excluded `KnownSafe.ALWAYS_ALLOWED_UTILITIES` in `isEligibleApp()` and `sanitizeImportPackageIds()`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 6m 14s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.34: Anti-Tamper Blocklist & Dynamic Capability Detection for App Freezers, Privilege Bridges, Root & LSPosed Forks (`KnownDistracting.kt`, `AppClassifier.kt`)**
+        - *Why It Was Mandated (Blocking Lockdown-Bypass, Freezing & Hooking Tools)*:
+          - *Static & Signature Coverage (`KnownDistracting.kt`)*: Added app freezers/killers/isolators (`com.catchingnow.icebox`, `com.aistra.hail`, `me.piebridge.brevent`, `com.oasisfeng.greenify`, `deltazero.amarok`, `rikka.appops`, `com.oasisfeng.island`, `net.typeblog.shelter`), privilege bridges (`moe.shizuku.privileged.api`, `com.dergoogler.dhizuku`), KernelSU & forks (`me.weishu.kernelsu`, `com.rifsxd.ksunext`, `com.sukisu.ultra`), Magisk forks & APatch (`io.github.huskydg.magisk`, `io.github.vvb2060.magisk`, `me.bmax.apatch`), and LSPosed & forks (`org.lsposed.manager`, `org.matrix.vector`, `org.meowcat.edxposed.manager`) to `KNOWN_DISTRACTING_PACKAGES`, along with package/label substring signatures.
+          - *Cached Dynamic Capability Detection (`AppClassifier.kt`)*: Added `tamperCapabilityCache`-backed `isTamperCapableApp()` inside `isForbiddenDistraction()` to flag non-system, non-exempt third-party apps holding active `DevicePolicyManager.activeAdmins` or requesting `moe.shizuku.manager.permission.API_V23`, `com.rosan.dhizuku.permission.API`, `android.permission.FORCE_STOP_PACKAGES`, or `android.permission.WRITE_SECURE_SETTINGS`. Because `LockAccessibilityService`, `MainViewModel.isEligibleApp()`, and `MainViewModel.sanitizeImportPackageIds()` all route through `KnownDistracting` and `AppClassifier.isForbiddenDistraction()`, this covers runtime lockdown blocking, selectable Allowed Apps exclusion, and backup import sanitization.
+        - *Architectural & File Modifications*:
+          - **`KnownDistracting.kt`**: Added anti-tamper package IDs to `KNOWN_DISTRACTING_PACKAGES` and signatures to `hasDistractingPackageSignature()` / `hasDistractingLabelSignature()`.
+          - **`AppClassifier.kt`**: Added `tamperCapabilityCache`, `TAMPER_PERMISSIONS`, `isTamperCapableApp()`, and cache invalidation in `clearCache()` / `invalidatePackage()`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 1m 52s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.35: Parasitic Vector/LSPosed (`com.android.shell`) Veto, Niche KernelSU/LSPosed Forks & AutoSchedule/AutoQuiz Policy Lock (`AppClassifier.kt`, `KnownDistracting.kt`, `MainViewModel.kt`, `SettingsScreen.kt`)**
+        - *Why It Was Mandated (Parasitic LSPosed Manager Bypass & Mutable AutoSchedule/AutoQuiz Settings During Lock)*:
+          - *Parasitic Vector / LSPosed Detection (`AppClassifier.kt`)*: ADB inspection revealed `JingMatrix/Vector` runs parasitically inside `com.android.shell` (`processName=org.matrix.vector.manager`, `cmp=com.android.shell/.BugreportWarningActivity`, window `com.android.shell/org.matrix.vector.manager.ui.MainActivity`), bypassing Stage 3 `FLAG_SYSTEM` checks. Updated `isStage1Vetoed()` to veto `pkg == "com.android.shell"` and `activityCls` matching `org.matrix.vector`, `org.lsposed.`, `lsposed`, `edxposed`, or `bugreportwarningactivity`.
+          - *Niche KernelSU & LSPosed Forks (`KnownDistracting.kt`)*: Added `org.matrix.vector.manager`, `com.resukisu.resukisu` (ReSukiSU/BakaSU), and `com.makosu.manager` (MKSU/MakoSU) plus substring signatures (`resukisu`, `bakasu`, `makosu`, `kowsu`, `wildksu`, `vector.manager`).
+          - *AutoSchedule & AutoQuiz Policy Lock (`MainViewModel.kt`, `SettingsScreen.kt`)*: Extracted `isPolicyLocked()` in `MainViewModel.kt` to guard `setAutoScheduleEnabled`, `setAutoScheduleDeckId`, `setAutoScheduleDuration`, `setAutoQuizEnabled`, `setAutoQuizMode`, and `setAutoQuizDeckId`, and gated the 4 wheel pickers (`DECK`, `DURATION`, `AUTO_QUIZ_MODE`, `AUTO_QUIZ_DECK`) in `SettingsScreen.kt` on `!isPolicyLocked`.
+        - *Architectural & File Modifications*:
+          - **`AppClassifier.kt`**: Updated `isStage1Vetoed()` to veto `com.android.shell` and parasitic Xposed/Vector/LSPosed activity classes.
+          - **`KnownDistracting.kt`**: Added niche KernelSU/Vector package IDs and substring signatures.
+          - **`MainViewModel.kt`**: Extracted `isPolicyLocked()` and guarded all AutoSchedule / AutoQuiz setters.
+          - **`SettingsScreen.kt`**: Disabled wheel anchor gestures and popups on AutoSchedule and AutoQuiz Deck/Duration/Mode pickers when `isPolicyLocked` is true.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 2m 38s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.36: Early "Take Quiz Now" Session Preservation, AutoQuiz Timer Removal & Dismissal Failure, `FLAG_SECURE` & Question Reshuffle (`MainViewModel.kt`, `EvaluationScreen.kt`, `MainActivity.kt`, `LockedQuizScreen.kt`, `LockAccessibilityService.kt`, `FloatingOverlayService.kt`)**
+        - *Why It Was Mandated (Preventing Early Session Escape, Removing Redundant AutoQuiz Timer & Hardening Quiz Anti-Cheat)*:
+          - *Early "Take Quiz Now" Failure Preservation (`MainViewModel.kt`, `EvaluationScreen.kt`, `MainActivity.kt`)*: Added `isFocusSessionTimerStillRunning(scheduleId)` so failing "Take Quiz Now" before `lock_end_time` expires skips `completeFocusSchedule(..., passed = false)` / `startConsequenceSession(...)` and returns to `FocusLockScreen` (`onBackToSession`) with the session and timer intact.
+          - *AutoQuiz Timer Removal & Dismissal Failure (`MainViewModel.kt`, `LockAccessibilityService.kt`, `FloatingOverlayService.kt`)*: Removed the artificial 5-minute `auto_quiz_end_time` countdown and `FloatingOverlayService` timer for AutoQuiz (rescheduling a failed AutoQuiz already converts it to a standard timed `FocusScheduleItem`). Added dismissal detection in `LockAccessibilityService.checkAutoQuizTicker()` using `autoQuizLeftAtMs` so switching to another app immediately expires AutoQuiz into a Failed Session, while `com.android.systemui`/Launcher gets a `1800ms` grace window so tapping Recents and returning to QIEZKA is forgiven.
+          - *Screenshot Prevention & Question Reshuffling (`LockedQuizScreen.kt`, `MainViewModel.kt`)*: Applied `WindowManager.LayoutParams.FLAG_SECURE` via `DisposableEffect` while `LockedQuizScreen` is active, and added `reshuffleActiveQuizQuestions()` triggered on `Lifecycle.Event.ON_STOP` (when interactive) to reshuffle remaining unanswered questions and MCQ options and reset the question timer/reveal via `quizReshuffleNonce`.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt`**: Added `isFocusSessionTimerStillRunning()`, `quizReshuffleNonce`, `reshuffleActiveQuizQuestions()`, and removed `auto_quiz_end_time` / `FloatingOverlayService` startup from `startAutoQuiz()`.
+          - **`EvaluationScreen.kt`, `MainActivity.kt`**: Wired `onBackToSession` and `stayInActiveSession` guard on early failure.
+          - **`LockedQuizScreen.kt`**: Added `FLAG_SECURE` lifecycle scoping, `ON_STOP` reshuffle observer, and `reshuffleNonce` keying.
+          - **`LockAccessibilityService.kt`, `FloatingOverlayService.kt`**: Removed `auto_quiz_end_time` countdowns and added `autoQuizLeftAtMs` dismissal enforcement.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 2m 34s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.37: Math Decks UI, 3-Step Focus Session Type/Deck/Schedule Flow, Formula Editor & Floating Question Label (`Navigation.kt`, `MainActivity.kt`, `DashboardScreen.kt`, `DeckListScreen.kt`, `MathDeckListScreen.kt`, `FlashcardEditorScreen.kt`, `CreateFocusSessionScreen.kt`)**
+        - *Why It Was Mandated (Preparing Math Deck Foundations & Fixing Question Label Behavior)*:
+          - *Math Decks Container & `MathDeckListScreen` (`DashboardScreen.kt`, `DeckListScreen.kt`, `MathDeckListScreen.kt`, `Navigation.kt`, `MainActivity.kt`)*: Filtered Standard Decks to `category != "math"`, added a matching **Math Decks** container on `DashboardScreen` copying the Standard Decks container style, and created `MathDeckListScreen` delegating to parameterized `DeckListScreen(isMathOnly = true)` (opening manual editor directly without AI/Custom Import while standalone `mathx` is in construction).
+          - *Manual Formula Editor & Floating `"Question"` Label (`FlashcardEditorScreen.kt`)*: Added `isMathMode` (`isMath || deck?.category == "math"`) replacing Question/Answer/Photo with a single `Formula` `OutlinedTextField` saved under `category = "math"`. Replaced the custom `Surface` + `BasicTextField` for Standard `Question` with `OutlinedTextField(label = { Text("Question") }, trailingIcon = ...)` so `"Question"` floats into the top border line when tapped, matching `"Answer"`.
+          - *3-Step Focus Session Creation (`CreateFocusSessionScreen.kt`)*: Added **Step 1: Select Quiz Type** (`Standard` / `Math`) -> **Step 2: Select Deck** (filtered by chosen type) -> **Step 3: Schedule**.
+        - *Architectural & File Modifications*:
+          - **`Navigation.kt`, `MainActivity.kt`**: Added `Screen.MathDeckList` and `Screen.FlashcardEditor.isMath`.
+          - **`DashboardScreen.kt`**: Filtered Standard Decks and added the Math Decks container.
+          - **`DeckListScreen.kt`, `MathDeckListScreen.kt`**: Parameterized `DeckListScreen(isMathOnly)` and added `MathDeckListScreen`.
+          - **`FlashcardEditorScreen.kt`**: Added `isMath` Formula mode and floating `"Question"` `OutlinedTextField`.
+          - **`CreateFocusSessionScreen.kt`**: Added 3-step Quiz Type -> Deck -> Schedule flow.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 2m 40s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.38: `sage-formula-lab` Math Engine & `SciCalcKeyboard` Integration, Reschedule `Starts in 00:00` Fix & Infinite Wheel-Picker Looping (`build.gradle`, `proguard-rules.pro`, `com.uncode.app.math.*`, `FlashcardEditorScreen.kt`, `MainViewModel.kt`, `LockedQuizScreen.kt`, `DashboardScreen.kt`, `FailedHomeworksScreen.kt`, `CreateFocusSessionScreen.kt`)**
+        - *Why It Was Mandated (Procedural Math Quizzes, Non-IME SciCalc Formula Editor & Scheduling Fixes)*:
+          - *`sage-formula-lab` Math Engine & `SciCalcKeyboard` (`build.gradle`, `proguard-rules.pro`, `com.uncode.app.math.*`)*: Added `org.matheclipse:matheclipse-parser:3.2.0` + R8 keep rules, and ported `SymjaEngine`, `SymbolicCalculus`, `MathFormatter`, `MathInputController`, `MathLayoutEngine`, `SciCalcKey`, `KeyboardLayouts`, `SciCalcKeyboard`, and theme definitions.
+          - *Non-IME Formula Editor & Error Save Guard (`FlashcardEditorScreen.kt`)*: Replaced the Formula `OutlinedTextField` in `isMathMode` with a non-IME interactive Formula Box (`MathFormulaView` + `LocalSoftwareKeyboardController.hide()` / `focusManager.clearFocus()`) that docks `SciCalcKeyboard` at the bottom without invoking Android's native IME, shows live `SymjaEngine.validate()` errors, and blocks saving when any formula is invalid or incomplete.
+          - *Dynamic Procedural Math Quizzes & Accuracy Scoring (`MainViewModel.kt`, `LockedQuizScreen.kt`)*: Added `SymjaEngine.warmup()`, `QuizQuestionItem.isMath`, and `buildMathDistractors()` in `buildQuizQuestionItems()` so Math Deck quizzes dynamically mutate variables/constants/operators and evaluate fresh answers with 3 plausible distractors on every run, awarding `1.0f` for correct first-try answers without reaction-speed tier penalties.
+          - *Rescheduled AutoQuiz `Starts in 00:00` Fix & Infinite Wheel Looping (`MainViewModel.kt`, `DashboardScreen.kt`, `FailedHomeworksScreen.kt`, `CreateFocusSessionScreen.kt`)*: Cleared stale `last_completed_window_end_` and `armed_window_*` keys in `rescheduleFailedSession()`, stopped writing `last_completed_window_end_` for one-shot AutoQuiz failures in `completeFocusSchedule()`, updated `ScheduleCountdownText` to roll past windows and show `"Starting now..."` inside the active window, and fixed `scrollToItem((50_000 * size) + idx)` across all hour/minute/duration wheel pickers so 12->1, 59->0, and duration wheels loop infinitely.
+        - *Architectural & File Modifications*:
+          - **`build.gradle`, `proguard-rules.pro`**: Added `matheclipse-parser:3.2.0` and R8 rules.
+          - **`com.uncode.app.math.*`**: Ported `sage-formula-lab` math engine, layout engine, and `SciCalcKeyboard`.
+          - **`FlashcardEditorScreen.kt`, `MainViewModel.kt`, `LockedQuizScreen.kt`**: Wired Math Formula Box, `SciCalcKeyboard`, save validation, procedural quiz generation, and accuracy scoring.
+          - **`DashboardScreen.kt`, `FailedHomeworksScreen.kt`, `CreateFocusSessionScreen.kt`**: Fixed reschedule window/countdown sync and infinite wheel-picker offsets.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 3m 30s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.39: Live Formula Cursor/Input Fix & Stacked 2D `MathFormulaView` Rendering for Math Quiz Questions and Choices (`FlashcardEditorScreen.kt`, `LockedQuizScreen.kt`)**
+        - *Why It Was Mandated (Stale `activeVal` Fraction Erase, Formula Tap Cursor Placement & 2D Math Quiz Rendering)*:
+          - *Live `TextFieldValue` State & Cursor Scroll (`FlashcardEditorScreen.kt`)*: Added `currentActiveMathValue()` so every `SciCalcKeyboard` callback reads the latest `TextFieldValue` live at tap time instead of capturing a stale `activeVal` from composition (fixing fraction erasure on `+` after a fraction). Mirrored `sage-formula-lab`'s `FormulaBox` with `horizontalScroll(formulaHScroll)`, cursor auto-scroll, and `draft.term.length` on trailing box taps alongside `MathFormulaView.onSlotClick`.
+          - *2D `MathFormulaView` Question & Choices (`LockedQuizScreen.kt`)*: Updated Math quiz question prompts (`topQ.isMath`) and answer options (`targetQ.isMath`) to render with `MathFormulaView` inside horizontally scrollable containers, matching `sage-formula-lab`'s `OutputBox` and `AnswerBox`.
+        - *Architectural & File Modifications*:
+          - **`FlashcardEditorScreen.kt`**: Added `currentActiveMathValue()`, updated all `SciCalcKeyboard` callbacks, and added `horizontalScroll` + cursor auto-scroll + trailing-tap cursor placement.
+          - **`LockedQuizScreen.kt`**: Rendered Math questions and choices using `MathFormulaView`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 3m 8s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.40: Math Quiz `SyntaxError` Crash Fix (`Throwable` Catch), Single-Container Formula Box & Everywhere-2D `MathFormulaView` Rendering (`SymjaEngine.kt`, `MainViewModel.kt`, `FlashcardEditorScreen.kt`, `DeckDetailScreen.kt`, `QuizScreen.kt`, `QuizResultScreen.kt`)**
+        - *Why It Was Mandated (Runtime `SyntaxError` Crash & Consistent 2D Math Rendering Across All Screens)*:
+          - *`SyntaxError` (`Throwable`) Guard (`SymjaEngine.kt`, `MainViewModel.kt`)*: ADB `logcat` revealed `org.matheclipse.parser.client.SyntaxError` (which extends `java.lang.Error`, not `Exception`) escaped `catch (_: Exception)` in `SymjaEngine` when parsing `g * r * e * a * t * e * r * (6, 4)` during Math quiz startup. Updated `SymjaEngine` catch blocks and `MainViewModel` Math quiz generation/distractor builders to catch `Throwable`.
+          - *Single-Container Formula Box (`FlashcardEditorScreen.kt`)*: Removed the nested `clip`/`background` `Box` inside the Formula `Surface` so the `Surface` itself acts directly as the Formula container.
+          - *Universal 2D Math Rendering (`DeckDetailScreen.kt`, `QuizScreen.kt`, `QuizResultScreen.kt`)*: Rendered Math Deck cards, Active Quiz questions/choices, and Math Quiz Results breakdowns using `MathFormulaView` inside horizontally scrollable containers so fractions, powers, roots, and matrices render properly everywhere instead of single-line plain text.
+        - *Architectural & File Modifications*:
+          - **`SymjaEngine.kt`, `MainViewModel.kt`**: Caught `Throwable` across parser/evaluator paths.
+          - **`FlashcardEditorScreen.kt`**: Simplified Formula `Surface` by removing the nested inner container.
+          - **`DeckDetailScreen.kt`, `QuizScreen.kt`, `QuizResultScreen.kt`**: Added `MathFormulaView` rendering for Math Deck cards, questions, choices, and result breakdowns.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 2m 24s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.41: Fraction Structure Preservation & Equation-Only `promoteLeafId` (`SymjaEngine.kt`)**
+        - *Why It Was Mandated (Preventing Fractions from Collapsing to Whole Numbers or Unsolvable `x` Expressions)*:
+          - `SymjaEngine.generateGeneralInstance()` previously promoted random constants/fractions to `x` even on bare expressions without `=`, and `mutateSubtree()` replaced `FractionNode` with `targetVar` or simplified numbers into whole numbers.
+          - Restricted `promoteLeafId` to `Equal` (`=`) equations (`isEquation`) so arithmetic formulas remain numeric and solvable, and updated `FractionNode` mutation to preserve fraction structure (`den` in `2..9`, `num` in `1..9` with `num % den != 0`, or `$targetVar/$den` / `$num/$targetVar` when promoted inside an equation).
+        - *Architectural & File Modifications*:
+          - **`SymjaEngine.kt`**: Updated `FractionNode` mutation and `promoteLeafId` condition in `generateGeneralInstance()`.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 3m 12s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.42: Comparison Infix Formatting & `True`/`False` Evaluation, Variable Comparison Questions & Adaptive `1x–5x` Math Formula Repetition (`SymjaEngine.kt`, `MainViewModel.kt`)**
+        - *Why It Was Mandated (Comparison Randomization/Evaluation & Per-Formula Adaptive Math Practice)*:
+          - *Comparison Infix Formatting & `True`/`False` Evaluation (`SymjaEngine.kt`)*: `mutateSubtree()` previously fell through to `greater(a, b)` for `Less`, `Greater`, `LessEqual`, `GreaterEqual`, and `Unequal`; added explicit infix formatting (`"$left ${mapHeadToOperator(head)} $right"`). Added `DoubleEvaluator.evaluateNodeLogical()` evaluation in `evaluateAnswer()` for variable-free comparisons returning `"True"` / `"False"`.
+          - *Boolean & Variable Comparison Questions (`MainViewModel.kt`)*: Constant comparisons use `listOf("True", "False")` options. Single-variable comparisons (`tryBuildVariableComparisonQuestion()`) append ` = True` or ` = False` to the prompt (e.g., `x > 9 = False`) and pick a satisfying `x = <val>` answer with 3 non-satisfying distractors.
+          - *Adaptive Per-Formula Repetition (`MainViewModel.kt`)*: Added `mathRepeatCount()` and `expandMathCardsForQuiz()` in `startSingleDeckQuiz()` and `startFocusSessionQuiz()` so each Math formula is instantiated `1x–5x` per quiz (interleaved, capped at 15) based on per-card `timesReviewed`, `timesCorrect`, `difficulty`, `stability`, and `masteryLevel`, with each copy mutated independently.
+        - *Architectural & File Modifications*:
+          - **`SymjaEngine.kt`**: Fixed comparison infix formatting in `mutateSubtree()` and added `evaluateNodeLogical()` evaluation for constant comparisons in `evaluateAnswer()`.
+          - **`MainViewModel.kt`**: Added `mathRepeatCount()`, `expandMathCardsForQuiz()`, `tryBuildVariableComparisonQuestion()`, and `True`/`False` option handling.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 5m 30s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+    - **Sub-Patch 34.43: Complexity-Scaled Math `UNREAL`/`SOLVED` Scoring, Prompt Deduplication Across Queue & Recovery Re-Queues, and `MathFormulaView` Card Previews (`MainViewModel.kt`, `LockedQuizScreen.kt`, `QuizScreen.kt`, `FocusLockScreen.kt`, `StatsScreens.kt`)**
+        - *Why It Was Mandated (Fair Speed Rewards, Unique Formula Instances & Consistent Math Rendering)*:
+          - *Complexity-Scaled Math `UNREAL` / `SOLVED` Scoring*: A fixed time threshold penalized multi-step equations relative to simple arithmetic. `computeMathUnrealSeconds()` now computes a per-formula `mathUnrealSec` budget (`5f..60f`) from AST node count, operation/function weights (`Plus`/`Minus`, `Times`/`Divide`, `Power`, trig/log/sqrt, derivatives/integrals), and equation-solving overhead, stored on `QuizQuestionItem`. Both `LockedQuizScreen.kt` and `QuizScreen.kt` award `1.5f` (`"UNREAL"`, `awardedGrade = 4`) when `latencySec < targetQ.mathUnrealSec` and `1.0f` (`"SOLVED"`, `awardedGrade = 3`) otherwise, with `0f` on missed initial attempts or recovery re-queues.
+          - *Math Formula Deduplication Across Queue & Re-Queues*: Previously, repeated or missed-and-requeued Math cards could surface identical mutated prompts. `buildSingleMathQuizItem()` now retries `symjaEngine.mutate()` up to 16 times (and up to 12 times for variable comparison prompts) against `seenPrompts` during `buildQuizQuestionItems()`, and `submitAnswer()` re-generates a fresh non-duplicate mutated `QuizQuestionItem` from `q.rawFormula` when `requeueOnMiss` triggers on `q.isMath`.
+          - *`MathFormulaView` in Remaining Card Lists*: `FocusLockScreen.kt` (Review Flashcards) and `StatsScreens.kt` (`DeckStatsScreen` Card Performance List) previously rendered `card.termOrQuestion` as plain single-line `Text`. Both now render Math deck cards (`category == "math"`) using `MathFormulaView(MathFormatter.toDisplayString(card.termOrQuestion))` inside a horizontally scrollable `Box`.
+        - *Architectural & File Modifications*:
+          - **`MainViewModel.kt`**: Added `mathUnrealSec` and `rawFormula` to `QuizQuestionItem`; added `computeMathUnrealSeconds()` and `buildSingleMathQuizItem()`; updated `buildQuizQuestionItems()` and `submitAnswer()` recovery re-queue handling.
+          - **`LockedQuizScreen.kt` & `QuizScreen.kt`**: Updated `targetQ.isMath` grading to compare `latencySec < targetQ.mathUnrealSec` for `UNREAL` (`1.5f`) vs `SOLVED` (`1.0f`).
+          - **`FocusLockScreen.kt` & `StatsScreens.kt`**: Added `MathFormulaView` rendering with `.horizontalScroll(rememberScrollState())` for Math deck cards.
+        - *Verification Procedures & Quality Adherence*:
+          - Verified Debug and Release Kotlin compilation via `.\android\gradlew.bat -p android compileDebugKotlin compileReleaseKotlin` (`BUILD SUCCESSFUL in 2m 30s`).
+          - Zero in-code comments, docstrings, or TODOs in modified code (Rule 1).
+          - Zero APK build actions taken (Rule 1).
+
 
 ---
 

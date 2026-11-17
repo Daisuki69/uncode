@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.uncode.app.ui.Screen
 import com.uncode.app.ui.screens.CreateFocusSessionScreen
@@ -34,6 +35,7 @@ import com.uncode.app.ui.screens.DashboardScreen
 import com.uncode.app.ui.screens.FailedHomeworksScreen
 import com.uncode.app.ui.screens.DeckDetailScreen
 import com.uncode.app.ui.screens.DeckListScreen
+import com.uncode.app.ui.screens.MathDeckListScreen
 import com.uncode.app.ui.screens.DeckStatsScreen
 import com.uncode.app.ui.screens.FlashcardEditorScreen
 import com.uncode.app.ui.screens.LockedQuizScreen
@@ -49,7 +51,9 @@ import com.uncode.app.ui.theme.MyApplicationTheme
 import com.uncode.app.viewmodel.AppThemeMode
 import com.uncode.app.viewmodel.MainViewModel
 import java.util.Calendar
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -57,13 +61,25 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAutoQuizIntent(targetIntent: Intent?) {
         if (targetIntent?.getStringExtra("route") == "auto_quiz") {
+            val incomingAutoQuizId = targetIntent.getStringExtra("auto_quiz_id")
             targetIntent.removeExtra("route")
+            targetIntent.removeExtra("auto_quiz_id")
             val current = viewModel.navigationBackStack.lastOrNull()
             if (current !is Screen.LockedQuiz) {
-                viewModel.startAutoQuiz { finalId ->
-                    viewModel.navigationBackStack.add(Screen.LockedQuiz(finalId))
+                viewModel.startAutoQuiz(incomingAutoQuizId) { finalId ->
+                    if (viewModel.navigationBackStack.lastOrNull() !is Screen.LockedQuiz) {
+                        viewModel.navigationBackStack.add(Screen.LockedQuiz(finalId))
+                    }
                 }
             }
+        }
+    }
+
+    fun onAutoQuizExpired() {
+        runOnUiThread {
+            viewModel.onAutoQuizExpiredFromService()
+            viewModel.navigationBackStack.clear()
+            viewModel.navigationBackStack.add(Screen.Dashboard)
         }
     }
 
@@ -105,7 +121,6 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
 
-        QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(this)
         handleAutoQuizIntent(intent)
 
         setContent {
@@ -118,7 +133,7 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme(darkTheme = isDark) {
                 val view = androidx.compose.ui.platform.LocalView.current
                 if (!view.isInEditMode) {
-                    androidx.compose.runtime.SideEffect {
+                    LaunchedEffect(isDark) {
                         val navColor = if (isDark) darkNavScrim else lightNavScrim
                         window.setBackgroundDrawable(
                             android.graphics.drawable.ColorDrawable(
@@ -145,8 +160,10 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         sIsRunning = true
         sInstance = this
-        QiezkaWidgetProvider.syncLauncherIconVisibility(this)
-        QiezkaNotificationListener.requestRebind(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            QiezkaWidgetProvider.syncLauncherIconVisibility(this@MainActivity)
+            QiezkaNotificationListener.requestRebind(this@MainActivity)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -200,6 +217,10 @@ fun SirenQuizApp(
 
     BackHandler(enabled = canNavigateBack) {
         if (currentScreen is Screen.LockedQuiz) {
+            if (currentScreen.scheduleId?.startsWith("auto_quiz") == true) {
+                MainActivity.getInstance()?.moveTaskToBack(true)
+                return@BackHandler
+            }
             viewModel.clearActiveQuiz()
         }
         navigateBack()
@@ -210,23 +231,30 @@ fun SirenQuizApp(
     val isConsequenceActive by viewModel.isConsequenceActive.collectAsStateWithLifecycle()
     val operatingMode by viewModel.operatingMode.collectAsStateWithLifecycle()
     val isSafemode = operatingMode.equals("safemode", ignoreCase = true)
+    var pendingQuizSchedule by remember { mutableStateOf<com.uncode.app.viewmodel.FocusScheduleItem?>(null) }
+    val hasActiveScheduleOrLockdown = remember(focusSchedules, isLockdownActive, pendingQuizSchedule) {
+        pendingQuizSchedule != null || isLockdownActive || focusSchedules.any { it.isActive }
+    }
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(hasActiveScheduleOrLockdown) {
+        if (!hasActiveScheduleOrLockdown) return@LaunchedEffect
         while (true) {
             currentTimeMillis = System.currentTimeMillis()
             delay(1000L)
         }
     }
 
-    var pendingQuizSchedule by remember { mutableStateOf<com.uncode.app.viewmodel.FocusScheduleItem?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lockPrefs = remember(context) { context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE) }
 
     val activeSchedule = remember(focusSchedules, isLockdownActive, isConsequenceActive, currentTimeMillis, pendingQuizSchedule, isSafemode) {
         if (pendingQuizSchedule != null) {
             return@remember pendingQuizSchedule
         }
-        val context = viewModel.getApplication<android.app.Application>()
-        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        if (!hasActiveScheduleOrLockdown) {
+            return@remember null
+        }
 
         val inWindowSchedule = focusSchedules.firstOrNull { schedule ->
             if (!schedule.isActive) return@firstOrNull false
@@ -329,6 +357,7 @@ fun SirenQuizApp(
                 DashboardScreen(
                     viewModel = viewModel,
                     onNavigateToMyDecks = { navigateTo(Screen.DeckList) },
+                    onNavigateToMathDecks = { navigateTo(Screen.MathDeckList) },
                     onNavigateToDeckDetail = { deckId -> navigateTo(Screen.DeckDetail(deckId)) },
                     onNavigateToCreateDeck = { navigateTo(Screen.DeckList) },
                     onNavigateToStartQuiz = { navigateTo(Screen.StartQuiz()) },
@@ -360,6 +389,16 @@ fun SirenQuizApp(
                 )
             }
 
+            is Screen.MathDeckList -> {
+                MathDeckListScreen(
+                    viewModel = viewModel,
+                    onBack = { navigateBack() },
+                    onSelectDeck = { deckId -> navigateTo(Screen.DeckDetail(deckId)) },
+                    onNavigateToOverallStats = { navigateTo(Screen.OverallStats) },
+                    onNavigateToManualEditor = { deckId -> navigateTo(Screen.FlashcardEditor(deckId, isMath = true)) }
+                )
+            }
+
             is Screen.DeckDetail -> {
                 DeckDetailScreen(
                     deckId = screen.deckId,
@@ -383,7 +422,8 @@ fun SirenQuizApp(
                     onBack = { navigateBack() },
                     onSaveAndFinished = {
                         navigateBack()
-                    }
+                    },
+                    isMath = screen.isMath
                 )
             }
 
@@ -490,7 +530,13 @@ fun SirenQuizApp(
             is Screen.LockedQuiz -> {
                 LockedQuizScreen(
                     viewModel = viewModel,
-                    onBack = { navigateBack() },
+                    onBack = {
+                        if (screen.scheduleId?.startsWith("auto_quiz") == true) {
+                            MainActivity.getInstance()?.moveTaskToBack(true)
+                        } else {
+                            navigateBack()
+                        }
+                    },
                     onQuizCompleted = { sessionId, maxPts, earnedPts ->
                         backStack.removeAt(backStack.lastIndex)
                         navigateTo(Screen.Evaluation(screen.scheduleId, maxPts, earnedPts))
@@ -504,7 +550,8 @@ fun SirenQuizApp(
                     scheduleId = screen.scheduleId,
                     maxPoints = screen.maxPoints,
                     earnedPoints = screen.earnedPoints,
-                    onBackToDashboard = { popToDashboard() }
+                    onBackToDashboard = { popToDashboard() },
+                    onBackToSession = { navigateBack() }
                 )
             }
 
@@ -536,6 +583,7 @@ fun SirenQuizApp(
                 DashboardScreen(
                     viewModel = viewModel,
                     onNavigateToMyDecks = { navigateTo(Screen.DeckList) },
+                    onNavigateToMathDecks = { navigateTo(Screen.MathDeckList) },
                     onNavigateToDeckDetail = { deckId -> navigateTo(Screen.DeckDetail(deckId)) },
                     onNavigateToCreateDeck = { navigateTo(Screen.DeckList) },
                     onNavigateToStartQuiz = { navigateTo(Screen.StartQuiz()) },

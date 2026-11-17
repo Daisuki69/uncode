@@ -35,7 +35,7 @@ object SemanticEmbeddingEngine {
 
                 embedder = TextEmbedder.createFromOptions(context.applicationContext, options)
                 isInitialized = true
-            } catch (e: Exception) {
+            } catch (_: Throwable) {
                 embedder = null
                 isInitialized = false
             }

@@ -483,44 +483,8 @@ object QiezkaNotificationHelper {
     @JvmStatic
     fun postAlwaysActiveResourceQueryNotification(context: Context) {
         try {
-            val prefs = context.getSharedPreferences("uncode_study_cards", Context.MODE_PRIVATE)
-            val isUnlocked = prefs.getBoolean("is_unlocked", false)
-            val savedFlatIndex = prefs.getInt("card_index", 0)
-
-            val notif = if (isUnlocked) {
-                val decks = ResourceQueryReceiver.getAllStudyDecks(context)
-                val resolved = ResourceQueryReceiver.resolveDeckAndCard(decks, savedFlatIndex)
-                if (resolved != null) {
-                    buildStudyCardNotification(
-                        context,
-                        resolved.deck.title,
-                        resolved.card,
-                        resolved.cardIndexInDeck,
-                        resolved.deck.cards.size,
-                        isUnlocked = true
-                    )
-                } else {
-                    buildStudyCardNotification(
-                        context,
-                        null,
-                        null,
-                        0,
-                        0,
-                        isUnlocked = false
-                    )
-                }
-            } else {
-                buildStudyCardNotification(
-                    context,
-                    null,
-                    null,
-                    0,
-                    0,
-                    isUnlocked = false
-                )
-            }
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            nm?.notify(NOTIF_ID_RESOURCE_QUERY, notif)
-        } catch (ignore: Exception) {}
+            nm?.cancel(NOTIF_ID_RESOURCE_QUERY)
+        } catch (_: Exception) {}
     }
 }

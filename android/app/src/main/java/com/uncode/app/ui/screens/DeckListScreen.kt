@@ -1,4 +1,4 @@
-﻿package com.uncode.app.ui.screens
+package com.uncode.app.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,21 +15,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Functions
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -46,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,8 +60,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.uncode.app.data.Deck
-import com.uncode.app.ui.components.MathDeckInfoDialog
 import com.uncode.app.viewmodel.MainViewModel
+
+enum class DeckSortType(val label: String) {
+    DATE_CREATED("Date Created"),
+    NAME("Name"),
+    CARD_COUNT("Card Count"),
+    ACCURACY("Accuracy"),
+    LAST_STUDIED("Last Studied")
+}
+
+enum class SortOrder(val label: String) {
+    ASCENDING("Ascending"),
+    DESCENDING("Descending")
+}
 
 private data class DeckItemMetrics(
     val totalCards: Int,
@@ -76,12 +92,21 @@ fun DeckListScreen(
     onNavigateToTemplateLibrary: () -> Unit,
     onNavigateToManualEditor: (Long) -> Unit,
     onNavigateToCustomImport: () -> Unit,
+    isMathOnly: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val decks by viewModel.allDecks.collectAsStateWithLifecycle()
+    val allDecks by viewModel.allDecks.collectAsStateWithLifecycle()
+    val decks = remember(allDecks, isMathOnly) {
+        if (isMathOnly) allDecks.filter { it.category == "math" } else allDecks.filter { it.category != "math" }
+    }
     val allCards by viewModel.allFlashcards.collectAsStateWithLifecycle()
     val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
     val failedSessions by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
+
+    var sortType by rememberSaveable { mutableStateOf(DeckSortType.DATE_CREATED) }
+    var sortOrder by rememberSaveable { mutableStateOf(SortOrder.DESCENDING) }
+    var sortTypeMenuExpanded by remember { mutableStateOf(false) }
+    var sortOrderMenuExpanded by remember { mutableStateOf(false) }
 
     val lockedDeckIds = remember(focusSchedules, failedSessions) {
         val set = mutableSetOf<Long>()
@@ -106,13 +131,34 @@ fun DeckListScreen(
         }
     }
 
+    val sortedDecks = remember(decks, deckStatsById, sortType, sortOrder) {
+        val comparator: Comparator<Deck> = when (sortType) {
+            DeckSortType.DATE_CREATED -> compareBy { it.createdAt }
+            DeckSortType.NAME -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+            DeckSortType.CARD_COUNT -> compareBy { deckStatsById[it.id]?.totalCards ?: 0 }
+            DeckSortType.ACCURACY -> compareBy { deckStatsById[it.id]?.accuracy ?: 0 }
+            DeckSortType.LAST_STUDIED -> compareBy { it.lastStudiedAt ?: 0L }
+        }
+        val orderedComparator = if (sortOrder == SortOrder.DESCENDING) {
+            comparator.reversed().thenByDescending { it.id }
+        } else {
+            comparator.thenBy { it.id }
+        }
+        decks.sortedWith(orderedComparator)
+    }
+
     var showCreateMethodDialog by remember { mutableStateOf(false) }
-    var showMathDeckInfo by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showCreateMethodDialog = true },
+                onClick = {
+                    if (isMathOnly) {
+                        onNavigateToManualEditor(0L)
+                    } else {
+                        showCreateMethodDialog = true
+                    }
+                },
                 modifier = Modifier.testTag("deck_list_create_fab")
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Create Deck")
@@ -145,7 +191,7 @@ fun DeckListScreen(
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Standard Decks",
+                        text = if (isMathOnly) "Math Decks" else "Standard Decks",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
@@ -153,7 +199,175 @@ fun DeckListScreen(
                 }
             }
 
-            items(decks, key = { it.id }) { deck ->
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { sortTypeMenuExpanded = true }
+                                .testTag("deck_sort_by_dropdown"),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Sort by",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        fontSize = 10.sp
+                                    )
+                                    Text(
+                                        text = sortType.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Select sort type",
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = sortTypeMenuExpanded,
+                            onDismissRequest = { sortTypeMenuExpanded = false }
+                        ) {
+                            DeckSortType.entries.forEach { type ->
+                                val isSelected = type == sortType
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = type.label,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Selected",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        sortType = type
+                                        sortTypeMenuExpanded = false
+                                    },
+                                    modifier = Modifier.testTag("deck_sort_type_${type.name}")
+                                )
+                            }
+                        }
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { sortOrderMenuExpanded = true }
+                                .testTag("deck_sort_order_dropdown"),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Order",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        fontSize = 10.sp
+                                    )
+                                    Text(
+                                        text = sortOrder.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Select sort order",
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = sortOrderMenuExpanded,
+                            onDismissRequest = { sortOrderMenuExpanded = false }
+                        ) {
+                            SortOrder.entries.forEach { order ->
+                                val isSelected = order == sortOrder
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = order.label,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (order == SortOrder.ASCENDING) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                                            contentDescription = null,
+                                            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Selected",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        sortOrder = order
+                                        sortOrderMenuExpanded = false
+                                    },
+                                    modifier = Modifier.testTag("deck_sort_order_${order.name}")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            items(sortedDecks, key = { it.id }) { deck ->
                 val stats = deckStatsById[deck.id]
                 val totalCards = stats?.totalCards ?: 0
                 val statsText = when {
@@ -226,98 +440,6 @@ fun DeckListScreen(
                     }
                 }
             }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Math Decks",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
-                        ) {
-                            Text(
-                                text = "In Construction",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = { showMathDeckInfo = true },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "What is Math Deck?",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showMathDeckInfo = true }
-                        .testTag("deck_list_math_decks_container"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Functions,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Procedural Problem Library",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Infinite randomized problem instances from algebraic templates.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        if (showMathDeckInfo) {
-            MathDeckInfoDialog(onDismiss = { showMathDeckInfo = false })
         }
 
         if (showCreateMethodDialog) {

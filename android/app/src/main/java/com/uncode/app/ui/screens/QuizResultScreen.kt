@@ -1,4 +1,4 @@
-﻿package com.uncode.app.ui.screens
+package com.uncode.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -78,6 +78,10 @@ fun QuizResultScreen(
             return@Scaffold
         }
 
+        val allDecks by viewModel.allDecks.collectAsStateWithLifecycle()
+        val isMathSession = remember(session.deckNames, allDecks) {
+            allDecks.any { it.category == "math" && session.deckNames.contains(it.title) }
+        }
         val reviewLogs = remember(session.answerLogsJson) {
             QuestionReviewLog.parseList(session.answerLogsJson)
         }
@@ -226,24 +230,68 @@ fun QuizResultScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "${index + 1}. ${log.question}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            if (isMathSession) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .then(
+                                                Modifier.let { m ->
+                                                    m
+                                                }
+                                            )
+                                    ) {
+                                        com.uncode.app.math.ui.math.MathFormulaView(
+                                            formula = log.question,
+                                            fontSize = 16.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "${index + 1}. ${log.question}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            Row {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("Correct Answer: ", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
-                                Text(log.correctAnswer, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                if (isMathSession) {
+                                    com.uncode.app.math.ui.math.MathFormulaView(
+                                        formula = log.correctAnswer,
+                                        fontSize = 14.sp,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                } else {
+                                    Text(log.correctAnswer, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                }
                             }
 
                             if (!log.isCorrect && log.userAnswer.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Row {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Your Answer: ", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
-                                    Text(log.userAnswer, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                    if (isMathSession) {
+                                        com.uncode.app.math.ui.math.MathFormulaView(
+                                            formula = log.userAnswer,
+                                            fontSize = 14.sp,
+                                            color = Color(0xFFC62828)
+                                        )
+                                    } else {
+                                        Text(log.userAnswer, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                    }
                                 }
                             }
                         }

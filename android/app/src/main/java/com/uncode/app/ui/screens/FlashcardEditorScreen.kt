@@ -12,6 +12,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -122,11 +124,22 @@ fun FlashcardEditorScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
     onSaveAndFinished: () -> Unit,
+    isMath: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val decks by viewModel.allDecks.collectAsStateWithLifecycle()
     val allCards by viewModel.allFlashcards.collectAsStateWithLifecycle()
     val deck = decks.find { it.id == deckId }
+    val isMathMode = isMath || deck?.category == "math"
+
+    val symjaEngine = remember { com.uncode.app.math.symja.SymjaEngine() }
+    val mathInputController = remember { com.uncode.app.math.ui.math.MathInputController() }
+    var activeMathCardKey by remember { mutableStateOf<String?>(null) }
+    var mathSelectedTab by remember { mutableStateOf(com.uncode.app.math.ui.keyboard.KeyboardTab.BASIC) }
+    var matrixDialogIsDet by remember { mutableStateOf<Boolean?>(null) }
+    val mathFieldStates = remember { androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.ui.text.input.TextFieldValue>() }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val softwareKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
 
     var editableDeckTitle by remember { mutableStateOf("") }
     var editableDeckCategory by remember { mutableStateOf("") }
@@ -146,6 +159,66 @@ fun FlashcardEditorScreen(
     }
 
     val cardDrafts = remember { mutableStateListOf<EditableCardDraft>() }
+
+    fun getMathFieldValue(draft: EditableCardDraft): androidx.compose.ui.text.input.TextFieldValue {
+        return mathFieldStates[draft.tempKey]
+            ?: androidx.compose.ui.text.input.TextFieldValue(
+                text = draft.term,
+                selection = androidx.compose.ui.text.TextRange(draft.term.length)
+            )
+    }
+
+    fun currentActiveMathValue(): androidx.compose.ui.text.input.TextFieldValue? {
+        val key = activeMathCardKey ?: return null
+        val draft = cardDrafts.find { it.tempKey == key } ?: return null
+        return getMathFieldValue(draft)
+    }
+
+    fun updateActiveMathField(updated: androidx.compose.ui.text.input.TextFieldValue) {
+        val key = activeMathCardKey ?: return
+        val idx = cardDrafts.indexOfFirst { it.tempKey == key }
+        if (idx == -1) return
+        mathFieldStates[key] = updated
+        if (cardDrafts[idx].term != updated.text) {
+            cardDrafts[idx] = cardDrafts[idx].copy(term = updated.text)
+        }
+    }
+
+    fun validateMathFormula(raw: String): com.uncode.app.math.symja.SymjaValidation {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() ||
+            trimmed.contains("()") ||
+            trimmed.contains("(;") ||
+            trimmed.contains(";;") ||
+            trimmed.contains(";)") ||
+            trimmed.contains("||") ||
+            trimmed.startsWith("^") ||
+            trimmed.startsWith("/") ||
+            trimmed.endsWith("/") ||
+            trimmed.endsWith("^") ||
+            trimmed.endsWith("√") ||
+            trimmed.endsWith("∛")
+        ) {
+            return com.uncode.app.math.symja.SymjaValidation(
+                isValid = false,
+                astNode = null,
+                variables = emptyList(),
+                constants = emptyList(),
+                operators = emptyList(),
+                errorMessage = "Incomplete formula"
+            )
+        }
+        val res = symjaEngine.validate(trimmed)
+        return if (res.isValid && res.astNode != null) {
+            res
+        } else {
+            res.copy(isValid = false, errorMessage = res.errorMessage ?: "Invalid formula")
+        }
+    }
+
+    BackHandler(enabled = isMathMode && activeMathCardKey != null) {
+        activeMathCardKey = null
+    }
     val deletedCardIds = remember { mutableStateListOf<Long>() }
     var initialDraftsSnapshot by remember { mutableStateOf<List<EditableCardDraft>>(emptyList()) }
     var isInitialized by remember { mutableStateOf(false) }
@@ -347,17 +420,26 @@ fun FlashcardEditorScreen(
             if (trimmedTitle.isBlank()) {
                 issues.add("Missing title")
             }
-            if (cardDrafts.any { it.annotations.isEmpty() && it.term.trim().isBlank() }) {
-                issues.add("Missing Question")
-            }
-            if (cardDrafts.any { it.annotations.isEmpty() && it.definition.trim().isBlank() }) {
-                issues.add("Missing Answer")
-            }
-            if (cardDrafts.any { it.annotations.isNotEmpty() && it.annotations.any { ann -> !ann.isBoxAttached } }) {
-                issues.add("Leader line missing an attached answer box")
-            }
-            if (cardDrafts.any { it.annotations.isNotEmpty() && it.annotations.any { ann -> ann.labelAnswer.trim().isBlank() } }) {
-                issues.add("Answer box missing an answer")
+            if (isMathMode) {
+                cardDrafts.forEachIndexed { idx, draft ->
+                    val validation = validateMathFormula(draft.term)
+                    if (!validation.isValid) {
+                        issues.add("Card ${idx + 1}: ${validation.errorMessage ?: "Invalid formula"}")
+                    }
+                }
+            } else {
+                if (cardDrafts.any { it.annotations.isEmpty() && it.term.trim().isBlank() }) {
+                    issues.add("Missing Question")
+                }
+                if (cardDrafts.any { it.annotations.isEmpty() && it.definition.trim().isBlank() }) {
+                    issues.add("Missing Answer")
+                }
+                if (cardDrafts.any { it.annotations.isNotEmpty() && it.annotations.any { ann -> !ann.isBoxAttached } }) {
+                    issues.add("Leader line missing an attached answer box")
+                }
+                if (cardDrafts.any { it.annotations.isNotEmpty() && it.annotations.any { ann -> ann.labelAnswer.trim().isBlank() } }) {
+                    issues.add("Answer box missing an answer")
+                }
             }
 
             if (issues.isNotEmpty()) {
@@ -368,11 +450,12 @@ fun FlashcardEditorScreen(
             }
 
             isSaving = true
+            val resolvedCategory = if (isMathMode) "math" else editableDeckCategory.trim()
             if (deckId <= 0L) {
                 viewModel.createDeck(
                     title = trimmedTitle,
                     description = editableDeckDescription.trim(),
-                    category = editableDeckCategory.trim(),
+                    category = resolvedCategory,
                     colorHex = "#3F51B5"
                 ) { newDeckId ->
                     viewModel.saveAllCardsForDeck(
@@ -388,7 +471,7 @@ fun FlashcardEditorScreen(
                 if (deck != null) {
                     val updatedDeck = deck.copy(
                         title = trimmedTitle,
-                        category = editableDeckCategory.trim(),
+                        category = resolvedCategory,
                         description = editableDeckDescription.trim()
                     )
                     viewModel.updateDeck(updatedDeck)
@@ -772,13 +855,32 @@ fun FlashcardEditorScreen(
                 }
             }
         } else {
-            LazyColumn(
+            if (matrixDialogIsDet != null) {
+                com.uncode.app.math.ui.keyboard.MatrixDimensionDialog(
+                    isDeterminant = matrixDialogIsDet == true,
+                    onDismiss = { matrixDialogIsDet = null },
+                    onInsert = { rows, cols ->
+                        val isDet = matrixDialogIsDet == true
+                        matrixDialogIsDet = null
+                        val key = activeMathCardKey ?: return@MatrixDimensionDialog
+                        val draft = cardDrafts.find { it.tempKey == key } ?: return@MatrixDimensionDialog
+                        val updated = mathInputController.insertMatrix(getMathFieldValue(draft), rows, cols, isDet)
+                        updateActiveMathField(updated)
+                    }
+                )
+            }
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
+                    .padding(innerPadding)
             ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
 
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -859,10 +961,30 @@ fun FlashcardEditorScreen(
                             )
                         }
 
+                        val mathFieldVal = if (isMathMode) getMathFieldValue(draft) else androidx.compose.ui.text.input.TextFieldValue(draft.term)
+                        val mathValidation = remember(isMathMode, draft.term) {
+                            if (isMathMode && draft.term.isNotBlank()) validateMathFormula(draft.term) else null
+                        }
                         FlashcardEditorRowItem(
                             index = index,
                             totalCount = cardDrafts.size,
                             draft = draft,
+                            isMathMode = isMathMode,
+                            isMathActive = isMathMode && activeMathCardKey == draft.tempKey,
+                            mathCursorIndex = mathFieldVal.selection.start,
+                            mathErrorText = if (mathValidation != null && !mathValidation.isValid) mathValidation.errorMessage else null,
+                            onActivateMathBox = { slotIdx ->
+                                focusManager.clearFocus(force = true)
+                                softwareKeyboard?.hide()
+                                val currentVal = getMathFieldValue(draft)
+                                val nextVal = if (slotIdx != null) {
+                                    mathInputController.onCursorSet(currentVal, slotIdx)
+                                } else {
+                                    currentVal
+                                }
+                                mathFieldStates[draft.tempKey] = nextVal
+                                activeMathCardKey = draft.tempKey
+                            },
                             isDragging = isDraggingThis,
                             dragOffsetY = if (isDraggingThis) dragOffsetY else 0f,
                             onDragStart = {
@@ -942,6 +1064,72 @@ fun FlashcardEditorScreen(
                     Spacer(modifier = Modifier.height(32.dp))
                 }
             }
+            if (isMathMode && activeMathCardKey != null) {
+                val hasActive = cardDrafts.any { it.tempKey == activeMathCardKey }
+                if (hasActive) {
+                    com.uncode.app.math.ui.keyboard.SciCalcKeyboard(
+                        selectedTab = mathSelectedTab,
+                        onTabSelected = { mathSelectedTab = it },
+                        onKeyClick = { key ->
+                            val cur = currentActiveMathValue() ?: return@SciCalcKeyboard
+                            var openedDialog = false
+                            val updated = mathInputController.onKeyClick(
+                                current = cur,
+                                key = key,
+                                onOpenMatrixDialog = { isDet ->
+                                    openedDialog = true
+                                    matrixDialogIsDet = isDet
+                                }
+                            )
+                            if (!openedDialog) {
+                                updateActiveMathField(updated)
+                            }
+                        },
+                        onSelectAlternate = { baseKey, altKey ->
+                            val cur = currentActiveMathValue() ?: return@SciCalcKeyboard
+                            val updated = mathInputController.selectAlternate(
+                                current = cur,
+                                baseKey = baseKey,
+                                altKey = altKey,
+                                onOpenMatrixDialog = { isDet ->
+                                    matrixDialogIsDet = isDet
+                                }
+                            )
+                            updateActiveMathField(updated)
+                        },
+                        onPrepareGesture = {
+                            val cur = currentActiveMathValue() ?: return@SciCalcKeyboard
+                            mathInputController.prepareKeyGesture(cur)
+                        },
+                        onNextStep = {
+                            val cur = currentActiveMathValue() ?: return@SciCalcKeyboard
+                            updateActiveMathField(mathInputController.onNextStep(cur))
+                        },
+                        onBackspace = {
+                            val cur = currentActiveMathValue() ?: return@SciCalcKeyboard
+                            updateActiveMathField(mathInputController.onBackspace(cur))
+                        },
+                        onClear = {
+                            updateActiveMathField(
+                                androidx.compose.ui.text.input.TextFieldValue(
+                                    "",
+                                    selection = androidx.compose.ui.text.TextRange.Zero
+                                )
+                            )
+                        },
+                        onCursorLeft = {
+                            val cur = currentActiveMathValue() ?: return@SciCalcKeyboard
+                            updateActiveMathField(mathInputController.onCursorLeft(cur))
+                        },
+                        onCursorRight = {
+                            val cur = currentActiveMathValue() ?: return@SciCalcKeyboard
+                            updateActiveMathField(mathInputController.onCursorRight(cur))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
         }
     }
 }
@@ -1085,6 +1273,11 @@ private fun FlashcardEditorRowItem(
     index: Int,
     totalCount: Int,
     draft: EditableCardDraft,
+    isMathMode: Boolean,
+    isMathActive: Boolean,
+    mathCursorIndex: Int,
+    mathErrorText: String?,
+    onActivateMathBox: (Int?) -> Unit,
     isDragging: Boolean,
     dragOffsetY: Float,
     onDragStart: () -> Unit,
@@ -1255,141 +1448,178 @@ private fun FlashcardEditorRowItem(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onGloballyPositioned { coords ->
-                            termBounds = coords.boundsInParent()
-                        }
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Question",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                if (draft.photoUri != null && draft.annotations.isNotEmpty()) {
-                                    Text(
-                                        text = "${draft.annotations.size} Targets",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                if (draft.photoUri == null) {
-                                    IconButton(
-                                        onClick = onPickPhoto,
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .testTag("add_photo_card_$index")
-                                    ) {
-                                        Icon(
-                                            Icons.Default.AddPhotoAlternate,
-                                            contentDescription = "Add Photo",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
+                if (isMathMode) {
+                    val hasFormulaError = mathErrorText != null
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            width = if (isMathActive || hasFormulaError) 2.dp else 1.dp,
+                            color = when {
+                                hasFormulaError -> MaterialTheme.colorScheme.error
+                                isMathActive -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.outline
                             }
-                        }
-
-                        BasicTextField(
-                            value = draft.term,
-                            onValueChange = onTermChanged,
-                            textStyle = TextStyle(
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 16.sp
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            decorationBox = { innerTextField ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    innerTextField()
-                                }
-                            },
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onGloballyPositioned { coords ->
+                                termBounds = coords.boundsInParent()
+                            }
+                            .clickable { onActivateMathBox(null) }
+                            .testTag("term_input_$index")
+                    ) {
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .testTag("term_input_$index")
-                        )
-
-                        if (draft.photoUri != null) {
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Formula",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = when {
+                                        hasFormulaError -> MaterialTheme.colorScheme.error
+                                        isMathActive -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                                if (hasFormulaError) {
+                                    Text(
+                                        text = mathErrorText ?: "Invalid formula",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            val formulaHScroll = androidx.compose.foundation.rememberScrollState()
+                            LaunchedEffect(draft.term, mathCursorIndex, formulaHScroll.maxValue) {
+                                if (draft.term.isNotEmpty() && formulaHScroll.maxValue > 0) {
+                                    val progress = (mathCursorIndex.coerceAtLeast(0).toFloat() / draft.term.length.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                    formulaHScroll.animateScrollTo((formulaHScroll.maxValue * progress).toInt())
+                                }
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(180.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF0F172A))
-                                    .clickable { onOpenAnnotationEditor() },
-                                contentAlignment = Alignment.Center
+                                    .heightIn(min = 48.dp)
+                                    .clickable { onActivateMathBox(draft.term.length) }
+                                    .horizontalScroll(formulaHScroll)
+                                    .padding(vertical = 4.dp),
+                                contentAlignment = Alignment.CenterStart
                             ) {
-                                DiagramCanvas(
-                                    diagramType = draft.photoUri,
-                                    modifier = Modifier.fillMaxSize(),
-                                    annotations = draft.annotations,
-                                    maskLabels = false,
-                                    isInteractiveEditor = false
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = onPickPhoto,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text("Change Photo", fontSize = 11.sp)
-                                }
-                                OutlinedButton(
-                                    onClick = onRemovePhoto,
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text("Remove Photo", fontSize = 11.sp)
+                                if (draft.term.isEmpty() && !isMathActive) {
+                                    Text(
+                                        text = "Tap to open SciCalc",
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                } else {
+                                    com.uncode.app.math.ui.math.MathFormulaView(
+                                        formula = draft.term,
+                                        cursorIndex = if (isMathActive) mathCursorIndex else -1,
+                                        fontSize = 22.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        onSlotClick = { slotIdx -> onActivateMathBox(slotIdx) }
+                                    )
                                 }
                             }
                         }
                     }
-                }
-
-                if (draft.annotations.isEmpty()) {
+                } else {
                     OutlinedTextField(
-                        value = draft.definition,
-                        onValueChange = onDefChanged,
-                        label = { Text("Answer") },
+                        value = draft.term,
+                        onValueChange = onTermChanged,
+                        label = { Text("Question") },
+                        trailingIcon = if (draft.photoUri == null) {
+                            {
+                                IconButton(
+                                    onClick = onPickPhoto,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .testTag("add_photo_card_$index")
+                                ) {
+                                    Icon(
+                                        Icons.Default.AddPhotoAlternate,
+                                        contentDescription = "Add Photo",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        } else null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .onGloballyPositioned { coords ->
-                                defBounds = coords.boundsInParent()
+                                termBounds = coords.boundsInParent()
                             }
-                            .testTag("def_input_$index"),
-                        minLines = 2,
+                            .testTag("term_input_$index"),
                         shape = RoundedCornerShape(10.dp)
                     )
+
+                    if (draft.photoUri != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0F172A))
+                                .clickable { onOpenAnnotationEditor() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            DiagramCanvas(
+                                diagramType = draft.photoUri,
+                                modifier = Modifier.fillMaxSize(),
+                                annotations = draft.annotations,
+                                maskLabels = false,
+                                isInteractiveEditor = false
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onPickPhoto,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Change Photo", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = onRemovePhoto,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Remove Photo", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    if (draft.annotations.isEmpty()) {
+                        OutlinedTextField(
+                            value = draft.definition,
+                            onValueChange = onDefChanged,
+                            label = { Text("Answer") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coords ->
+                                    defBounds = coords.boundsInParent()
+                                }
+                                .testTag("def_input_$index"),
+                            minLines = 2,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
                 }
             }
         }

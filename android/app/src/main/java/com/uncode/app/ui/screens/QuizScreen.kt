@@ -15,6 +15,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -116,6 +118,8 @@ fun QuizScreen(
     var submittedQuestionIndices by remember { mutableStateOf(setOf<Int>()) }
     var wrongOptionsByQuestion by remember { mutableStateOf(mapOf<Int, Set<String>>()) }
     var lastTapTimestamp by remember { mutableLongStateOf(0L) }
+    var awardedGrade by remember(currentIndex) { mutableStateOf(3) }
+    var optionsRevealed by remember(currentIndex) { mutableStateOf(false) }
 
     val cardStepByQuestionIndex = remember(questions) {
         val steps = IntArray(questions.size)
@@ -183,11 +187,11 @@ fun QuizScreen(
                     if (rem == 0L) break
                     delay(16L)
                 }
-                viewModel.submitAnswer(selectedOption ?: "", isSelfRatedCorrect = true)
+                viewModel.submitAnswer(selectedOption ?: "", isSelfRatedCorrect = true, fsrsGrade = awardedGrade)
             } else {
                 delay(2000L)
                 val answerToSubmit = firstAttemptWrongAnswer ?: selectedOption ?: ""
-                viewModel.submitAnswer(answerToSubmit, isSelfRatedCorrect = false)
+                viewModel.submitAnswer(answerToSubmit, isSelfRatedCorrect = false, fsrsGrade = 1)
             }
         } else {
             animTrigger = false
@@ -293,16 +297,12 @@ fun QuizScreen(
                     val representativeIndex = cardStepByQuestionIndex.indexOfFirst { it == targetStep }.takeIf { it >= 0 } ?: currentIndex
                     val topQ = questions.getOrNull(representativeIndex) ?: return@AnimatedContent
                     Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.Top
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center
                     ) {
                         if (topQ.isAnnotated && topQ.photoUri != null) {
                             Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(300.dp),
+                                modifier = Modifier.fillMaxSize(),
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                             ) {
@@ -319,7 +319,7 @@ fun QuizScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(260.dp),
+                                    .weight(1f),
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                             ) {
@@ -343,20 +343,17 @@ fun QuizScreen(
                             }
                         } else {
                             Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 120.dp)
-                                    .padding(vertical = 4.dp),
+                                modifier = Modifier.fillMaxSize(),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                 shape = RoundedCornerShape(16.dp)
                             ) {
                                 Column(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 120.dp)
-                                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(horizontal = 20.dp, vertical = 20.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                                    verticalArrangement = Arrangement.Top
                                 ) {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
@@ -371,15 +368,35 @@ fun QuizScreen(
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
 
-                                    Text(
-                                        text = topQ.prompt,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    if (topQ.isMath) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 96.dp)
+                                                .padding(12.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Box(
+                                                modifier = Modifier.horizontalScroll(rememberScrollState())
+                                            ) {
+                                                com.uncode.app.math.ui.math.MathFormulaView(
+                                                    formula = topQ.prompt,
+                                                    fontSize = 22.sp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Text(
+                                            text = topQ.prompt,
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -414,12 +431,13 @@ fun QuizScreen(
                     label = "quiz_choices_transition",
                     modifier = Modifier
                         .fillMaxWidth()
+                        .weight(1f)
                         .disableSplitMotionEvents()
                 ) { targetIndex ->
                     val targetQ = questions.getOrNull(targetIndex) ?: return@AnimatedContent
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         if (targetQ.isAnnotated && targetQ.prompt.isNotBlank()) {
                             Text(
@@ -429,9 +447,34 @@ fun QuizScreen(
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 4.dp)
+                                    .padding(bottom = 2.dp)
                             )
                         }
+                        if (targetIndex == currentIndex && !optionsRevealed) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable {
+                                        optionsRevealed = true
+                                        questionStartTime = System.currentTimeMillis()
+                                    },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Tap to reveal choices",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
                         targetQ.options.forEachIndexed { optIndex, optionText ->
                             val isCardSubmitted = targetIndex in submittedQuestionIndices
                             val cardWrongs = wrongOptionsByQuestion.getOrElse(targetIndex) { emptySet() }
@@ -453,6 +496,7 @@ fun QuizScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .weight(1f)
                                     .clickable(enabled = targetIndex == currentIndex && !isAnswerSubmitted && optionText !in cardWrongs) {
                                         val now = System.currentTimeMillis()
                                         if (now - lastTapTimestamp < 350L || targetIndex != currentIndex || isAnswerSubmitted || optionText in cardWrongs) return@clickable
@@ -467,16 +511,31 @@ fun QuizScreen(
                                             if (cardWrongs.isEmpty()) {
                                                 val latencyMs = (System.currentTimeMillis() - questionStartTime).coerceAtLeast(0L)
                                                 val latencySec = latencyMs / 1000f
-                                                val (title, color) = when {
-                                                    latencySec < scoreThresholds.instant -> "INSTANT" to Color(0xFF00E676)
-                                                    latencySec < scoreThresholds.sharp -> "SHARP" to Color(0xFF00E5FF)
-                                                    latencySec < scoreThresholds.deliberate -> "DELIBERATE" to Color(0xFF448AFF)
-                                                    else -> "HESITANT" to Color(0xFFFFAB00)
+                                                if (targetQ.isMath) {
+                                                    val isUnreal = latencySec < targetQ.mathUnrealSec
+                                                    awardedGrade = if (isUnreal) 4 else 3
+                                                    lockedTierTitle = if (isUnreal) "UNREAL" else "SOLVED"
+                                                    lockedTierColor = if (isUnreal) Color(0xFFFF1744) else Color(0xFF00E676)
+                                                    showSpellAnimation = true
+                                                } else {
+                                                    val (title, color) = when {
+                                                        latencySec < scoreThresholds.instant -> "INSTANT" to Color(0xFF00E676)
+                                                        latencySec < scoreThresholds.sharp -> "SHARP" to Color(0xFF00E5FF)
+                                                        latencySec < scoreThresholds.deliberate -> "DELIBERATE" to Color(0xFF448AFF)
+                                                        else -> "HESITANT" to Color(0xFFFFAB00)
+                                                    }
+                                                    awardedGrade = when {
+                                                        latencySec < scoreThresholds.unreal -> 4
+                                                        title == "INSTANT" || title == "SHARP" -> 3
+                                                        title == "DELIBERATE" -> 2
+                                                        else -> 1
+                                                    }
+                                                    lockedTierTitle = title
+                                                    lockedTierColor = color
+                                                    showSpellAnimation = true
                                                 }
-                                                lockedTierTitle = title
-                                                lockedTierColor = color
-                                                showSpellAnimation = true
                                             } else {
+                                                awardedGrade = 1
                                                 showSpellAnimation = false
                                             }
                                             isAnswerSubmitted = true
@@ -505,18 +564,33 @@ fun QuizScreen(
                             ) {
                                 Row(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        .fillMaxSize()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(
-                                        text = optionText,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 14.sp,
-                                        color = textColor,
-                                        modifier = Modifier.weight(1f)
-                                    )
+                                    if (targetQ.isMath) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .horizontalScroll(rememberScrollState()),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            com.uncode.app.math.ui.math.MathFormulaView(
+                                                formula = optionText,
+                                                fontSize = 18.sp,
+                                                color = textColor
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = optionText,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 14.sp,
+                                            color = textColor,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                     if (isHighlightedAnswer) {
                                         Icon(Icons.Default.Check, contentDescription = "Correct", tint = Color.White)
                                     } else if (isWrongChoice) {
@@ -524,6 +598,7 @@ fun QuizScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }

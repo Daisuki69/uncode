@@ -58,7 +58,9 @@ if errorlevel 1 (
 
 :: Pre-locate local APK if available[cite: 6]
 set "APK_PATH="
-if exist "%PROJECT_DIR%android\app\build\outputs\apk\debug\app-debug.apk" (
+if exist "%PROJECT_DIR%android\app\build\outputs\apk\release\app-release.apk" (
+    set "APK_PATH=%PROJECT_DIR%android\app\build\outputs\apk\release\app-release.apk"
+) else if exist "%PROJECT_DIR%android\app\build\outputs\apk\debug\app-debug.apk" (
     set "APK_PATH=%PROJECT_DIR%android\app\build\outputs\apk\debug\app-debug.apk"
 ) else if exist "%PROJECT_DIR%android\app\build\outputs\apk\debug\qiezka.apk" (
     set "APK_PATH=%PROJECT_DIR%android\app\build\outputs\apk\debug\qiezka.apk"

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -268,26 +270,44 @@ fun FocusLockScreen(
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1F2937)),
                             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                         ) {
+                            val isMathCard = remember(card.deckId, decks) {
+                                decks.any { it.id == card.deckId && it.category == "math" }
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(16.dp)
                             ) {
-                                Text(
-                                    text = card.termOrQuestion.ifBlank {
-                                        if (card.isAnnotated) "Annotated Diagram" else if (!card.photoUri.isNullOrBlank()) "Image Card" else "Untitled Card"
-                                    },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = subtitleText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFF9CA3AF),
-                                    maxLines = 2
-                                )
+                                if (isMathCard) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        com.uncode.app.math.ui.math.MathFormulaView(
+                                            formula = com.uncode.app.math.ui.MathFormatter.toDisplayString(card.termOrQuestion),
+                                            fontSize = 18.sp,
+                                            color = Color.White
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = card.termOrQuestion.ifBlank {
+                                            if (card.isAnnotated) "Annotated Diagram" else if (!card.photoUri.isNullOrBlank()) "Image Card" else "Untitled Card"
+                                        },
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = subtitleText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFF9CA3AF),
+                                        maxLines = 2
+                                    )
+                                }
                             }
                         }
                     }

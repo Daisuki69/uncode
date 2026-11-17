@@ -84,7 +84,6 @@ open class LockAccessibilityService : AccessibilityService() {
             val action = intent?.action
             if ((action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_CLOSE_SYSTEM_DIALOGS) && context != null) {
                 wasNotificationShadeActive = false
-                ResourceQueryReceiver.onShadeCollapsed(context)
             }
         }
     }
@@ -172,15 +171,50 @@ open class LockAccessibilityService : AccessibilityService() {
             if (preferences == null) return false
             val schedulesJson = preferences.getString("schedules_json", null)
             if (schedulesJson.isNullOrBlank()) return false
-            if (schedulesJson.contains("\"isActive\":true") || schedulesJson.contains("\"isActive\": true")) {
-                return true
+            val timeOffset = preferences.getLong("time_offset", preferences.getLong("simulated_time_offset", 0L))
+            val effectiveNow = System.currentTimeMillis() + timeOffset
+            val isHardcore = "hardcore".equals(preferences.getString("operating_mode", "safemode"), ignoreCase = true)
+            if (!isHardcore && !isClockInOperatingHours(effectiveNow)) {
+                return false
             }
+            val stage1PreRangeMs = 30L * 60_000L
             try {
                 val arr = JSONArray(schedulesJson)
                 for (i in 0 until arr.length()) {
                     val s = arr.getJSONObject(i)
-                    if (s.optBoolean("isActive", true)) {
-                        return true
+                    if (!s.optBoolean("isActive", true)) continue
+                    val timeStr = s.optString("activationTime", "")
+                    if (!timeStr.contains(":")) continue
+                    val parts = timeStr.split(":")
+                    val schedHour = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: continue
+                    val schedMin = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: continue
+                    val durationMinutes = s.optInt("durationMinutes", 25)
+                    val durationMs = durationMinutes * 60_000L
+                    val createdAt = s.optLong("createdAt", 0L)
+                    val schedId = s.optString("id", "")
+                    val lastCompletedEnd = if (schedId.isNotEmpty()) {
+                        preferences.getLong("last_completed_window_end_$schedId", 0L)
+                    } else {
+                        0L
+                    }
+                    val baseCal = Calendar.getInstance().apply {
+                        timeInMillis = effectiveNow
+                        set(Calendar.HOUR_OF_DAY, schedHour)
+                        set(Calendar.MINUTE, schedMin)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    if (createdAt > 0L && baseCal.timeInMillis + durationMs <= createdAt) {
+                        baseCal.add(Calendar.DAY_OF_YEAR, 1)
+                    }
+                    val baseStart = baseCal.timeInMillis
+                    for (dayOffset in listOf(-86_400_000L, 0L, 86_400_000L)) {
+                        val wStart = baseStart + dayOffset
+                        val wEnd = wStart + durationMs
+                        if (wEnd <= lastCompletedEnd) continue
+                        if (effectiveNow >= (wStart - stage1PreRangeMs) && effectiveNow < wEnd) {
+                            return true
+                        }
                     }
                 }
             } catch (ignored: Exception) {}
@@ -879,7 +913,6 @@ open class LockAccessibilityService : AccessibilityService() {
             val isShadeOpen = isNotificationShadeVisible()
             if (wasNotificationShadeActive && !isShadeOpen) {
                 wasNotificationShadeActive = false
-                ResourceQueryReceiver.onShadeCollapsed(this)
             } else if (isShadeOpen) {
                 wasNotificationShadeActive = true
             }
@@ -908,7 +941,6 @@ open class LockAccessibilityService : AccessibilityService() {
 
                     if (!isNotificationShadeVisible()) {
                         wasNotificationShadeActive = false
-                        ResourceQueryReceiver.onShadeCollapsed(this)
                         return
                     }
                 }
@@ -2949,6 +2981,7 @@ open class LockAccessibilityService : AccessibilityService() {
 
         if (warnKey != null && warnText != null && !firedWarningKeys.contains(warnKey)) {
             firedWarningKeys.add(warnKey)
+            if (!AlarmReceiver.tryClaimWarningSlot(this, warnKey)) return
             Log.i(TAG, "Firing ticker advance warning: $warnText")
             AlarmReceiver.showNotificationStatic(
                 this,
@@ -2977,7 +3010,7 @@ open class LockAccessibilityService : AccessibilityService() {
             warnText = "⏳ 5 minutes remaining! Finish your homework submission."
         } else if (remSec in 55..60) {
             warnKey = "lock_timer_1m"
-            warnText = "⏳ 1 minute remaining before lockdown auto-unlocks."
+            warnText = "⏳ 1 minute remaining"
         } else if (remSec in 25..30) {
             warnKey = "lock_timer_30s"
             warnText = "⏳ 30 seconds remaining!"
@@ -2985,6 +3018,7 @@ open class LockAccessibilityService : AccessibilityService() {
 
         if (warnKey != null && warnText != null && !firedWarningKeys.contains(warnKey)) {
             firedWarningKeys.add(warnKey)
+            if (!AlarmReceiver.tryClaimWarningSlot(this, warnKey)) return
             Log.i(TAG, "Firing lockdown timer warning: $warnText")
             AlarmReceiver.showNotificationStatic(
                 this,
@@ -3253,6 +3287,115 @@ open class LockAccessibilityService : AccessibilityService() {
         return lastForegroundPackage
     }
 
+    private fun detectActiveForegroundAppForUsage(): String? {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            if (pm != null && !pm.isInteractive) {
+                return null
+            }
+        } catch (_: Exception) {}
+        if (wasNotificationShadeActive || isNotificationShadeVisible()) {
+            return null
+        }
+        try {
+            val activeRoot = rootInActiveWindow
+            if (activeRoot != null) {
+                try {
+                    val pkg = activeRoot.packageName?.toString()
+                    if (!pkg.isNullOrBlank()) {
+                        if (pkg == "com.android.systemui" || pkg == packageName || isLauncherApp(this, pkg) || isKeyboardApp(pkg)) {
+                            return null
+                        }
+                        return pkg
+                    }
+                } finally {
+                    activeRoot.recycle()
+                }
+            }
+        } catch (_: Exception) {}
+        try {
+            val winList = windows
+            if (!winList.isNullOrEmpty()) {
+                for (w in winList) {
+                    if (w.type == AccessibilityWindowInfo.TYPE_APPLICATION && (w.isActive || w.isFocused)) {
+                        val root = w.root
+                        if (root != null) {
+                            try {
+                                val pkg = root.packageName?.toString()
+                                if (!pkg.isNullOrBlank()) {
+                                    if (pkg == "com.android.systemui" || pkg == packageName || isLauncherApp(this, pkg) || isKeyboardApp(pkg)) {
+                                        return null
+                                    }
+                                    return pkg
+                                }
+                            } finally {
+                                root.recycle()
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        val fallback = lastForegroundPackage
+        if (fallback.isNullOrBlank() || fallback == "com.android.systemui" || fallback == packageName || isLauncherApp(this, fallback) || isKeyboardApp(fallback)) {
+            return null
+        }
+        return fallback
+    }
+
+    private var autoQuizLeftAtMs: Long = 0L
+
+    private fun expireAutoQuizSession(
+        currentPrefs: SharedPreferences,
+        effectiveNow: Long,
+        autoQuizId: String
+    ) {
+        val savedDeckId = currentPrefs.getLong("active_auto_quiz_deck_id", -1L)
+        val savedDeckTitle = currentPrefs.getString("active_auto_quiz_deck_title", null) ?: "Pop Quiz"
+        val quizTitle = "AutoQuiz: $savedDeckTitle"
+        currentPrefs.edit()
+            .remove("auto_quiz_in_progress")
+            .remove("active_auto_quiz_id")
+            .remove("auto_quiz_end_time")
+            .remove("active_auto_quiz_deck_id")
+            .remove("active_auto_quiz_deck_title")
+            .remove("auto_quiz_usage_buckets_json")
+            .putLong("auto_quiz_accumulated_seconds", 0L)
+            .apply()
+
+        try {
+            val existingJson = currentPrefs.getString("failed_sessions_json", "[]") ?: "[]"
+            val arr = JSONArray(existingJson)
+            val updatedArr = JSONArray()
+            val newObj = JSONObject().apply {
+                put("id", autoQuizId)
+                put("title", quizTitle)
+                val idsArr = JSONArray()
+                if (savedDeckId != -1L) {
+                    idsArr.put(savedDeckId)
+                }
+                put("selectedDeckIds", idsArr)
+                put("deckNames", savedDeckTitle)
+                put("durationMinutes", 5)
+                put("failedTimestamp", effectiveNow)
+                put("earnedPoints", 0.0)
+                put("maxPoints", 0.0)
+            }
+            updatedArr.put(newObj)
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                if (item.optString("id") != autoQuizId) {
+                    updatedArr.put(item)
+                }
+            }
+            currentPrefs.edit().putString("failed_sessions_json", updatedArr.toString()).apply()
+        } catch (_: Exception) {}
+
+        val whitelist = currentPrefs.getStringSet("whitelist", emptySet()) ?: emptySet()
+        LockPlugin.startConsequenceState(this, autoQuizId, whitelist)
+        MainActivity.getInstance()?.onAutoQuizExpired()
+    }
+
     private fun checkAutoQuizTicker(
         currentPrefs: SharedPreferences,
         effectiveNow: Long,
@@ -3272,21 +3415,37 @@ open class LockAccessibilityService : AccessibilityService() {
         if (!isInPermissibleHours) return
 
         val isQuizInProgress = currentPrefs.getBoolean("auto_quiz_in_progress", false)
-        val fgPkg = detectCurrentForegroundPackage() ?: lastForegroundPackage
-
         if (isQuizInProgress) {
-            if (fgPkg != null && fgPkg != packageName && !isLauncherApp(this, fgPkg)) {
-                launchAutoQuizOverlay(currentPrefs.getString("active_auto_quiz_id", null))
+            val activeQuizId = currentPrefs.getString("active_auto_quiz_id", null) ?: "auto_quiz_$effectiveNow"
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            if (pm?.isInteractive == false) {
+                autoQuizLeftAtMs = 0L
+                return
+            }
+            val fgPkg = detectActiveForegroundAppForUsage() ?: lastForegroundPackage
+            if (fgPkg == null || fgPkg == packageName) {
+                autoQuizLeftAtMs = 0L
+                return
+            }
+            if (fgPkg == "com.android.systemui" || isLauncherApp(this, fgPkg)) {
+                if (autoQuizLeftAtMs <= 0L) {
+                    autoQuizLeftAtMs = effectiveNow
+                } else if (effectiveNow - autoQuizLeftAtMs >= 1800L) {
+                    autoQuizLeftAtMs = 0L
+                    expireAutoQuizSession(currentPrefs, effectiveNow, activeQuizId)
+                }
+            } else {
+                autoQuizLeftAtMs = 0L
+                expireAutoQuizSession(currentPrefs, effectiveNow, activeQuizId)
             }
             return
         }
+        autoQuizLeftAtMs = 0L
 
-        if (fgPkg == null || fgPkg == packageName || isLauncherApp(this, fgPkg) || isKeyboardApp(fgPkg)) {
-            return
-        }
+        val fgPkg = detectActiveForegroundAppForUsage() ?: return
 
         val whitelist = currentPrefs.getStringSet("whitelist", emptySet()) ?: emptySet()
-        val isAllowedApp = whitelist.contains(fgPkg) || KnownSafe.isCameraApp(this, fgPkg, null)
+        val isAllowedApp = KnownSafe.isKnownSafe(this, fgPkg, whitelist, AppClassifier.getActiveServices(this))
         if (isAllowedApp) {
             return
         }
@@ -3317,11 +3476,14 @@ open class LockAccessibilityService : AccessibilityService() {
             }
 
             if (effectiveNow >= targetTimeToday) {
-                val autoQuizId = "auto_quiz_${System.currentTimeMillis()}"
+                val autoQuizId = "auto_quiz_$effectiveNow"
+                autoQuizLeftAtMs = 0L
                 currentPrefs.edit()
                     .putString("auto_quiz_last_daily_date", todayStr)
                     .putBoolean("auto_quiz_in_progress", true)
                     .putString("active_auto_quiz_id", autoQuizId)
+                    .remove("auto_quiz_end_time")
+                    .remove("auto_quiz_usage_buckets_json")
                     .putLong("auto_quiz_accumulated_seconds", 0L)
                     .apply()
                 launchAutoQuizOverlay(autoQuizId)
@@ -3334,17 +3496,54 @@ open class LockAccessibilityService : AccessibilityService() {
                 else -> 30
             }
             val thresholdSec = thresholdMinutes * 60L
-            val currentAccSec = currentPrefs.getLong("auto_quiz_accumulated_seconds", 0L) + 1L
-            if (currentAccSec >= thresholdSec) {
-                val autoQuizId = "auto_quiz_${System.currentTimeMillis()}"
+            val windowMinutes = maxOf(90, thresholdMinutes + 60)
+            val currentMinuteEpoch = effectiveNow / 60_000L
+            val minValidMinuteEpoch = currentMinuteEpoch - windowMinutes + 1L
+
+            val bucketsObj = try {
+                val raw = currentPrefs.getString("auto_quiz_usage_buckets_json", null)
+                if (!raw.isNullOrBlank()) JSONObject(raw) else JSONObject()
+            } catch (_: Exception) {
+                JSONObject()
+            }
+
+            val prunedBuckets = JSONObject()
+            var totalSecInWindow = 0L
+            val keys = bucketsObj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val mEpoch = k.toLongOrNull() ?: continue
+                if (mEpoch in minValidMinuteEpoch..currentMinuteEpoch) {
+                    val sec = bucketsObj.optLong(k, 0L).coerceIn(0L, 60L)
+                    if (sec > 0L) {
+                        prunedBuckets.put(k, sec)
+                        totalSecInWindow += sec
+                    }
+                }
+            }
+
+            val curKey = currentMinuteEpoch.toString()
+            val prevCurSec = prunedBuckets.optLong(curKey, 0L)
+            val nextCurSec = (prevCurSec + 1L).coerceAtMost(60L)
+            prunedBuckets.put(curKey, nextCurSec)
+            totalSecInWindow += (nextCurSec - prevCurSec)
+
+            if (totalSecInWindow >= thresholdSec) {
+                val autoQuizId = "auto_quiz_$effectiveNow"
+                autoQuizLeftAtMs = 0L
                 currentPrefs.edit()
                     .putBoolean("auto_quiz_in_progress", true)
                     .putString("active_auto_quiz_id", autoQuizId)
+                    .remove("auto_quiz_end_time")
+                    .remove("auto_quiz_usage_buckets_json")
                     .putLong("auto_quiz_accumulated_seconds", 0L)
                     .apply()
                 launchAutoQuizOverlay(autoQuizId)
             } else {
-                currentPrefs.edit().putLong("auto_quiz_accumulated_seconds", currentAccSec).apply()
+                currentPrefs.edit()
+                    .putString("auto_quiz_usage_buckets_json", prunedBuckets.toString())
+                    .putLong("auto_quiz_accumulated_seconds", totalSecInWindow)
+                    .apply()
             }
         }
     }

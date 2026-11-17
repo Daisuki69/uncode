@@ -247,6 +247,16 @@ class AlarmReceiver : BroadcastReceiver() {
         }
 
         @JvmStatic
+        fun tryClaimWarningSlot(context: Context, dedupKey: String): Boolean {
+            val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+            val key = "warn_ts_$dedupKey"
+            val now = System.currentTimeMillis()
+            val last = prefs.getLong(key, 0L)
+            if (now - last < 120_000L) return false
+            prefs.edit().putLong(key, now).apply()
+            return true
+        }
+
         fun showNotificationStatic(context: Context, id: Int, channelId: String, title: String, body: String, priority: Int, ongoing: Boolean) {
             try {
                 createNotificationChannels(context)
@@ -463,6 +473,19 @@ class AlarmReceiver : BroadcastReceiver() {
         val notifId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, NOTIF_ID_WARNING)
         if (warningText.isNullOrBlank()) {
             warningText = "Upcoming study session starting soon. Prepare your homework materials."
+        }
+
+        val bucket = when {
+            warningText.contains("30 minutes") -> "30m"
+            warningText.contains("15 minutes") -> "15m"
+            warningText.contains("5 minutes") -> "5m"
+            warningText.contains("1 minute") -> "1m"
+            warningText.contains("30 seconds") -> "30s"
+            warningText.contains("10 seconds") -> "10s"
+            else -> null
+        }
+        if (bucket != null && scheduleId != null && !tryClaimWarningSlot(context, "${scheduleId}_$bucket")) {
+            return
         }
 
         Log.i(TAG, "Posting schedule advance warning: $warningText")

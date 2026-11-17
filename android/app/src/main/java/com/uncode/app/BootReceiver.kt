@@ -17,9 +17,6 @@ class BootReceiver : BroadcastReceiver() {
         // Sync dynamic app drawer icon visibility based on active home screen widgets
         QiezkaWidgetProvider.syncLauncherIconVisibility(context)
 
-        // Ensure always-active resource query notification is running
-        QiezkaNotificationHelper.postAlwaysActiveResourceQueryNotification(context)
-
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val timeOffset = prefs.getLong("time_offset", 0L)
         val effectiveNow = System.currentTimeMillis() + timeOffset

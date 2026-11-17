@@ -84,18 +84,75 @@ class DeckRepository(private val database: AppDatabase) {
         }
     }
 
-    suspend fun recordCardReview(cardId: Long, isCorrect: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun recordCardReview(cardId: Long, isCorrect: Boolean, fsrsGrade: Int = if (isCorrect) 3 else 1) = withContext(Dispatchers.IO) {
         val card = flashcardDao.getFlashcardById(cardId) ?: return@withContext
+        val now = System.currentTimeMillis()
         val newReviewed = card.timesReviewed + 1
         val newCorrect = card.timesCorrect + (if (isCorrect) 1 else 0)
         val accuracy = newCorrect.toFloat() / newReviewed.toFloat()
+
+        val grade = if (!isCorrect) 1 else fsrsGrade.coerceIn(1, 4)
+        val prevDifficulty = card.difficulty.coerceIn(1f, 10f)
+        val difficultyDelta = when (grade) {
+            1 -> 1.1f
+            2 -> 0.4f
+            3 -> -0.15f
+            else -> -0.6f
+        }
+        val newDifficulty = (prevDifficulty * 0.85f + 5.0f * 0.15f + difficultyDelta).coerceIn(1f, 10f)
+
+        val prevStability = card.stability
+        val elapsedDays = if (card.lastReviewedAt > 0L) {
+            ((now - card.lastReviewedAt).coerceAtLeast(0L) / 86_400_000f)
+        } else {
+            0f
+        }
+        val retrievability = if (prevStability > 0f) {
+            1f / (1f + elapsedDays / (9f * prevStability))
+        } else {
+            0f
+        }
+
+        val newStability = if (prevStability <= 0f) {
+            when (grade) {
+                1 -> 0.25f
+                2 -> 0.8f
+                3 -> 2.0f
+                else -> 4.0f
+            }
+        } else if (grade == 1) {
+            (prevStability * 0.3f).coerceIn(0.2f, 2.0f)
+        } else {
+            val gradeMult = when (grade) {
+                2 -> 1.25f
+                3 -> 2.1f
+                else -> 2.8f
+            }
+            val difficultyFactor = (11f - newDifficulty) / 6f
+            val spacingBoost = 1f + (1f - retrievability) * 1.2f
+            (prevStability * gradeMult * difficultyFactor * spacingBoost).coerceIn(0.25f, 365f)
+        }
+
+        val nextIntervalMs = (newStability * 86_400_000f).toLong().coerceAtLeast(600_000L)
+        val nextReviewAt = now + nextIntervalMs
+
         val newMastery = when {
-            newReviewed >= 3 && accuracy >= 0.8f -> 2
+            grade == 1 -> if (newReviewed >= 1) 1 else 0
+            newStability >= 7f && accuracy >= 0.8f -> 2
             newReviewed >= 1 -> 1
             else -> 0
         }
-        flashcardDao.updateCardStats(cardId, if (isCorrect) 1 else 0, newMastery)
-        deckDao.updateLastStudied(card.deckId, System.currentTimeMillis())
+
+        flashcardDao.updateCardStats(
+            id = cardId,
+            correctDelta = if (isCorrect) 1 else 0,
+            mastery = newMastery,
+            stability = newStability,
+            difficulty = newDifficulty,
+            lastReviewedAt = now,
+            nextReviewAt = nextReviewAt
+        )
+        deckDao.updateLastStudied(card.deckId, now)
     }
 
     suspend fun saveQuizSession(session: QuizSession): Long = withContext(Dispatchers.IO) {

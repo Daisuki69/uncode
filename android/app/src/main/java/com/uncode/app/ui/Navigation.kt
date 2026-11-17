@@ -3,8 +3,9 @@ package com.uncode.app.ui
 sealed class Screen {
     data object Dashboard : Screen()
     data object DeckList : Screen()
+    data object MathDeckList : Screen()
     data class DeckDetail(val deckId: Long) : Screen()
-    data class FlashcardEditor(val deckId: Long, val cardId: Long? = null) : Screen()
+    data class FlashcardEditor(val deckId: Long, val cardId: Long? = null, val isMath: Boolean = false) : Screen()
     data class AnnotationEditor(val deckId: Long) : Screen()
     data object TemplateLibrary : Screen()
     data class TemplateReview(val templateId: String) : Screen()

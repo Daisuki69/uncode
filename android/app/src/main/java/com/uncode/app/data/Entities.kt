@@ -29,7 +29,11 @@ data class Flashcard(
     val annotationsJson: String = "[]",
     val masteryLevel: Int = 0,
     val timesReviewed: Int = 0,
-    val timesCorrect: Int = 0
+    val timesCorrect: Int = 0,
+    val stability: Float = 0f,
+    val difficulty: Float = 5f,
+    val lastReviewedAt: Long = 0L,
+    val nextReviewAt: Long = 0L
 )
 
 data class AnnotationItem(

@@ -5,7 +5,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.provider.Settings
+import com.uncode.app.AlarmReceiver
 import com.uncode.app.AppClassifier
+import com.uncode.app.FloatingOverlayService
 import com.uncode.app.KnownDistracting
 import com.uncode.app.KnownSafe
 import com.uncode.app.LocalDnsVpnService
@@ -62,7 +64,11 @@ data class QuizQuestionItem(
     val isAnnotated: Boolean,
     val annotations: List<AnnotationItem>,
     val options: List<String> = emptyList(),
-    val targetAnnotationId: String? = null
+    val targetAnnotationId: String? = null,
+    val isRecoveryRequeue: Boolean = false,
+    val isMath: Boolean = false,
+    val mathUnrealSec: Float = 10f,
+    val rawFormula: String = ""
 )
 
 data class DecayRiskDeck(
@@ -196,11 +202,11 @@ data class FailedFocusSessionItem(
 )
 
 data class ScoreThresholds(
-    val unreal: Float = 1.5f,
-    val instant: Float = 2.5f,
-    val sharp: Float = 3.5f,
-    val deliberate: Float = 4.5f,
-    val hesitant: Float = 5.5f
+    val unreal: Float = 2.5f,
+    val instant: Float = 4.5f,
+    val sharp: Float = 5.5f,
+    val deliberate: Float = 6.5f,
+    val hesitant: Float = 8.5f
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -248,6 +254,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentQuestionIndex = MutableStateFlow(0)
     val currentQuestionIndex: StateFlow<Int> = _currentQuestionIndex.asStateFlow()
 
+    private val _quizReshuffleNonce = MutableStateFlow(0)
+    val quizReshuffleNonce: StateFlow<Int> = _quizReshuffleNonce.asStateFlow()
+
     private val _quizScore = MutableStateFlow(0)
     val quizScore: StateFlow<Int> = _quizScore.asStateFlow()
 
@@ -287,8 +296,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _autoQuizSelectedDeckId = MutableStateFlow<Long?>(null)
     val autoQuizSelectedDeckId: StateFlow<Long?> = _autoQuizSelectedDeckId.asStateFlow()
 
+    private val symjaEngine = com.uncode.app.math.symja.SymjaEngine()
+
+    var activeAutoQuizId: String? = null
+        private set
+
     init {
-        StoredKnowledgeEngine.init(application.applicationContext)
+        viewModelScope.launch(Dispatchers.IO) {
+            StoredKnowledgeEngine.init(application.applicationContext)
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            symjaEngine.warmup()
+        }
         loadAllowedApps()
         loadEligibleApps()
         loadFocusSchedules()
@@ -528,11 +547,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _scoreThresholds = MutableStateFlow(
         ScoreThresholds(
-            unreal = appPrefs.getFloat("score_tier_unreal", 1.5f),
-            instant = appPrefs.getFloat("score_tier_instant", 2.5f),
-            sharp = appPrefs.getFloat("score_tier_sharp", 3.5f),
-            deliberate = appPrefs.getFloat("score_tier_deliberate", 4.5f),
-            hesitant = appPrefs.getFloat("score_tier_hesitant", 5.5f)
+            unreal = appPrefs.getFloat("score_tier_unreal", 2.5f),
+            instant = appPrefs.getFloat("score_tier_instant", 4.5f),
+            sharp = appPrefs.getFloat("score_tier_sharp", 5.5f),
+            deliberate = appPrefs.getFloat("score_tier_deliberate", 6.5f),
+            hesitant = appPrefs.getFloat("score_tier_hesitant", 8.5f)
         )
     )
     val scoreThresholds: StateFlow<ScoreThresholds> = _scoreThresholds.asStateFlow()
@@ -815,23 +834,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startSingleDeckQuiz(deckId, null, onStarted)
     }
 
+    private fun prioritizeCardsForRetention(cards: List<Flashcard>, limit: Int): List<Flashcard> {
+        if (limit <= 0 || cards.size <= limit) return cards.shuffled()
+        val now = System.currentTimeMillis()
+        val prioritized = cards.sortedWith(
+            compareByDescending<Flashcard> { it.nextReviewAt in 1L..now }
+                .thenBy { if (it.nextReviewAt > 0L) it.stability else Float.MAX_VALUE }
+                .thenByDescending { (it.timesReviewed - it.timesCorrect).coerceAtLeast(0) }
+                .thenBy { it.masteryLevel }
+                .thenBy { it.timesReviewed }
+        )
+        return prioritized.take(limit).shuffled()
+    }
+
+    private fun mathRepeatCount(card: Flashcard): Int {
+        if (card.timesReviewed <= 0) return 3
+        val accuracy = card.timesCorrect.toFloat() / card.timesReviewed.toFloat()
+        return when {
+            accuracy < 0.50f -> 5
+            accuracy < 0.70f || card.difficulty >= 7f -> 4
+            accuracy < 0.85f -> 3
+            card.masteryLevel >= 2 && accuracy >= 0.90f && card.stability >= 5f -> 1
+            else -> 2
+        }
+    }
+
+    private fun expandMathCardsForQuiz(
+        cards: List<Flashcard>,
+        mathDeckIds: Set<Long>,
+        maxTotal: Int = 15
+    ): List<Flashcard> {
+        if (cards.isEmpty() || mathDeckIds.isEmpty()) return cards
+        val queues = cards.map { card ->
+            val count = if (card.deckId in mathDeckIds) mathRepeatCount(card) else 1
+            MutableList(count) { card }
+        }
+        val result = mutableListOf<Flashcard>()
+        while (result.size < maxTotal) {
+            var added = false
+            for (q in queues) {
+                if (q.isNotEmpty() && result.size < maxTotal) {
+                    result.add(q.removeAt(0))
+                    added = true
+                }
+            }
+            if (!added) break
+        }
+        return result
+    }
+
     fun startSingleDeckQuiz(deckId: Long, explicitLimit: Int? = null, onStarted: () -> Unit = {}) {
         viewModelScope.launch {
             val deck = repository.getDeck(deckId) ?: return@launch
             val allCards = repository.getFlashcardsSync(deckId)
             if (allCards.isEmpty()) return@launch
 
+            val mathDeckIds = if (deck.category == "math") setOf(deck.id) else emptySet()
             val targetCount = explicitLimit ?: computeSirenSessionRecommendation(allCards).questionCount
-            val targetCards = if (targetCount in 1 until allCards.size) {
-                val prioritized = allCards.sortedWith(
-                    compareByDescending<Flashcard> { (it.timesReviewed - it.timesCorrect).coerceAtLeast(0) }
-                        .thenBy { it.masteryLevel }
-                        .thenBy { it.timesReviewed }
-                )
-                prioritized.take(targetCount).shuffled()
-            } else {
-                allCards.shuffled()
-            }
+            val prioritized = prioritizeCardsForRetention(allCards, targetCount)
+            val targetCards = expandMathCardsForQuiz(prioritized, mathDeckIds)
 
             val quizItems = withContext(Dispatchers.Default) {
                 buildQuizQuestionItems(targetCards, mapOf(deckId to deck.title))
@@ -842,6 +903,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var focusSessionQuizJob: Job? = null
+
+    fun reshuffleActiveQuizQuestions() {
+        val current = _activeQuizQuestions.value
+        val idx = _currentQuestionIndex.value
+        if (current.isEmpty() || idx >= current.size) return
+        val completed = current.take(idx)
+        val remaining = current.drop(idx).map { item ->
+            if (item.options.size > 1) item.copy(options = item.options.shuffled()) else item
+        }.shuffled()
+        _activeQuizQuestions.value = completed + remaining
+        _quizReshuffleNonce.value = _quizReshuffleNonce.value + 1
+    }
 
     fun startFocusSessionQuiz(deckIds: List<Long>, onStarted: () -> Unit = {}) {
         if (focusSessionQuizJob?.isActive == true) return
@@ -867,8 +940,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (cards.isEmpty()) return@launch
 
+            val mathDeckIds = decks.filter { it.category == "math" }.map { it.id }.toSet()
             val targetCount = minOf(10, cards.size)
-            val selectedCards = cards.shuffled().take(targetCount)
+            val prioritized = prioritizeCardsForRetention(cards, targetCount)
+            val selectedCards = expandMathCardsForQuiz(prioritized, mathDeckIds)
 
             val quizItems = withContext(Dispatchers.Default) {
                 buildQuizQuestionItems(selectedCards, deckNameMap)
@@ -934,11 +1009,241 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun computeMathUnrealSeconds(
+        validation: com.uncode.app.math.symja.SymjaValidation,
+        rawFormula: String
+    ): Float {
+        var budget = 4f
+        val lower = rawFormula.lowercase()
+        for (op in validation.operators) {
+            budget += when (op) {
+                "+", "-" -> 1.5f
+                "*", "/" -> 2.5f
+                "^" -> 3f
+                else -> 2f
+            }
+        }
+        if (validation.variables.isNotEmpty() || rawFormula.contains("=")) {
+            budget += 5f
+        }
+        if (lower.contains("sin") || lower.contains("cos") || lower.contains("tan") ||
+            lower.contains("log") || lower.contains("ln") || lower.contains("abs") ||
+            lower.contains("sqrt") || lower.contains("√") || lower.contains("∛")
+        ) {
+            budget += 5f
+        }
+        if (lower.contains("deriv") || lower.contains("int") || lower.contains("lim")) {
+            budget += 15f
+        }
+        if (lower.contains("matrix") || lower.contains("det") || lower.contains("sys")) {
+            budget += 20f
+        }
+        return budget.coerceIn(5f, 60f)
+    }
+
+    private fun buildSingleMathQuizItem(
+        cardId: Long,
+        deckId: Long,
+        deckName: String,
+        rawFormula: String,
+        seenPrompts: MutableSet<String>,
+        isRecoveryRequeue: Boolean = false
+    ): QuizQuestionItem {
+        val trimmed = rawFormula.trim()
+        val validation = try {
+            symjaEngine.validate(trimmed)
+        } catch (_: Throwable) {
+            com.uncode.app.math.symja.SymjaValidation(false, null, emptyList(), emptyList(), emptyList())
+        }
+        val unrealSec = computeMathUnrealSeconds(validation, trimmed)
+
+        var chosenMutation: com.uncode.app.math.symja.MutationResult? = null
+        var chosenPrompt = com.uncode.app.math.ui.MathFormatter.toDisplayString(trimmed)
+        for (attempt in 0 until 16) {
+            val mut = try {
+                if (validation.isValid && validation.astNode != null) {
+                    symjaEngine.mutate(validation)
+                } else null
+            } catch (_: Throwable) { null }
+            val mutFormula = mut?.mutatedFormula?.ifBlank { trimmed } ?: trimmed
+            val candidatePrompt = com.uncode.app.math.ui.MathFormatter.toDisplayString(mutFormula)
+            chosenMutation = mut
+            chosenPrompt = candidatePrompt
+            if (candidatePrompt !in seenPrompts) break
+        }
+
+        val mutFormula = chosenMutation?.mutatedFormula?.ifBlank { trimmed } ?: trimmed
+        val compResult = tryBuildVariableComparisonQuestion(mutFormula, chosenPrompt)
+        if (compResult != null) {
+            var uniqueComp: Triple<String, String, List<String>> = compResult
+            if (uniqueComp.first in seenPrompts) {
+                for (attempt in 0 until 12) {
+                    val mut2 = try {
+                        if (validation.isValid && validation.astNode != null) symjaEngine.mutate(validation) else null
+                    } catch (_: Throwable) { null }
+                    val f2 = mut2?.mutatedFormula?.ifBlank { trimmed } ?: trimmed
+                    val p2 = com.uncode.app.math.ui.MathFormatter.toDisplayString(f2)
+                    val c2 = tryBuildVariableComparisonQuestion(f2, p2)
+                    if (c2 != null && c2.first !in seenPrompts) {
+                        uniqueComp = c2
+                        break
+                    }
+                }
+            }
+            seenPrompts.add(uniqueComp.first)
+            return QuizQuestionItem(
+                cardId = cardId,
+                deckId = deckId,
+                deckName = deckName,
+                prompt = uniqueComp.first,
+                answer = uniqueComp.second,
+                photoUri = null,
+                isAnnotated = false,
+                annotations = emptyList(),
+                options = uniqueComp.third,
+                targetAnnotationId = null,
+                isRecoveryRequeue = isRecoveryRequeue,
+                isMath = true,
+                mathUnrealSec = unrealSec,
+                rawFormula = trimmed
+            )
+        }
+
+        val rawAns = try {
+            if (validation.isValid && validation.astNode != null) {
+                symjaEngine.evaluateAnswer(mutFormula, chosenMutation?.variableValues ?: emptyMap())
+            } else ""
+        } catch (_: Throwable) { "" }
+        val displayAns = com.uncode.app.math.ui.MathFormatter.toDisplayString(rawAns).trim()
+            .ifBlank { trimmed }
+        val options = if (displayAns.equals("True", ignoreCase = true) || displayAns.equals("False", ignoreCase = true)) {
+            listOf("True", "False")
+        } else {
+            val distractors = buildMathDistractors(displayAns, validation)
+            (distractors + displayAns).distinct().shuffled()
+        }
+        seenPrompts.add(chosenPrompt)
+        return QuizQuestionItem(
+            cardId = cardId,
+            deckId = deckId,
+            deckName = deckName,
+            prompt = chosenPrompt,
+            answer = displayAns,
+            photoUri = null,
+            isAnnotated = false,
+            annotations = emptyList(),
+            options = options,
+            targetAnnotationId = null,
+            isRecoveryRequeue = isRecoveryRequeue,
+            isMath = true,
+            mathUnrealSec = unrealSec,
+            rawFormula = trimmed
+        )
+    }
+
+    private fun tryBuildVariableComparisonQuestion(
+        mutatedFormula: String,
+        displayPromptBase: String
+    ): Triple<String, String, List<String>>? {
+        return try {
+            val parseable = com.uncode.app.math.ui.MathFormatter.toParseableString(mutatedFormula)
+            val parser = org.matheclipse.parser.client.Parser(true)
+            val root = parser.parse(parseable) as? org.matheclipse.parser.client.ast.FunctionNode ?: return null
+            val head = root[0].toString()
+            if (head !in setOf("Less", "Greater", "LessEqual", "GreaterEqual", "Unequal")) return null
+            val vars = mutableSetOf<String>()
+            org.matheclipse.parser.client.eval.DoubleEvaluator.getVariables(parseable, vars)
+            val freeVars = vars.filter { it.lowercase() !in setOf("pi", "e", "i", "infinity", "oo") }
+            if (freeVars.size != 1) return null
+            val vName = freeVars.first()
+            val targetTruth = kotlin.random.Random.nextBoolean()
+            val trueCandidates = mutableListOf<Int>()
+            val falseCandidates = mutableListOf<Int>()
+            val evaluator = org.matheclipse.parser.client.eval.DoubleEvaluator()
+            for (cand in -20..30) {
+                evaluator.defineVariable(vName, cand.toDouble())
+                val ok = evaluator.evaluateNodeLogical(root)
+                if (ok) trueCandidates.add(cand) else falseCandidates.add(cand)
+            }
+            val matching = if (targetTruth) trueCandidates else falseCandidates
+            val opposite = if (targetTruth) falseCandidates else trueCandidates
+            if (matching.isEmpty() || opposite.size < 3) return null
+            val ansVal = "$vName = ${matching.random()}"
+            val distractors = opposite.shuffled().take(3).map { "$vName = $it" }
+            val prompt = "$displayPromptBase = ${if (targetTruth) "True" else "False"}"
+            Triple(prompt, ansVal, (distractors + ansVal).shuffled())
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun buildMathDistractors(
+        correctAnswer: String,
+        validation: com.uncode.app.math.symja.SymjaValidation
+    ): List<String> {
+        val distractors = LinkedHashSet<String>()
+        val trimmedAns = correctAnswer.trim()
+        if (validation.isValid && validation.astNode != null) {
+            repeat(8) {
+                if (distractors.size >= 3) return@repeat
+                val alt = try { symjaEngine.mutate(validation) } catch (_: Throwable) { null } ?: return@repeat
+                val target = alt.mutatedFormula.ifBlank { "" }
+                if (target.isNotBlank()) {
+                    val altAns = try {
+                        com.uncode.app.math.ui.MathFormatter.toDisplayString(
+                            symjaEngine.evaluateAnswer(target, alt.variableValues)
+                        ).trim()
+                    } catch (_: Throwable) { "" }
+                    if (altAns.isNotBlank() && altAns != trimmedAns) {
+                        distractors.add(altAns)
+                    }
+                }
+            }
+        }
+        val num = trimmedAns.toDoubleOrNull()
+        if (num != null) {
+            val isWhole = kotlin.math.abs(num - num.toLong()) < 1e-9
+            val deltas = listOf(1.0, -1.0, 2.0, -2.0, 3.0, -3.0, 0.5, -0.5)
+            for (d in deltas) {
+                if (distractors.size >= 3) break
+                val v = num + d
+                val formatted = if (isWhole && kotlin.math.abs(v - v.toLong()) < 1e-9) {
+                    v.toLong().toString()
+                } else {
+                    String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')
+                }
+                if (formatted.isNotBlank() && formatted != trimmedAns) {
+                    distractors.add(formatted)
+                }
+            }
+        }
+        var pad = 1
+        while (distractors.size < 3) {
+            val candidate = if (trimmedAns.isEmpty()) "$pad" else "${trimmedAns}_$pad"
+            if (candidate != trimmedAns) distractors.add(candidate)
+            pad++
+        }
+        return distractors.take(3)
+    }
+
     private fun buildQuizQuestionItems(cards: List<Flashcard>, deckNames: Map<Long, String>): List<QuizQuestionItem> {
         val allAnswers = cards.map { it.definitionOrAnswer }.distinct()
         val cardPairs = cards.map { it.termOrQuestion to it.definitionOrAnswer }
+        val mathDeckIds = allDecks.value.filter { it.category == "math" }.map { it.id }.toSet()
+        val seenMathPrompts = mutableSetOf<String>()
 
         return cards.flatMap { card ->
+            if (card.deckId in mathDeckIds) {
+                return@flatMap listOf(
+                    buildSingleMathQuizItem(
+                        cardId = card.id,
+                        deckId = card.deckId,
+                        deckName = deckNames[card.deckId] ?: "Math Deck",
+                        rawFormula = card.termOrQuestion,
+                        seenPrompts = seenMathPrompts
+                    )
+                )
+            }
             val annotations = AnnotationItem.parseList(card.annotationsJson)
             val validAnnotations = annotations.filter { it.labelAnswer.isNotBlank() }
             val isAnnotated = card.isAnnotated && validAnnotations.isNotEmpty()
@@ -1060,40 +1365,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _lastFinishedSession.value = null
     }
 
-    fun submitAnswer(userAnswer: String, isSelfRatedCorrect: Boolean? = null, earnedPoints: Float = 0f) {
+    fun submitAnswer(
+        userAnswer: String,
+        isSelfRatedCorrect: Boolean? = null,
+        earnedPoints: Float = 0f,
+        fsrsGrade: Int? = null,
+        requeueOnMiss: Boolean = false
+    ) {
         val questions = _activeQuizQuestions.value
         val index = _currentQuestionIndex.value
         if (index !in questions.indices) return
 
         val q = questions[index]
         val isCorrect = isSelfRatedCorrect ?: userAnswer.trim().equals(q.answer.trim(), ignoreCase = true)
+        val effectiveGrade = if (!isCorrect) 1 else (fsrsGrade ?: 3).coerceIn(1, 4)
 
-        if (isCorrect) {
-            _quizScore.value += 1
-            _quizStreak.value += 1
-            _quizEarnedPoints.value += earnedPoints
-        } else {
-            _quizStreak.value = 0
+        if (!q.isRecoveryRequeue) {
+            if (isCorrect) {
+                _quizScore.value += 1
+                _quizStreak.value += 1
+                _quizEarnedPoints.value += earnedPoints
+            } else {
+                _quizStreak.value = 0
+                _quizEarnedPoints.value += earnedPoints
+            }
+
+            val log = QuestionReviewLog(
+                cardId = q.cardId,
+                question = q.prompt,
+                correctAnswer = q.answer,
+                userAnswer = userAnswer,
+                isCorrect = isCorrect,
+                deckName = q.deckName,
+                photoUri = q.photoUri,
+                isAnnotated = q.isAnnotated,
+                annotationsJson = AnnotationItem.toJsonString(q.annotations)
+            )
+            _quizLogs.value = _quizLogs.value + log
+
+            viewModelScope.launch {
+                repository.recordCardReview(q.cardId, isCorrect, effectiveGrade)
+            }
         }
 
-        val log = QuestionReviewLog(
-            cardId = q.cardId,
-            question = q.prompt,
-            correctAnswer = q.answer,
-            userAnswer = userAnswer,
-            isCorrect = isCorrect,
-            deckName = q.deckName,
-            photoUri = q.photoUri,
-            isAnnotated = q.isAnnotated,
-            annotationsJson = AnnotationItem.toJsonString(q.annotations)
-        )
-        _quizLogs.value = _quizLogs.value + log
-
-        viewModelScope.launch {
-            repository.recordCardReview(q.cardId, isCorrect)
+        var updatedQuestions = questions
+        if (requeueOnMiss && !q.isRecoveryRequeue && (!isCorrect || effectiveGrade == 1)) {
+            val mutable = questions.toMutableList()
+            val insertAt = (index + 3).coerceAtMost(mutable.size)
+            val requeueItem = if (q.isMath && q.rawFormula.isNotBlank()) {
+                val existingPrompts = questions.map { it.prompt }.toMutableSet()
+                buildSingleMathQuizItem(
+                    cardId = q.cardId,
+                    deckId = q.deckId,
+                    deckName = q.deckName,
+                    rawFormula = q.rawFormula,
+                    seenPrompts = existingPrompts,
+                    isRecoveryRequeue = true
+                )
+            } else {
+                q.copy(isRecoveryRequeue = true)
+            }
+            mutable.add(insertAt, requeueItem)
+            updatedQuestions = mutable
+            _activeQuizQuestions.value = updatedQuestions
         }
 
-        if (index + 1 < questions.size) {
+        if (index + 1 < updatedQuestions.size) {
             _currentQuestionIndex.value = index + 1
         } else {
             finishQuizSession()
@@ -1102,7 +1439,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun finishQuizSession() {
         val questions = _activeQuizQuestions.value
-        val total = questions.size
+        val total = questions.count { !it.isRecoveryRequeue }
         val correct = _quizScore.value
         val percent = if (total > 0) ((correct.toFloat() / total) * 100).toInt() else 0
         val logs = _quizLogs.value
@@ -1223,7 +1560,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun isEligibleApp(context: Context, pm: PackageManager, pkg: String): Boolean {
-        if (pkg == context.packageName) return false
+        if (pkg == context.packageName || KnownSafe.ALWAYS_ALLOWED_UTILITIES.contains(pkg)) return false
         if (AppClassifier.isSettingsOrDeviceManager(pkg, null) ||
             AppClassifier.isStage1Bloat(pkg, null) ||
             AppClassifier.isForbiddenDistraction(context, pkg) ||
@@ -1273,105 +1610,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
+    private fun syncEligibleAndAllowedPackages(
+        context: Context,
+        pm: android.content.pm.PackageManager,
+        appPrefs: android.content.SharedPreferences,
+        lockPrefs: android.content.SharedPreferences
+    ): Pair<List<AllowedAppItem>, List<AllowedAppItem>> {
+        val deselected = appPrefs.getStringSet("user_deselected_apps", emptySet()) ?: emptySet()
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val launchable = pm.queryIntentActivities(intent, 0)
+        val seen = mutableSetOf<String>()
+        val allowedSet = mutableSetOf<String>()
+        val allowedItems = mutableListOf<AllowedAppItem>()
+        val eligibleItems = mutableListOf<AllowedAppItem>()
+
+        for (r in launchable) {
+            val pkg = r.activityInfo?.packageName ?: continue
+            if (!seen.add(pkg)) continue
+            if (!isEligibleApp(context, pm, pkg)) continue
+            try {
+                val ai = pm.getApplicationInfo(pkg, 0)
+                val label = pm.getApplicationLabel(ai).toString()
+                val isAllowed = !deselected.contains(pkg)
+                if (isAllowed) {
+                    allowedSet.add(pkg)
+                    allowedItems.add(AllowedAppItem(packageName = pkg, name = label, isWhitelisted = true))
+                }
+                eligibleItems.add(AllowedAppItem(packageName = pkg, name = label, isWhitelisted = isAllowed))
+            } catch (_: Exception) {}
+        }
+
+        val previousAllowed = appPrefs.getStringSet("user_allowed_apps", emptySet()) ?: emptySet()
+        if (previousAllowed != allowedSet || !appPrefs.getBoolean("allowed_apps_initialized", false)) {
+            appPrefs.edit()
+                .putStringSet("user_allowed_apps", allowedSet)
+                .putBoolean("allowed_apps_initialized", true)
+                .apply()
+            lockPrefs.edit().putStringSet("whitelist", allowedSet).apply()
+            AppClassifier.clearCache()
+        }
+
+        return allowedItems.sortedBy { it.name.lowercase() } to eligibleItems.sortedBy { it.name.lowercase() }
+    }
+
     fun loadAllowedApps() {
         viewModelScope.launch(Dispatchers.IO) {
             val context = getApplication<Application>()
-            val pm = context.packageManager
             val appPrefs = context.getSharedPreferences("siren_app_prefs", Context.MODE_PRIVATE)
-            val isInitialized = appPrefs.getBoolean("allowed_apps_initialized", false)
-
-            val activePackages: Set<String> = if (!isInitialized) {
-                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                val launchable = pm.queryIntentActivities(intent, 0)
-                val initialEligible = mutableSetOf<String>()
-                for (r in launchable) {
-                    val pkg = r.activityInfo?.packageName ?: continue
-                    if (isEligibleApp(context, pm, pkg)) {
-                        initialEligible.add(pkg)
-                    }
-                }
-                appPrefs.edit()
-                    .putStringSet("user_allowed_apps", initialEligible)
-                    .putBoolean("allowed_apps_initialized", true)
-                    .apply()
-                val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
-                lockPrefs.edit().putStringSet("whitelist", initialEligible).apply()
-                AppClassifier.clearCache()
-                initialEligible
-            } else {
-                appPrefs.getStringSet("user_allowed_apps", emptySet()) ?: emptySet()
-            }
-
-            val items = activePackages.mapNotNull { pkg ->
-                try {
-                    val ai = pm.getApplicationInfo(pkg, 0)
-                    val label = pm.getApplicationLabel(ai).toString()
-                    AllowedAppItem(packageName = pkg, name = label, isWhitelisted = true)
-                } catch (_: Exception) {
-                    null
-                }
-            }.sortedBy { it.name.lowercase() }
-
-            _allowedApps.value = items
+            val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+            val (allowed, eligible) = syncEligibleAndAllowedPackages(context, context.packageManager, appPrefs, lockPrefs)
+            _allowedApps.value = allowed
+            _eligibleApps.value = eligible
         }
     }
 
     fun loadEligibleApps() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val context = getApplication<Application>()
-            val pm = context.packageManager
-            val appPrefs = context.getSharedPreferences("siren_app_prefs", Context.MODE_PRIVATE)
-            val currentAllowed = appPrefs.getStringSet("user_allowed_apps", emptySet()) ?: emptySet()
-            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val launchable = pm.queryIntentActivities(intent, 0)
-            val seen = mutableSetOf<String>()
-            val list = mutableListOf<AllowedAppItem>()
-
-            for (r in launchable) {
-                val pkg = r.activityInfo?.packageName ?: continue
-                if (seen.contains(pkg)) continue
-                if (!isEligibleApp(context, pm, pkg)) continue
-
-                try {
-                    val ai = pm.getApplicationInfo(pkg, 0)
-                    val label = pm.getApplicationLabel(ai).toString()
-                    seen.add(pkg)
-                    list.add(
-                        AllowedAppItem(
-                            packageName = pkg,
-                            name = label,
-                            isWhitelisted = currentAllowed.contains(pkg)
-                        )
-                    )
-                } catch (_: Exception) {}
-            }
-            _eligibleApps.value = list.sortedBy { it.name.lowercase() }
-        }
+        loadAllowedApps()
     }
 
     fun updateAllowedApps(newAllowed: Set<String>) {
         val context = getApplication<Application>()
         val appPrefs = context.getSharedPreferences("siren_app_prefs", Context.MODE_PRIVATE)
+        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val eligiblePkgs = _eligibleApps.value.map { it.packageName }.toSet()
+        val existingDeselected = appPrefs.getStringSet("user_deselected_apps", emptySet())?.toMutableSet() ?: mutableSetOf()
+        existingDeselected.removeAll(newAllowed)
+        existingDeselected.addAll(eligiblePkgs.filter { it !in newAllowed })
+
         appPrefs.edit()
             .putStringSet("user_allowed_apps", newAllowed)
+            .putStringSet("user_deselected_apps", existingDeselected)
             .putBoolean("allowed_apps_initialized", true)
             .apply()
-        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
         lockPrefs.edit().putStringSet("whitelist", newAllowed).apply()
         AppClassifier.clearCache()
         loadAllowedApps()
-        loadEligibleApps()
     }
 
     fun toggleAllowedApp(packageName: String) {
         val context = getApplication<Application>()
         val appPrefs = context.getSharedPreferences("siren_app_prefs", Context.MODE_PRIVATE)
         val current = appPrefs.getStringSet("user_allowed_apps", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val deselected = appPrefs.getStringSet("user_deselected_apps", emptySet())?.toMutableSet() ?: mutableSetOf()
         if (current.contains(packageName)) {
             current.remove(packageName)
+            deselected.add(packageName)
         } else {
             current.add(packageName)
+            deselected.remove(packageName)
         }
+        appPrefs.edit().putStringSet("user_deselected_apps", deselected).apply()
         updateAllowedApps(current)
     }
 
@@ -1423,15 +1751,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncPastDueSchedules()
     }
 
+    private fun isPolicyLocked(): Boolean {
+        val lockPrefs = getApplication<Application>().getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val isLockActive = lockPrefs.getBoolean("lock_active", false)
+        val isConsequence = lockPrefs.getBoolean("consequence_active", false)
+        return isLockActive || isConsequence || _isLockdownActive.value || _isConsequenceActive.value ||
+            _failedFocusSessions.value.isNotEmpty() || _focusSchedules.value.any { it.isRescheduled }
+    }
+
     fun setOperatingMode(mode: String): Boolean {
         val normalized = mode.lowercase(Locale.US).trim()
         val context = getApplication<Application>()
-        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
-        val isLockActive = lockPrefs.getBoolean("lock_active", false)
-        val isConsequence = lockPrefs.getBoolean("consequence_active", false)
-        val isPolicyLocked = isLockActive || isConsequence || _isLockdownActive.value || _isConsequenceActive.value ||
-            _failedFocusSessions.value.isNotEmpty() || _focusSchedules.value.any { it.isRescheduled }
-        if (isPolicyLocked) {
+        if (isPolicyLocked()) {
             return false
         }
         if (normalized == "safemode") {
@@ -1474,6 +1805,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
         }
+        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
         lockPrefs.edit().putString("operating_mode", normalized).apply()
         _operatingMode.value = normalized
         return true
@@ -1698,52 +2030,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAutoQuizEnabled(enabled: Boolean) {
+        if (isPolicyLocked()) return
         _autoQuizEnabled.value = enabled
         saveAutoQuizConfig()
     }
 
     fun setAutoQuizMode(mode: String) {
+        if (isPolicyLocked()) return
         _autoQuizMode.value = mode
         saveAutoQuizConfig()
     }
 
     fun setAutoQuizDeckId(deckId: Long?) {
+        if (isPolicyLocked()) return
         _autoQuizSelectedDeckId.value = deckId
         saveAutoQuizConfig()
     }
 
-    fun startAutoQuiz(onStarted: (String) -> Unit = {}) {
+    fun isFocusSessionTimerStillRunning(scheduleId: String?): Boolean {
+        if (scheduleId.isNullOrBlank() || scheduleId.startsWith("auto_quiz")) return false
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val isLockdown = prefs.getBoolean("lockdown_active", false)
+        val activeId = prefs.getString("active_schedule_id", null)
+        val lockEnd = prefs.getLong("lock_end_time", 0L)
+        return isLockdown && activeId == scheduleId && lockEnd > System.currentTimeMillis()
+    }
+
+    fun startAutoQuiz(requestedAutoQuizId: String? = null, onStarted: (String) -> Unit = {}) {
         viewModelScope.launch {
+            val context = getApplication<Application>()
+            val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+            val existingId = requestedAutoQuizId ?: prefs.getString("active_auto_quiz_id", null)
+            val inProgress = prefs.getBoolean("auto_quiz_in_progress", false)
+            val now = System.currentTimeMillis()
+            if (inProgress && !existingId.isNullOrBlank() && existingId == activeAutoQuizId && _activeQuizQuestions.value.isNotEmpty()) {
+                onStarted(existingId)
+                return@launch
+            }
             clearActiveQuiz()
             var availableDecks = allDecks.value
             if (availableDecks.isEmpty()) {
                 availableDecks = repository.allDecks.first()
             }
             val chosenDeckId = _autoQuizSelectedDeckId.value
-            val targetDeckId = if (chosenDeckId != null) {
-                chosenDeckId
+            val targetDeck = if (chosenDeckId != null) {
+                availableDecks.find { it.id == chosenDeckId } ?: availableDecks.firstOrNull()
             } else {
-                if (availableDecks.isEmpty()) -1L
+                if (availableDecks.isEmpty()) null
                 else {
                     val stats = overallStats.value
-                    val lowestDeck = availableDecks.minByOrNull { deck ->
+                    availableDecks.minByOrNull { deck ->
                         val perf = stats.deckPerformances.find { it.deckId == deck.id }
                         perf?.accuracy ?: 0
                     } ?: availableDecks.first()
-                    lowestDeck.id
                 }
             }
-            val autoQuizId = "auto_quiz_${System.currentTimeMillis()}"
-            val context = getApplication<Application>()
-            val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+            val targetDeckId = targetDeck?.id ?: -1L
+            val targetDeckTitle = targetDeck?.title ?: "Pop Quiz"
+            val autoQuizId = if (!existingId.isNullOrBlank()) existingId else "auto_quiz_$now"
+            activeAutoQuizId = autoQuizId
             prefs.edit()
                 .putBoolean("auto_quiz_in_progress", true)
                 .putString("active_auto_quiz_id", autoQuizId)
+                .remove("auto_quiz_end_time")
+                .putLong("active_auto_quiz_deck_id", targetDeckId)
+                .putString("active_auto_quiz_deck_title", targetDeckTitle)
                 .apply()
             startFocusSessionQuiz(if (targetDeckId != -1L) listOf(targetDeckId) else emptyList()) {
                 onStarted(autoQuizId)
             }
         }
+    }
+
+    fun onAutoQuizExpiredFromService() {
+        activeAutoQuizId = null
+        clearActiveQuiz()
+        loadFailedFocusSessions()
+        refreshLockdownAndServiceState()
     }
 
     fun loadAutoScheduleConfig() {
@@ -1768,6 +2132,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAutoScheduleEnabled(enabled: Boolean) {
+        if (isPolicyLocked()) return
         _autoScheduleEnabled.value = enabled
         saveAutoScheduleConfig()
         if (enabled) {
@@ -1776,11 +2141,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAutoScheduleDeckId(deckId: Long?) {
+        if (isPolicyLocked()) return
         _autoScheduleSelectedDeckId.value = deckId
         saveAutoScheduleConfig()
     }
 
     fun setAutoScheduleDuration(duration: Int?) {
+        if (isPolicyLocked()) return
         _autoScheduleSelectedDuration.value = duration
         saveAutoScheduleConfig()
     }
@@ -2091,90 +2458,129 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun completeFocusSchedule(scheduleId: String?, passed: Boolean, maxPoints: Float = 0f, earnedPoints: Float = 0f) {
-        if (scheduleId != null && scheduleId.startsWith("auto_quiz")) {
-            val context = getApplication<Application>()
-            val prefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
-            prefs.edit()
+        val context = getApplication<Application>()
+        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val isAutoQuizId = scheduleId != null && scheduleId.startsWith("auto_quiz")
+        val savedDeckId = if (isAutoQuizId) lockPrefs.getLong("active_auto_quiz_deck_id", -1L) else -1L
+        val savedDeckTitle = if (isAutoQuizId) lockPrefs.getString("active_auto_quiz_deck_title", null) else null
+
+        if (isAutoQuizId) {
+            activeAutoQuizId = null
+            lockPrefs.edit()
                 .remove("auto_quiz_in_progress")
                 .remove("active_auto_quiz_id")
+                .remove("auto_quiz_end_time")
+                .remove("active_auto_quiz_deck_id")
+                .remove("active_auto_quiz_deck_title")
+                .remove("auto_quiz_usage_buckets_json")
                 .putLong("auto_quiz_accumulated_seconds", 0L)
                 .apply()
-            if (!passed) {
-                val currentFailed = _failedFocusSessions.value.toMutableList()
-                currentFailed.removeAll { it.id == scheduleId }
-                val targetDeck = _autoQuizSelectedDeckId.value?.let { dId -> allDecks.value.find { it.id == dId } }
-                val quizTitle = if (targetDeck != null) "AutoQuiz: ${targetDeck.title}" else "AutoQuiz: Pop Quiz"
-                currentFailed.add(
-                    0,
-                    FailedFocusSessionItem(
-                        id = scheduleId,
-                        title = quizTitle,
-                        selectedDeckIds = if (targetDeck != null) listOf(targetDeck.id) else emptyList(),
-                        deckNames = targetDeck?.title ?: "AutoQuiz",
-                        durationMinutes = 5,
-                        failedTimestamp = System.currentTimeMillis(),
-                        earnedPoints = earnedPoints,
-                        maxPoints = maxPoints
-                    )
-                )
-                saveFailedFocusSessions(currentFailed)
-                startConsequenceSession(scheduleId)
-            } else {
-                val currentFailed = _failedFocusSessions.value.toMutableList()
-                currentFailed.removeAll { it.id == scheduleId }
-                saveFailedFocusSessions(currentFailed)
-                val hasOtherRescheduled = _focusSchedules.value.any { it.isRescheduled }
-                if (currentFailed.isEmpty() && !hasOtherRescheduled) {
-                    clearConsequenceSession()
-                } else if (currentFailed.isNotEmpty()) {
-                    startConsequenceSession(currentFailed.first().id)
-                }
-                clearLockdownSession()
-            }
-            return
         }
-        val target = _focusSchedules.value.find { it.id == scheduleId }
-            ?: _focusSchedules.value.firstOrNull { it.isActive }
-            ?: _focusSchedules.value.firstOrNull()
 
-        if (target != null) {
-            val updated = _focusSchedules.value.filter { it.id != target.id }
-            saveFocusSchedules(updated)
-            if (!passed) {
-                val currentFailed = _failedFocusSessions.value.toMutableList()
-                currentFailed.removeAll { it.id == target.id }
-                currentFailed.add(
-                    0,
-                    FailedFocusSessionItem(
-                        id = target.id,
-                        title = target.title,
-                        selectedDeckIds = target.selectedDeckIds,
-                        deckNames = target.deckNames,
-                        durationMinutes = target.durationMinutes,
-                        failedTimestamp = System.currentTimeMillis(),
-                        earnedPoints = earnedPoints,
-                        maxPoints = maxPoints
-                    )
-                )
-                saveFailedFocusSessions(currentFailed)
-                startConsequenceSession(target.id)
-            } else {
-                val currentFailed = _failedFocusSessions.value.toMutableList()
-                currentFailed.removeAll { it.id == target.id }
-                saveFailedFocusSessions(currentFailed)
-                val hasOtherRescheduled = updated.any { it.isRescheduled }
-                if (currentFailed.isEmpty() && !hasOtherRescheduled) {
-                    clearConsequenceSession()
-                } else if (currentFailed.isNotEmpty()) {
-                    startConsequenceSession(currentFailed.first().id)
-                } else {
-                    val nextRescheduled = updated.firstOrNull { it.isRescheduled }
-                    startConsequenceSession(nextRescheduled?.id)
-                }
+        val target = if (scheduleId != null) {
+            _focusSchedules.value.find { it.id == scheduleId }
+        } else {
+            _focusSchedules.value.firstOrNull { it.isActive } ?: _focusSchedules.value.firstOrNull()
+        }
+        val effectiveId = target?.id ?: scheduleId ?: return
+
+        val windowEndMs = if (target != null) {
+            val parts = target.activationTime.split(":")
+            val h = parts.getOrNull(0)?.toIntOrNull() ?: 0
+            val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = now
+                set(Calendar.HOUR_OF_DAY, h)
+                set(Calendar.MINUTE, m)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
             }
-        } else if (scheduleId != null) {
-            val updated = _focusSchedules.value.filter { it.id != scheduleId }
-            saveFocusSchedules(updated)
+            val durationMs = target.durationMinutes * 60_000L
+            if (cal.timeInMillis + durationMs <= target.createdAt) {
+                cal.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            maxOf(cal.timeInMillis + durationMs, lockPrefs.getLong("lock_end_time", 0L), now + durationMs)
+        } else {
+            maxOf(lockPrefs.getLong("lock_end_time", 0L), now + 90L * 60_000L)
+        }
+
+        val lockEdit = lockPrefs.edit()
+        if (target != null) {
+            lockEdit.putLong("last_completed_window_end_$effectiveId", windowEndMs)
+        }
+        lockEdit
+            .putBoolean("lockdown_active", false)
+            .remove("lock_end_time")
+            .remove("active_schedule_id")
+            .apply()
+        AlarmReceiver.cancelLockEndAlarm(context)
+
+        val updatedSchedules = if (target != null) {
+            val filtered = _focusSchedules.value.filter { it.id != effectiveId }
+            saveFocusSchedules(filtered)
+            filtered
+        } else {
+            _focusSchedules.value
+        }
+
+        val currentFailed = _failedFocusSessions.value.toMutableList()
+        currentFailed.removeAll { it.id == effectiveId }
+
+        if (!passed) {
+            val failedItem = if (target != null) {
+                FailedFocusSessionItem(
+                    id = target.id,
+                    title = target.title,
+                    selectedDeckIds = target.selectedDeckIds,
+                    deckNames = target.deckNames,
+                    durationMinutes = target.durationMinutes,
+                    failedTimestamp = now,
+                    earnedPoints = earnedPoints,
+                    maxPoints = maxPoints
+                )
+            } else if (isAutoQuizId) {
+                val targetDeck = if (savedDeckId != -1L) {
+                    allDecks.value.find { it.id == savedDeckId }
+                } else {
+                    _autoQuizSelectedDeckId.value?.let { dId -> allDecks.value.find { it.id == dId } }
+                }
+                val resolvedTitle = targetDeck?.title ?: savedDeckTitle ?: "Pop Quiz"
+                val resolvedDeckIds = when {
+                    targetDeck != null -> listOf(targetDeck.id)
+                    savedDeckId != -1L -> listOf(savedDeckId)
+                    else -> emptyList()
+                }
+                FailedFocusSessionItem(
+                    id = effectiveId,
+                    title = "AutoQuiz: $resolvedTitle",
+                    selectedDeckIds = resolvedDeckIds,
+                    deckNames = resolvedTitle,
+                    durationMinutes = 5,
+                    failedTimestamp = now,
+                    earnedPoints = earnedPoints,
+                    maxPoints = maxPoints
+                )
+            } else {
+                null
+            }
+            if (failedItem != null) {
+                currentFailed.add(0, failedItem)
+                saveFailedFocusSessions(currentFailed)
+            }
+            startConsequenceSession(effectiveId)
+        } else {
+            saveFailedFocusSessions(currentFailed)
+            val hasOtherRescheduled = updatedSchedules.any { it.isRescheduled }
+            if (currentFailed.isEmpty() && !hasOtherRescheduled) {
+                clearConsequenceSession()
+                clearLockdownSession()
+            } else if (currentFailed.isNotEmpty()) {
+                startConsequenceSession(currentFailed.first().id)
+            } else {
+                val nextRescheduled = updatedSchedules.firstOrNull { it.isRescheduled }
+                startConsequenceSession(nextRescheduled?.id)
+            }
         }
     }
 
@@ -2307,6 +2713,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun rescheduleFailedSession(failedId: String, activationTime: String, durationMinutes: Int): Boolean {
         val failed = _failedFocusSessions.value.find { it.id == failedId } ?: return false
+        getApplication<Application>().getSharedPreferences("uncode_lock", Context.MODE_PRIVATE).edit()
+            .remove("last_completed_window_end_$failedId")
+            .remove("armed_window_start_$failedId")
+            .remove("armed_window_end_$failedId")
+            .apply()
         val created = createFocusSchedule(
             title = failed.title,
             selectedDeckIds = failed.selectedDeckIds,
@@ -2335,5 +2746,344 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearOrphanedConsequence() {
         clearConsequenceSession()
+    }
+
+    data class ImportBackupPreview(
+        val deckCount: Int,
+        val activeScheduleCount: Int,
+        val failedSessionCount: Int,
+        val operatingMode: String,
+        val webProtectionMode: String,
+        val autoScheduleEnabled: Boolean,
+        val autoQuizEnabled: Boolean,
+        val autoQuizMode: String,
+        val unifiedServices: List<String>,
+        val rawJson: String,
+        val sanitizedAllowed: Set<String>,
+        val sanitizedDeselected: Set<String>
+    )
+
+    suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
+        val context = getApplication<Application>()
+        val appPrefs = context.getSharedPreferences("siren_app_prefs", Context.MODE_PRIVATE)
+        val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+
+        val decks = repository.allDecks.first()
+        val allCards = repository.allFlashcardsSync()
+        val sessions = repository.allSessions.first()
+
+        val root = JSONObject()
+        root.put("version", 3)
+        root.put("exportedAt", System.currentTimeMillis())
+
+        val decksArr = JSONArray()
+        decks.forEach { d ->
+            val dObj = JSONObject()
+            dObj.put("id", d.id)
+            dObj.put("title", d.title)
+            dObj.put("description", d.description)
+            dObj.put("category", d.category)
+            dObj.put("colorHex", d.colorHex)
+            dObj.put("createdAt", d.createdAt)
+            if (d.lastStudiedAt != null) dObj.put("lastStudiedAt", d.lastStudiedAt)
+
+            val cardsArr = JSONArray()
+            allCards.filter { it.deckId == d.id }.forEach { c ->
+                val cObj = JSONObject()
+                cObj.put("termOrQuestion", c.termOrQuestion)
+                cObj.put("definitionOrAnswer", c.definitionOrAnswer)
+                if (c.photoUri != null) cObj.put("photoUri", c.photoUri)
+                cObj.put("isAnnotated", c.isAnnotated)
+                cObj.put("annotationsJson", c.annotationsJson)
+                cObj.put("masteryLevel", c.masteryLevel)
+                cObj.put("timesReviewed", c.timesReviewed)
+                cObj.put("timesCorrect", c.timesCorrect)
+                cObj.put("stability", c.stability.toDouble())
+                cObj.put("difficulty", c.difficulty.toDouble())
+                cObj.put("lastReviewedAt", c.lastReviewedAt)
+                cObj.put("nextReviewAt", c.nextReviewAt)
+                cardsArr.put(cObj)
+            }
+            dObj.put("cards", cardsArr)
+            decksArr.put(dObj)
+        }
+        root.put("decks", decksArr)
+
+        val sessionsArr = JSONArray()
+        sessions.forEach { s ->
+            val sObj = JSONObject()
+            sObj.put("deckIdsJson", s.deckIdsJson)
+            sObj.put("deckNames", s.deckNames)
+            sObj.put("combinationMode", s.combinationMode)
+            sObj.put("totalQuestions", s.totalQuestions)
+            sObj.put("correctCount", s.correctCount)
+            sObj.put("scorePercent", s.scorePercent)
+            sObj.put("durationSeconds", s.durationSeconds)
+            sObj.put("timestamp", s.timestamp)
+            sObj.put("answerLogsJson", s.answerLogsJson)
+            sessionsArr.put(sObj)
+        }
+        root.put("quizSessions", sessionsArr)
+
+        val settingsObj = JSONObject()
+        settingsObj.put("themeMode", _themeMode.value.name)
+        settingsObj.put("operatingMode", lockPrefs.getString("operating_mode", "safemode") ?: "safemode")
+        settingsObj.put("webProtectionMode", lockPrefs.getString("web_protection_mode", "dual_hybrid") ?: "dual_hybrid")
+        settingsObj.put("allowYoutube", lockPrefs.getBoolean("allow_youtube", false))
+        val svcArr = JSONArray()
+        (lockPrefs.getStringSet("active_unified_services", emptySet()) ?: emptySet()).forEach { svcArr.put(it) }
+        settingsObj.put("activeUnifiedServices", svcArr)
+
+        val t = _scoreThresholds.value
+        val scoreObj = JSONObject()
+        scoreObj.put("unreal", t.unreal.toDouble())
+        scoreObj.put("instant", t.instant.toDouble())
+        scoreObj.put("sharp", t.sharp.toDouble())
+        scoreObj.put("deliberate", t.deliberate.toDouble())
+        scoreObj.put("hesitant", t.hesitant.toDouble())
+        settingsObj.put("scoreThresholds", scoreObj)
+
+        settingsObj.put("autoScheduleEnabled", lockPrefs.getBoolean("auto_schedule_enabled", false))
+        settingsObj.put("autoScheduleDeckId", lockPrefs.getLong("auto_schedule_deck_id", -1L))
+        settingsObj.put("autoQuizEnabled", lockPrefs.getBoolean("auto_quiz_enabled", false))
+        settingsObj.put("autoQuizMode", lockPrefs.getString("auto_quiz_mode", "usage_30") ?: "usage_30")
+        settingsObj.put("autoQuizDeckId", lockPrefs.getLong("auto_quiz_deck_id", -1L))
+
+        val allowedArr = JSONArray()
+        (appPrefs.getStringSet("user_allowed_apps", emptySet()) ?: emptySet()).forEach { allowedArr.put(it) }
+        settingsObj.put("allowedApps", allowedArr)
+
+        val deselectedArr = JSONArray()
+        (appPrefs.getStringSet("user_deselected_apps", emptySet()) ?: emptySet()).forEach { deselectedArr.put(it) }
+        settingsObj.put("deselectedApps", deselectedArr)
+
+        settingsObj.put("schedulesJson", lockPrefs.getString("schedules_json", "[]") ?: "[]")
+        settingsObj.put("failedSessionsJson", lockPrefs.getString("failed_sessions_json", "[]") ?: "[]")
+        settingsObj.put("consequenceActive", lockPrefs.getBoolean("consequence_active", false))
+        settingsObj.put("consequenceScheduleId", lockPrefs.getString("consequence_schedule_id", "") ?: "")
+
+        root.put("settings", settingsObj)
+        root.toString(2)
+    }
+
+    private fun sanitizeImportPackageIds(context: Context, candidates: Collection<String>): Set<String> {
+        val pm = context.packageManager
+        val clean = mutableSetOf<String>()
+        for (raw in candidates) {
+            val pkg = raw.trim()
+            if (pkg.isEmpty()) continue
+            var appInfo: android.content.pm.ApplicationInfo? = null
+            var appLabel = ""
+            try {
+                appInfo = pm.getApplicationInfo(pkg, 0)
+                appLabel = pm.getApplicationLabel(appInfo).toString()
+            } catch (_: Exception) {}
+            if (AppClassifier.isSettingsOrDeviceManager(pkg, appLabel) || AppClassifier.isStage1Bloat(pkg, appLabel)) continue
+            if (UnifiedPolicyRegistry.isPackageRegisteredInAnyService(pkg) ||
+                pkg == "com.google.android.googlequicksearchbox" ||
+                isAiAppKeywords(pkg, appLabel)) continue
+            if (KnownDistracting.isKnownDistracting(pkg, appLabel) || AppClassifier.isForbiddenDistraction(context, pkg)) continue
+            if (KnownSafe.ALWAYS_ALLOWED_UTILITIES.contains(pkg)) continue
+            if (isHiddenInfrastructureApp(pkg, appLabel)) continue
+            if (KnownSafe.isLauncherApp(context, pkg)) continue
+            if (appInfo != null && AppClassifier.isPassedStage3SystemAllow(appInfo, pkg, appLabel)) continue
+            clean.add(pkg)
+        }
+        return clean
+    }
+
+    suspend fun prepareImportBackup(rawJson: String): Result<ImportBackupPreview> = withContext(Dispatchers.IO) {
+        try {
+            val context = getApplication<Application>()
+            val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+            val isLocked = lockPrefs.getBoolean("lockdown_active", false) ||
+                lockPrefs.getBoolean("consequence_active", false) ||
+                _focusSchedules.value.any { it.isActive }
+            if (isLocked) {
+                return@withContext Result.failure(IllegalStateException("Import is blocked during active schedules, lockdown, or consequence."))
+            }
+
+            val root = JSONObject(rawJson)
+            val decksArr = root.optJSONArray("decks") ?: JSONArray()
+            val settingsObj = root.optJSONObject("settings") ?: JSONObject()
+
+            val schedulesRaw = settingsObj.optString("schedulesJson", "[]")
+            val schedulesArr = try { JSONArray(schedulesRaw) } catch (_: Exception) { JSONArray() }
+            var activeSchedules = 0
+            for (i in 0 until schedulesArr.length()) {
+                if (schedulesArr.optJSONObject(i)?.optBoolean("isActive", true) == true) {
+                    activeSchedules++
+                }
+            }
+
+            val failedRaw = settingsObj.optString("failedSessionsJson", "[]")
+            val failedArr = try { JSONArray(failedRaw) } catch (_: Exception) { JSONArray() }
+
+            val opMode = settingsObj.optString("operatingMode", "safemode")
+            val webMode = settingsObj.optString("webProtectionMode", "dual_hybrid")
+            val autoSched = settingsObj.optBoolean("autoScheduleEnabled", false)
+            val autoQuiz = settingsObj.optBoolean("autoQuizEnabled", false)
+            val autoQuizMode = settingsObj.optString("autoQuizMode", "usage_30")
+
+            val svcArr = settingsObj.optJSONArray("activeUnifiedServices") ?: JSONArray()
+            val services = mutableListOf<String>()
+            for (i in 0 until svcArr.length()) {
+                val s = svcArr.optString(i).trim()
+                if (s.isNotEmpty()) services.add(s)
+            }
+            if (services.isEmpty() && settingsObj.optBoolean("allowYoutube", false)) {
+                services.add("youtube")
+            }
+
+            val rawAllowed = mutableListOf<String>()
+            val allowedArr = settingsObj.optJSONArray("allowedApps") ?: JSONArray()
+            for (i in 0 until allowedArr.length()) {
+                val item = allowedArr.opt(i)
+                val pkg = if (item is JSONObject) item.optString("id") else item?.toString()
+                if (!pkg.isNullOrBlank()) rawAllowed.add(pkg)
+            }
+            val rawDeselected = mutableSetOf<String>()
+            val deselectedArr = settingsObj.optJSONArray("deselectedApps") ?: JSONArray()
+            for (i in 0 until deselectedArr.length()) {
+                val pkg = deselectedArr.optString(i).trim()
+                if (pkg.isNotEmpty()) rawDeselected.add(pkg)
+            }
+
+            val sanitizedAllowed = sanitizeImportPackageIds(context, rawAllowed)
+
+            Result.success(
+                ImportBackupPreview(
+                    deckCount = decksArr.length(),
+                    activeScheduleCount = activeSchedules,
+                    failedSessionCount = failedArr.length(),
+                    operatingMode = opMode,
+                    webProtectionMode = webMode,
+                    autoScheduleEnabled = autoSched,
+                    autoQuizEnabled = autoQuiz,
+                    autoQuizMode = autoQuizMode,
+                    unifiedServices = services.distinct(),
+                    rawJson = rawJson,
+                    sanitizedAllowed = sanitizedAllowed,
+                    sanitizedDeselected = rawDeselected
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun applyImportBackup(preview: ImportBackupPreview): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val context = getApplication<Application>()
+            val appPrefs = context.getSharedPreferences("siren_app_prefs", Context.MODE_PRIVATE)
+            val lockPrefs = context.getSharedPreferences("uncode_lock", Context.MODE_PRIVATE)
+            val root = JSONObject(preview.rawJson)
+
+            val existingDecks = repository.allDecks.first()
+            val existingTitles = existingDecks.map { it.title.trim().lowercase() to it.id }.toMap().toMutableMap()
+            val decksArr = root.optJSONArray("decks") ?: JSONArray()
+            for (i in 0 until decksArr.length()) {
+                val dObj = decksArr.optJSONObject(i) ?: continue
+                val title = dObj.optString("title")
+                if (title.isBlank()) continue
+                val key = title.trim().lowercase()
+                if (existingTitles.containsKey(key)) continue
+                val newDeckId = repository.insertDeck(
+                    Deck(
+                        title = title,
+                        description = dObj.optString("description", ""),
+                        category = dObj.optString("category", ""),
+                        colorHex = dObj.optString("colorHex", "#3F51B5"),
+                        createdAt = dObj.optLong("createdAt", System.currentTimeMillis()),
+                        lastStudiedAt = if (dObj.has("lastStudiedAt")) dObj.optLong("lastStudiedAt") else null
+                    )
+                )
+                existingTitles[key] = newDeckId
+                val cardsArr = dObj.optJSONArray("cards") ?: JSONArray()
+                val cardsToInsert = mutableListOf<Flashcard>()
+                for (j in 0 until cardsArr.length()) {
+                    val cObj = cardsArr.optJSONObject(j) ?: continue
+                    cardsToInsert.add(
+                        Flashcard(
+                            deckId = newDeckId,
+                            termOrQuestion = cObj.optString("termOrQuestion", ""),
+                            definitionOrAnswer = cObj.optString("definitionOrAnswer", ""),
+                            photoUri = if (cObj.has("photoUri")) cObj.optString("photoUri") else null,
+                            isAnnotated = cObj.optBoolean("isAnnotated", false),
+                            annotationsJson = cObj.optString("annotationsJson", "[]"),
+                            masteryLevel = cObj.optInt("masteryLevel", 0),
+                            timesReviewed = cObj.optInt("timesReviewed", 0),
+                            timesCorrect = cObj.optInt("timesCorrect", 0),
+                            stability = cObj.optDouble("stability", 0.0).toFloat(),
+                            difficulty = cObj.optDouble("difficulty", 5.0).toFloat(),
+                            lastReviewedAt = cObj.optLong("lastReviewedAt", 0L),
+                            nextReviewAt = cObj.optLong("nextReviewAt", 0L)
+                        )
+                    )
+                }
+                if (cardsToInsert.isNotEmpty()) {
+                    repository.insertFlashcards(cardsToInsert)
+                }
+            }
+
+            val settingsObj = root.optJSONObject("settings") ?: JSONObject()
+            val themeName = settingsObj.optString("themeMode", _themeMode.value.name)
+            val parsedTheme = try { AppThemeMode.valueOf(themeName) } catch (_: Exception) { AppThemeMode.SYSTEM }
+            setThemeMode(parsedTheme)
+
+            setOperatingMode(preview.operatingMode)
+            setWebProtectionMode(preview.webProtectionMode)
+
+            val allServices = UnifiedPolicyRegistry.SERVICES.keys
+            for (svcId in allServices) {
+                toggleUnifiedService(svcId, preview.unifiedServices.contains(svcId))
+            }
+
+            val scoreObj = settingsObj.optJSONObject("scoreThresholds")
+            if (scoreObj != null) {
+                updateScoreThresholds(
+                    unreal = scoreObj.optDouble("unreal", 2.5).toFloat(),
+                    instant = scoreObj.optDouble("instant", 4.5).toFloat(),
+                    sharp = scoreObj.optDouble("sharp", 5.5).toFloat(),
+                    deliberate = scoreObj.optDouble("deliberate", 6.5).toFloat(),
+                    hesitant = scoreObj.optDouble("hesitant", 8.5).toFloat()
+                )
+            }
+
+            appPrefs.edit()
+                .putStringSet("user_deselected_apps", preview.sanitizedDeselected)
+                .putStringSet("user_allowed_apps", preview.sanitizedAllowed)
+                .putBoolean("allowed_apps_initialized", true)
+                .apply()
+
+            val schedulesRaw = settingsObj.optString("schedulesJson", "[]")
+            val failedRaw = settingsObj.optString("failedSessionsJson", "[]")
+            lockPrefs.edit()
+                .putStringSet("whitelist", preview.sanitizedAllowed)
+                .putBoolean("auto_schedule_enabled", preview.autoScheduleEnabled)
+                .putLong("auto_schedule_deck_id", settingsObj.optLong("autoScheduleDeckId", -1L))
+                .putBoolean("auto_quiz_enabled", preview.autoQuizEnabled)
+                .putString("auto_quiz_mode", preview.autoQuizMode)
+                .putLong("auto_quiz_deck_id", settingsObj.optLong("autoQuizDeckId", -1L))
+                .putString("schedules_json", schedulesRaw)
+                .putString("failed_sessions_json", failedRaw)
+                .apply()
+
+            if (settingsObj.optBoolean("consequenceActive", false)) {
+                val cId = settingsObj.optString("consequenceScheduleId", "").ifBlank { null }
+                startConsequenceSession(cId)
+            }
+
+            ScheduleManager.syncSchedules(context, schedulesRaw, preview.sanitizedAllowed)
+            loadFocusSchedules()
+            loadFailedFocusSessions()
+            loadAutoScheduleConfig()
+            loadAutoQuizConfig()
+            loadAllowedApps()
+            refreshLockdownAndServiceState()
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 }

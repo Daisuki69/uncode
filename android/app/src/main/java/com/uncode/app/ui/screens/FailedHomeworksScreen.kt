@@ -107,10 +107,25 @@ fun FailedHomeworksScreen(
     }
     val minutes = remember { (0..59).toList() }
 
-    var selectedHour12 by remember(hours) { mutableIntStateOf(if (7 in hours) 7 else hours.first()) }
-    var selectedMinute by remember { mutableIntStateOf(10) }
-    var selectedPeriod by remember(isHardcore, selectedHour12) {
-        mutableStateOf(if (isHardcore) "PM" else (if (selectedHour12 in 7..11) "PM" else "AM"))
+    val (initialH24, initialM) = remember(isHardcore) {
+        val cal = Calendar.getInstance()
+        val addMins = 5 - (cal.get(Calendar.MINUTE) % 5)
+        cal.add(Calendar.MINUTE, addMins)
+        val h24 = cal.get(Calendar.HOUR_OF_DAY)
+        val m = cal.get(Calendar.MINUTE)
+        if (isHardcore || (h24 >= 19 || h24 < 3)) {
+            h24 to m
+        } else {
+            19 to 0
+        }
+    }
+    val initialH12 = remember(initialH24) { if (initialH24 % 12 == 0) 12 else initialH24 % 12 }
+    val initialPeriod = remember(initialH24) { if (initialH24 >= 12) "PM" else "AM" }
+
+    var selectedHour12 by remember(initialH12, hours) { mutableIntStateOf(if (initialH12 in hours) initialH12 else hours.first()) }
+    var selectedMinute by remember(initialM) { mutableIntStateOf(initialM) }
+    var selectedPeriod by remember(initialPeriod, isHardcore, selectedHour12) {
+        mutableStateOf(if (isHardcore) initialPeriod else (if (selectedHour12 in 7..11) "PM" else "AM"))
     }
 
     val hour24 = when {
@@ -334,13 +349,14 @@ fun FailedHomeworksScreen(
                                 onClick = {
                                     val isHard = operatingMode.equals("hardcore", ignoreCase = true)
                                     val cal = Calendar.getInstance()
-                                    cal.add(Calendar.MINUTE, 5)
+                                    val addMins = 5 - (cal.get(Calendar.MINUTE) % 5)
+                                    cal.add(Calendar.MINUTE, addMins)
                                     val h = cal.get(Calendar.HOUR_OF_DAY)
                                     val m = cal.get(Calendar.MINUTE)
                                     val (initH, initM) = if (isHard || (h >= 19 || h < 3)) {
                                         h to m
                                     } else {
-                                        19 to 10
+                                        19 to 0
                                     }
                                     val h12 = if (initH % 12 == 0) 12 else initH % 12
                                     val period = if (initH >= 12) "PM" else "AM"
@@ -441,7 +457,7 @@ fun FailedHomeworksScreen(
                                                     activeField = ReschedulePickerField.NONE
                                                 } else {
                                                     coroutineScope.launch {
-                                                        hourListState.scrollToItem(hours.indexOf(selectedHour12).coerceAtLeast(0))
+                                                        hourListState.scrollToItem((50_000 * hours.size) + hours.indexOf(selectedHour12).coerceAtLeast(0))
                                                     }
                                                     activeField = ReschedulePickerField.HOUR
                                                 }
@@ -481,7 +497,7 @@ fun FailedHomeworksScreen(
                                                     selectedPeriod = if (selectedHour12 in 7..11) "PM" else "AM"
                                                 }
                                                 coroutineScope.launch {
-                                                    hourListState.scrollToItem(targetIndex)
+                                                    hourListState.scrollToItem((50_000 * hours.size) + targetIndex)
                                                 }
                                                 activeField = ReschedulePickerField.NONE
                                             }
@@ -548,7 +564,7 @@ fun FailedHomeworksScreen(
                                                     activeField = ReschedulePickerField.NONE
                                                 } else {
                                                     coroutineScope.launch {
-                                                        minuteListState.scrollToItem(minutes.indexOf(selectedMinute).coerceAtLeast(0))
+                                                        minuteListState.scrollToItem((50_000 * minutes.size) + minutes.indexOf(selectedMinute).coerceAtLeast(0))
                                                     }
                                                     activeField = ReschedulePickerField.MINUTE
                                                 }
@@ -585,7 +601,7 @@ fun FailedHomeworksScreen(
                                                 }
                                                 selectedMinute = minutes[targetIndex]
                                                 coroutineScope.launch {
-                                                    minuteListState.scrollToItem(targetIndex)
+                                                    minuteListState.scrollToItem((50_000 * minutes.size) + targetIndex)
                                                 }
                                                 activeField = ReschedulePickerField.NONE
                                             }
@@ -684,7 +700,7 @@ fun FailedHomeworksScreen(
                                                     activeField = ReschedulePickerField.NONE
                                                 } else {
                                                     coroutineScope.launch {
-                                                        durationListState.scrollToItem(durationRange.indexOf(selectedDurationMinutes).coerceAtLeast(0))
+                                                        durationListState.scrollToItem((50_000 * durationRange.size) + durationRange.indexOf(selectedDurationMinutes).coerceAtLeast(0))
                                                     }
                                                     activeField = ReschedulePickerField.DURATION
                                                 }
@@ -721,7 +737,7 @@ fun FailedHomeworksScreen(
                                                 }
                                                 selectedDurationMinutes = durationRange[targetIndex]
                                                 coroutineScope.launch {
-                                                    durationListState.scrollToItem(targetIndex)
+                                                    durationListState.scrollToItem((50_000 * durationRange.size) + targetIndex)
                                                 }
                                                 activeField = ReschedulePickerField.NONE
                                             }

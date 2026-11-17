@@ -1,18 +1,19 @@
 @echo off
 setlocal enabledelayedexpansion
-title QIEZKA - Build Debug APK
+cd /d "%~dp0"
+title QIEZKA - Build Release APK
 
 :start_build
 echo.
 echo  ====================================================
-echo   QIEZKA - Build Debug APK
+echo   QIEZKA - Build Release APK
 echo  ====================================================
 echo.
 echo  Starting Android Gradle build process...
 echo.
 
 :: Use 'call' so the script continues running after gradlew finishes
-call .\android\gradlew.bat -p android assembleDebug
+call "%~dp0android\gradlew.bat" -p "%~dp0android" assembleRelease
 
 echo.
 echo  ====================================================

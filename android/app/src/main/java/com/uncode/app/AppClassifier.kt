@@ -45,6 +45,13 @@ object AppClassifier {
      * Avoids querying PackageManager repeatedly during frequent accessibility events.
      */
     private val decisionCache: MutableMap<String, Boolean> = ConcurrentHashMap()
+    private val tamperCapabilityCache: MutableMap<String, Boolean> = ConcurrentHashMap()
+    private val TAMPER_PERMISSIONS = setOf(
+        "moe.shizuku.manager.permission.API_V23",
+        "com.rosan.dhizuku.permission.API",
+        "android.permission.FORCE_STOP_PACKAGES",
+        "android.permission.WRITE_SECURE_SETTINGS"
+    )
 
     /**
      * Backward-compatible helper for PackageManager.getApplicationInfo.
@@ -789,6 +796,7 @@ object AppClassifier {
     @JvmStatic
     fun clearCache() {
         decisionCache.clear()
+        tamperCapabilityCache.clear()
         Log.d(TAG, "Classification decision cache cleared")
     }
 
@@ -799,6 +807,7 @@ object AppClassifier {
     fun invalidatePackage(pkg: String?) {
         if (pkg != null) {
             decisionCache.remove(pkg)
+            tamperCapabilityCache.remove(pkg)
         }
     }
 
@@ -1254,6 +1263,18 @@ object AppClassifier {
     @JvmStatic
     fun isStage1Vetoed(pkg: String?, appLabel: String?, activityCls: String?): Boolean {
         if (pkg.isNullOrBlank()) return true
+        if (pkg == "com.android.shell") return true
+        if (!activityCls.isNullOrBlank()) {
+            val lowerCls = activityCls.lowercase(Locale.ROOT)
+            if (lowerCls.contains("org.matrix.vector") ||
+                lowerCls.contains("org.lsposed.") ||
+                lowerCls.contains("lsposed") ||
+                lowerCls.contains("edxposed") ||
+                lowerCls.contains("bugreportwarningactivity")
+            ) {
+                return true
+            }
+        }
         return isSettingsOrDeviceManager(pkg, appLabel, activityCls) ||
                isStage1Bloat(pkg, appLabel) ||
                isHostileEvasionProxy(pkg, appLabel)
@@ -1338,6 +1359,8 @@ object AppClassifier {
 
             // 2. BlacklistConstants check
             if (BlacklistConstants.isBlacklisted(pkg, appLabel)) return true
+
+            if (isTamperCapableApp(context, pm, pkg, appInfo)) return true
 
             // 3. Short video & TikTok variants (both global musically, trill, and aweme)
             if (lowerPkg.contains("musically") || lowerPkg.contains(".trill") || lowerPkg.contains(".aweme") ||
@@ -1482,6 +1505,39 @@ object AppClassifier {
             }
         }
         return false
+    }
+
+    private fun isTamperCapableApp(
+        context: Context,
+        pm: PackageManager,
+        pkg: String,
+        appInfo: ApplicationInfo
+    ): Boolean {
+        if (pkg == context.packageName ||
+            KnownSafe.ALWAYS_ALLOWED_UTILITIES.contains(pkg) ||
+            KnownSafe.BASELINE_SAFE_PACKAGES.contains(pkg) ||
+            KnownSafe.isLauncherApp(context, pkg) ||
+            (appInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
+        ) {
+            return false
+        }
+        tamperCapabilityCache[pkg]?.let { return it }
+        var detected = false
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager
+            if (dpm?.activeAdmins?.any { it.packageName == pkg } == true) {
+                detected = true
+            }
+            if (!detected) {
+                val pi = getPackageInfoCompat(pm, pkg, PackageManager.GET_PERMISSIONS.toLong())
+                val perms = pi.requestedPermissions
+                if (perms != null && perms.any { it != null && TAMPER_PERMISSIONS.contains(it) }) {
+                    detected = true
+                }
+            }
+        } catch (_: Exception) {}
+        tamperCapabilityCache[pkg] = detected
+        return detected
     }
 
     private fun hasPositiveAcademicSignals(lowerLabel: String, lowerPkg: String): Boolean {

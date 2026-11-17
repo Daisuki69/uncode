@@ -143,6 +143,46 @@ fun SettingsScreen(
     val autoScheduleSelectedDeckId by viewModel.autoScheduleSelectedDeckId.collectAsStateWithLifecycle()
     val autoScheduleSelectedDuration by viewModel.autoScheduleSelectedDuration.collectAsStateWithLifecycle()
     val autoQuizEnabled by viewModel.autoQuizEnabled.collectAsStateWithLifecycle()
+
+    var pendingImportPreview by remember { mutableStateOf<MainViewModel.ImportBackupPreview?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val json = viewModel.exportBackupJson()
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(json.toByteArray(Charsets.UTF_8))
+                    }
+                    Toast.makeText(context, "Backup exported successfully!", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val raw = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                    val res = viewModel.prepareImportBackup(raw)
+                    res.onSuccess { preview ->
+                        pendingImportPreview = preview
+                    }.onFailure { err ->
+                        Toast.makeText(context, err.message ?: "Invalid backup file", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
     val autoQuizMode by viewModel.autoQuizMode.collectAsStateWithLifecycle()
     val autoQuizSelectedDeckId by viewModel.autoQuizSelectedDeckId.collectAsStateWithLifecycle()
     val allDecks by viewModel.allDecks.collectAsStateWithLifecycle()
@@ -437,14 +477,14 @@ fun SettingsScreen(
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (activeExtremeField == ExtremePickerField.DECK) {
+                                    color = if (!isPolicyLocked && activeExtremeField == ExtremePickerField.DECK) {
                                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                                     } else {
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isPolicyLocked) 0.25f else 0.45f)
                                     },
-                                    modifier = Modifier.wheelAnchorGesture(
+                                    modifier = if (isPolicyLocked) Modifier else Modifier.wheelAnchorGesture(
                                         onTap = {
-                                            if (activeExtremeField == ExtremePickerField.DECK) {
+                                            if (!isPolicyLocked && activeExtremeField == ExtremePickerField.DECK) {
                                                 activeExtremeField = ExtremePickerField.NONE
                                             } else {
                                                 coroutineScope.launch {
@@ -513,7 +553,7 @@ fun SettingsScreen(
                                     }
                                 }
 
-                                if (activeExtremeField == ExtremePickerField.DECK) {
+                                if (!isPolicyLocked && activeExtremeField == ExtremePickerField.DECK) {
                                     Popup(
                                         popupPositionProvider = centerAnchorProvider,
                                         onDismissRequest = { activeExtremeField = ExtremePickerField.NONE },
@@ -547,14 +587,14 @@ fun SettingsScreen(
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (activeExtremeField == ExtremePickerField.DURATION) {
+                                    color = if (!isPolicyLocked && activeExtremeField == ExtremePickerField.DURATION) {
                                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                                     } else {
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isPolicyLocked) 0.25f else 0.45f)
                                     },
-                                    modifier = Modifier.wheelAnchorGesture(
+                                    modifier = if (isPolicyLocked) Modifier else Modifier.wheelAnchorGesture(
                                         onTap = {
-                                            if (activeExtremeField == ExtremePickerField.DURATION) {
+                                            if (!isPolicyLocked && activeExtremeField == ExtremePickerField.DURATION) {
                                                 activeExtremeField = ExtremePickerField.NONE
                                             } else {
                                                 coroutineScope.launch {
@@ -623,7 +663,7 @@ fun SettingsScreen(
                                     }
                                 }
 
-                                if (activeExtremeField == ExtremePickerField.DURATION) {
+                                if (!isPolicyLocked && activeExtremeField == ExtremePickerField.DURATION) {
                                     Popup(
                                         popupPositionProvider = centerAnchorProvider,
                                         onDismissRequest = { activeExtremeField = ExtremePickerField.NONE },
@@ -704,14 +744,14 @@ fun SettingsScreen(
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (activeExtremeField == ExtremePickerField.AUTO_QUIZ_MODE) {
+                                    color = if (!isPolicyLocked && activeExtremeField == ExtremePickerField.AUTO_QUIZ_MODE) {
                                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                                     } else {
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isPolicyLocked) 0.25f else 0.45f)
                                     },
-                                    modifier = Modifier.wheelAnchorGesture(
+                                    modifier = if (isPolicyLocked) Modifier else Modifier.wheelAnchorGesture(
                                         onTap = {
-                                            if (activeExtremeField == ExtremePickerField.AUTO_QUIZ_MODE) {
+                                            if (!isPolicyLocked && activeExtremeField == ExtremePickerField.AUTO_QUIZ_MODE) {
                                                 activeExtremeField = ExtremePickerField.NONE
                                             } else {
                                                 coroutineScope.launch {
@@ -777,7 +817,7 @@ fun SettingsScreen(
                                     )
                                 }
 
-                                if (activeExtremeField == ExtremePickerField.AUTO_QUIZ_MODE) {
+                                if (!isPolicyLocked && activeExtremeField == ExtremePickerField.AUTO_QUIZ_MODE) {
                                     Popup(
                                         popupPositionProvider = centerAnchorProvider,
                                         onDismissRequest = { activeExtremeField = ExtremePickerField.NONE },
@@ -818,14 +858,14 @@ fun SettingsScreen(
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (activeExtremeField == ExtremePickerField.AUTO_QUIZ_DECK) {
+                                    color = if (!isPolicyLocked && activeExtremeField == ExtremePickerField.AUTO_QUIZ_DECK) {
                                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                                     } else {
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isPolicyLocked) 0.25f else 0.45f)
                                     },
-                                    modifier = Modifier.wheelAnchorGesture(
+                                    modifier = if (isPolicyLocked) Modifier else Modifier.wheelAnchorGesture(
                                         onTap = {
-                                            if (activeExtremeField == ExtremePickerField.AUTO_QUIZ_DECK) {
+                                            if (!isPolicyLocked && activeExtremeField == ExtremePickerField.AUTO_QUIZ_DECK) {
                                                 activeExtremeField = ExtremePickerField.NONE
                                             } else {
                                                 coroutineScope.launch {
@@ -894,7 +934,7 @@ fun SettingsScreen(
                                     }
                                 }
 
-                                if (activeExtremeField == ExtremePickerField.AUTO_QUIZ_DECK) {
+                                if (!isPolicyLocked && activeExtremeField == ExtremePickerField.AUTO_QUIZ_DECK) {
                                     Popup(
                                         popupPositionProvider = centerAnchorProvider,
                                         onDismissRequest = { activeExtremeField = ExtremePickerField.NONE },
@@ -1189,7 +1229,10 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
-                            onClick = {},
+                            onClick = {
+                                val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                                exportLauncher.launch("qiezka_backup_$dateStr.json")
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
@@ -1200,7 +1243,13 @@ fun SettingsScreen(
                         }
 
                         Button(
-                            onClick = {},
+                            onClick = {
+                                if (isPolicyLocked) {
+                                    Toast.makeText(context, "Import is locked during active schedules, lockdown, or consequence.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    importLauncher.launch(arrayOf("application/json", "*/*"))
+                                }
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
@@ -1243,6 +1292,111 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+
+        if (pendingImportPreview != null) {
+            val preview = pendingImportPreview!!
+            AlertDialog(
+                onDismissRequest = { pendingImportPreview = null },
+                title = {
+                    Text(
+                        text = "You are about to import these settings",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "${preview.deckCount} Decks • ${preview.activeScheduleCount} Active Schedules • ${preview.failedSessionCount} Failed Sessions",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Study Enforcement",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Operating Mode: ${preview.operatingMode.replaceFirstChar { it.uppercase() }}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "Web Protection: ${preview.webProtectionMode.replace('_', ' ').replaceFirstChar { it.uppercase() }}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
+                        if (preview.autoScheduleEnabled || preview.autoQuizEnabled) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "Extreme",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                if (preview.autoScheduleEnabled) {
+                                    Text(
+                                        text = "AutoSchedule: Enabled",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                if (preview.autoQuizEnabled) {
+                                    Text(
+                                        text = "AutoQuiz: Enabled (${preview.autoQuizMode})",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Policy",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            val policyNames = if (preview.unifiedServices.isEmpty()) {
+                                "None"
+                            } else {
+                                preview.unifiedServices.joinToString(", ") { id ->
+                                    UnifiedPolicyRegistry.SERVICES[id]?.displayName ?: id
+                                }
+                            }
+                            Text(
+                                text = "Allowed Services: $policyNames",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingImportPreview = null }) {
+                        Text("Abort")
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val toApply = preview
+                            pendingImportPreview = null
+                            coroutineScope.launch {
+                                val ok = viewModel.applyImportBackup(toApply)
+                                Toast.makeText(
+                                    context,
+                                    if (ok) "Backup imported successfully!" else "Import failed.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    ) {
+                        Text("Confirm")
+                    }
+                }
+            )
         }
 
         if (showIncompatibleModeDialog) {

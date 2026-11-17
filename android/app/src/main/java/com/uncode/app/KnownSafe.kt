@@ -88,6 +88,14 @@ object KnownSafe {
         "ru.iiec.pydroid3"
     )
 
+    @JvmField
+    val ALWAYS_ALLOWED_UTILITIES: Set<String> = hashSetOf(
+        "fe.linksheet",
+        "fe.linksheet.nightly",
+        "fe.linksheet.debug",
+        "t8numen.activitystartmanager"
+    )
+
     /**
      * Comprehensive catalog of camera applications, including verified Google Camera (GCam)
      * ports and auxiliary lens sensor packages from celsoazevedo.com and common OEM cameras.
@@ -369,6 +377,8 @@ object KnownSafe {
 
         // 3. Baseline Verified Study Packages
         if (BASELINE_SAFE_PACKAGES.contains(pkg)) return true
+
+        if (ALWAYS_ALLOWED_UTILITIES.contains(pkg)) return true
 
         // 4. Active Unified Services (YouTube / AI toggled on by user)
         if (UnifiedPolicyRegistry.isPackageAllowedByService(pkg, activeServices)) return true

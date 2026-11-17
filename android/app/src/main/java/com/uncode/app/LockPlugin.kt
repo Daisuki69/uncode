@@ -157,10 +157,9 @@ class LockPlugin : Plugin() {
                 }
                 editor.apply()
 
-                // 1. Clear classification cache so whitelist takes immediate effect
                 AppClassifier.clearCache()
+                AlarmReceiver.cancelLockEndAlarm(context)
 
-                // 3. Start Local DNS Sinkhole VPN if configured (Dual Hybrid Mode)
                 val webMode = prefs.getString("web_protection_mode", "accessibility")
                 if ("dual_hybrid".equals(webMode, ignoreCase = true)) {
                     LocalDnsVpnService.startVpn(context)

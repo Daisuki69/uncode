@@ -122,9 +122,12 @@ fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToCreateFocusSession: () -> Unit = {},
     onNavigateToFailedHomeworks: () -> Unit = {},
+    onNavigateToMathDecks: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val decks by viewModel.allDecks.collectAsStateWithLifecycle()
+    val allDecks by viewModel.allDecks.collectAsStateWithLifecycle()
+    val decks = remember(allDecks) { allDecks.filter { it.category != "math" } }
+    val mathDecks = remember(allDecks) { allDecks.filter { it.category == "math" } }
     val focusSchedules by viewModel.focusSchedules.collectAsStateWithLifecycle()
     val recentSessions by viewModel.recentSessions.collectAsStateWithLifecycle()
     val allowedApps by viewModel.allowedApps.collectAsStateWithLifecycle()
@@ -137,15 +140,7 @@ fun DashboardScreen(
     val failedSessions by viewModel.failedFocusSessions.collectAsStateWithLifecycle()
     val operatingMode by viewModel.operatingMode.collectAsStateWithLifecycle()
     val autoScheduleDeletedCount by viewModel.autoScheduleDeletedCount.collectAsStateWithLifecycle()
-    var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var showMathDeckInfo by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            currentTimeMillis = System.currentTimeMillis()
-            delay(1000L)
-        }
-    }
 
     LaunchedEffect(Unit) {
         viewModel.refreshLockdownAndServiceState()
@@ -456,21 +451,6 @@ fun DashboardScreen(
                         val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
                         val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
 
-                        val cal = Calendar.getInstance().apply {
-                            timeInMillis = currentTimeMillis
-                            set(Calendar.HOUR_OF_DAY, hour)
-                            set(Calendar.MINUTE, minute)
-                            set(Calendar.SECOND, 0)
-                            set(Calendar.MILLISECOND, 0)
-                        }
-                        val durationMs = schedule.durationMinutes * 60L * 1000L
-                        if (cal.timeInMillis + durationMs <= schedule.createdAt) {
-                            cal.add(Calendar.DAY_OF_YEAR, 1)
-                        }
-                        val startMs = cal.timeInMillis
-                        val endMs = startMs + durationMs
-
-                        val isCurrentlyActive = currentTimeMillis in startMs until endMs
                         val h12 = if (hour % 12 == 0) 12 else hour % 12
                         val period = if (hour >= 12) "PM" else "AM"
                         val formattedTime = String.format(Locale.getDefault(), "%d:%02d %s", h12, minute, period)
@@ -481,19 +461,11 @@ fun DashboardScreen(
                                 .testTag("focus_schedule_card_$pageIndex"),
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isCurrentlyActive) {
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                                }
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                             ),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
-                                if (isCurrentlyActive) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                }
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
                         ) {
                             Column(
@@ -513,20 +485,6 @@ fun DashboardScreen(
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    if (isCurrentlyActive) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = MaterialTheme.colorScheme.primary
-                                        ) {
-                                            Text(
-                                                text = "ACTIVE",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
                                 }
 
                                 Row(
@@ -535,37 +493,15 @@ fun DashboardScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(
-                                        imageVector = if (isCurrentlyActive) Icons.Default.Timer else Icons.Default.Schedule,
+                                        imageVector = Icons.Default.Schedule,
                                         contentDescription = null,
-                                        tint = if (isCurrentlyActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                        tint = MaterialTheme.colorScheme.outline,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    val timerText = if (isCurrentlyActive) {
-                                        val remSec = ((endMs - currentTimeMillis) / 1000L).coerceAtLeast(0)
-                                        val h = remSec / 3600
-                                        val m = (remSec % 3600) / 60
-                                        val s = remSec % 60
-                                        if (h > 0) {
-                                            String.format(Locale.getDefault(), "%d:%02d:%02d", h, m, s)
-                                        } else {
-                                            String.format(Locale.getDefault(), "%02d:%02d", m, s)
-                                        }
-                                    } else {
-                                        val diffSec = ((startMs - currentTimeMillis) / 1000L).coerceAtLeast(0)
-                                        val h = diffSec / 3600
-                                        val m = (diffSec % 3600) / 60
-                                        val s = diffSec % 60
-                                        if (h > 0) {
-                                            String.format(Locale.getDefault(), "Starts in %02d:%02d:%02d", h, m, s)
-                                        } else {
-                                            String.format(Locale.getDefault(), "Starts in %02d:%02d", m, s)
-                                        }
-                                    }
-                                    Text(
-                                        text = timerText,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isCurrentlyActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    ScheduleCountdownText(
+                                        activationTime = schedule.activationTime,
+                                        durationMinutes = schedule.durationMinutes,
+                                        createdAt = schedule.createdAt
                                     )
                                 }
 
@@ -743,6 +679,14 @@ fun DashboardScreen(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    if (mathDecks.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "(${mathDecks.size})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
                         shape = RoundedCornerShape(6.dp),
@@ -767,6 +711,48 @@ fun DashboardScreen(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
+                }
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onNavigateToMathDecks() }
+                    .testTag("dashboard_math_decks_container"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                if (mathDecks.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("No math decks yet", fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = onNavigateToMathDecks) {
+                            Text("Create Math Deck")
+                        }
+                    }
+                } else {
+                    val mathScrollState = rememberScrollState()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(mathScrollState)
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        mathDecks.forEach { deck ->
+                            DeckCardItem(deck = deck)
+                        }
+                    }
                 }
             }
             
@@ -1084,24 +1070,93 @@ fun AllowedAppGridTile(
     }
 }
 
+private val appIconCache = android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(128)
+
+@Composable
+private fun ScheduleCountdownText(
+    activationTime: String,
+    durationMinutes: Int,
+    createdAt: Long
+) {
+    val parts = remember(activationTime) { activationTime.split(":") }
+    val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
+    val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    val durationMs = durationMinutes * 60L * 1000L
+
+    val nowMillis by androidx.compose.runtime.produceState(
+        initialValue = System.currentTimeMillis(),
+        key1 = activationTime,
+        key2 = durationMinutes,
+        key3 = createdAt
+    ) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1000L)
+        }
+    }
+
+    val cal = remember(hour, minute, durationMs, createdAt, nowMillis / 60_000L) {
+        Calendar.getInstance().apply {
+            timeInMillis = nowMillis
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis + durationMs <= createdAt || nowMillis >= timeInMillis + durationMs) {
+                add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+    }
+    val diffSec = (cal.timeInMillis - nowMillis) / 1000L
+    val timerText = if (diffSec <= 0L) {
+        "Starting now..."
+    } else {
+        val h = diffSec / 3600
+        val m = (diffSec % 3600) / 60
+        val s = diffSec % 60
+        if (h > 0) {
+            String.format(Locale.getDefault(), "Starts in %02d:%02d:%02d", h, m, s)
+        } else {
+            String.format(Locale.getDefault(), "Starts in %02d:%02d", m, s)
+        }
+    }
+    Text(
+        text = timerText,
+        style = MaterialTheme.typography.bodyLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+}
+
 @Composable
 fun AppIconDisplay(
     packageName: String,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val pm = context.packageManager
-    val bitmap = remember(packageName) {
-        try {
-            val d = pm.getApplicationIcon(packageName)
-            drawableToBitmap(d).asImageBitmap()
-        } catch (_: Exception) {
-            null
+    val cached = remember(packageName) { appIconCache.get(packageName) }
+    val bitmap by androidx.compose.runtime.produceState(
+        initialValue = cached,
+        key1 = packageName
+    ) {
+        if (value == null) {
+            val loaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val d = context.packageManager.getApplicationIcon(packageName)
+                    drawableToBitmap(d).asImageBitmap()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (loaded != null) {
+                appIconCache.put(packageName, loaded)
+                value = loaded
+            }
         }
     }
     if (bitmap != null) {
         Image(
-            bitmap = bitmap,
+            bitmap = bitmap!!,
             contentDescription = null,
             modifier = modifier
         )

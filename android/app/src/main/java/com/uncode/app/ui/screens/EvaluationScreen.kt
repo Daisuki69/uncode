@@ -45,28 +45,31 @@ fun EvaluationScreen(
     maxPoints: Float = 0f,
     earnedPoints: Float = 0f,
     onBackToDashboard: () -> Unit,
+    onBackToSession: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val passingScore = maxPoints * 0.8f
     val isPassed = earnedPoints >= passingScore
-    val isSessionActive = remember(scheduleId, viewModel.focusSchedules) {
-        viewModel.isFocusSessionTimerActive(scheduleId)
+    val stayInActiveSession = remember(scheduleId, isPassed) {
+        !isPassed && viewModel.isFocusSessionTimerStillRunning(scheduleId)
     }
 
     BackHandler {
         viewModel.clearActiveQuiz()
-        onBackToDashboard()
+        if (stayInActiveSession && onBackToSession != null) {
+            onBackToSession()
+        } else {
+            onBackToDashboard()
+        }
     }
 
     LaunchedEffect(Unit) {
         if (isPassed) {
             viewModel.completeFocusSchedule(scheduleId, passed = true, maxPoints, earnedPoints)
             viewModel.clearLockdownSession()
-        } else {
-            if (!isSessionActive) {
-                viewModel.completeFocusSchedule(scheduleId, passed = false, maxPoints, earnedPoints)
-                viewModel.startConsequenceSession(scheduleId)
-            }
+        } else if (!stayInActiveSession) {
+            viewModel.completeFocusSchedule(scheduleId, passed = false, maxPoints, earnedPoints)
+            viewModel.startConsequenceSession(scheduleId)
         }
     }
 
@@ -88,7 +91,11 @@ fun EvaluationScreen(
                 IconButton(
                     onClick = {
                         viewModel.clearActiveQuiz()
-                        onBackToDashboard()
+                        if (stayInActiveSession && onBackToSession != null) {
+                            onBackToSession()
+                        } else {
+                            onBackToDashboard()
+                        }
                     },
                     modifier = Modifier.offset(x = (-12).dp)
                 ) {

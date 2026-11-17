@@ -1,8 +1,10 @@
-﻿package com.uncode.app.ui.screens
+package com.uncode.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -347,20 +349,35 @@ fun DeckDetailScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    text = card.termOrQuestion.ifBlank {
-                                        if (card.isAnnotated) "Annotated Diagram" else if (!card.photoUri.isNullOrBlank()) "Image Card" else "Untitled Card"
-                                    },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = subtitleText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    maxLines = 2
-                                )
+                                if (deck.category == "math") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        com.uncode.app.math.ui.math.MathFormulaView(
+                                            formula = com.uncode.app.math.ui.MathFormatter.toDisplayString(card.termOrQuestion),
+                                            fontSize = 18.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = card.termOrQuestion.ifBlank {
+                                            if (card.isAnnotated) "Annotated Diagram" else if (!card.photoUri.isNullOrBlank()) "Image Card" else "Untitled Card"
+                                        },
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = subtitleText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        maxLines = 2
+                                    )
+                                }
                             }
                         }
                     }
